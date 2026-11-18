@@ -228,7 +228,7 @@ export function SharedByMe({
         body="Share a playlist from the desktop app and you'll see here who has watched what."
         action={
           <Button variant="outline" size="sm" asChild>
-            <a href="https://scoutable.se/#download" target="_blank" rel="noreferrer">
+            <a href="https://scoutable.se/en/download" target="_blank" rel="noreferrer">
               Get the desktop app
             </a>
           </Button>

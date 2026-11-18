@@ -196,7 +196,7 @@ export function AdminSetupCard({
         <span>
           Import games and cut clips in the free{" "}
           <a
-            href="https://scoutable.se/#download"
+            href="https://scoutable.se/en/download"
             target="_blank"
             rel="noreferrer"
             className="font-medium text-primary underline-offset-2 hover:underline"

@@ -26,7 +26,7 @@ import { usePlayerAccess } from "@/lib/use-player-access";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 
-const DESKTOP_APP_URL = "https://scoutable.se/#download";
+const DESKTOP_APP_URL = "https://scoutable.se/en/download";
 
 // Media from the landing site (single source of truth for product footage):
 // the /players hero recording — the editor panning a vertical crop across a

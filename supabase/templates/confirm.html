@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ if and .Data.lang (eq .Data.lang "sv") }}sv{{ else }}en{{ end }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
-  <title>Confirm your Scoutable account</title>
+  <title>{{ if and .Data.lang (eq .Data.lang "sv") }}Bekräfta ditt Scoutable-konto{{ else }}Confirm your Scoutable account{{ end }}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -27,9 +27,9 @@
           <!-- Body -->
           <tr>
             <td style="background-color:#ffffff;padding:40px 40px 36px 40px;">
-              <h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">Confirm your email</h1>
+              <h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">{{ if and .Data.lang (eq .Data.lang "sv") }}Bekräfta din e-post{{ else }}Confirm your email{{ end }}</h1>
               <p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
-                Click the button below to confirm your email and get started.
+                {{ if and .Data.lang (eq .Data.lang "sv") }}Klicka på knappen nedan för att bekräfta din e-post och komma igång.{{ else }}Click the button below to confirm your email and get started.{{ end }}
               </p>
 
               <!-- CTA Button -->
@@ -37,14 +37,18 @@
                 <tr>
                   <td style="border-radius:6px;background-color:#0096b1;">
                     <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=signup" style="display:block;padding:14px 36px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;letter-spacing:0.2px;">
-                      Confirm email
+                      {{ if and .Data.lang (eq .Data.lang "sv") }}Bekräfta e-post{{ else }}Confirm email{{ end }}
                     </a>
                   </td>
                 </tr>
               </table>
 
+              <p style="margin:24px 0 0 0;font-size:14px;line-height:1.65;color:#6b7280;">
+                {{ if and .Data.lang (eq .Data.lang "sv") }}Scoutable körs på Mac och Windows. När du har bekräftat mejlar vi länken för att ladda ner appen.{{ else }}Scoutable runs on Mac and Windows. Once you confirm, we'll email you the download link.{{ end }}
+              </p>
+
               <p style="margin:32px 0 0 0;font-size:12px;line-height:1.5;color:#9ca3af;">
-                Or copy this link into your browser:<br>
+                {{ if and .Data.lang (eq .Data.lang "sv") }}Eller kopiera länken till din webbläsare:{{ else }}Or copy this link into your browser:{{ end }}<br>
                 <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=signup" style="color:#0096b1;text-decoration:none;word-break:break-all;">{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=signup</a>
               </p>
             </td>
@@ -54,7 +58,7 @@
           <tr>
             <td style="background-color:#f9fafb;padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center;">
               <p style="margin:0;font-size:11px;line-height:1.5;color:#9ca3af;">
-                If you didn't create a Scoutable account, you can safely ignore this email.
+                {{ if and .Data.lang (eq .Data.lang "sv") }}Har du inte skapat ett konto hos Scoutable kan du ignorera det här mejlet.{{ else }}If you didn't create a Scoutable account, you can safely ignore this email.{{ end }}
               </p>
             </td>
           </tr>

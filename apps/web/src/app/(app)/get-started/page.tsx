@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { ChevronRight, CreditCard, Download, Film, ListVideo, Share2, Ticket } from "lucide-react";
+import { ChevronRight, CreditCard, Film, ListVideo, Share2, Ticket } from "lucide-react";
 import { LogoMark } from "@/components/logo";
-import { Button } from "@/components/ui/button";
 import { GroupFooter, GroupHeader, GroupedList } from "@/components/ui/group";
+import { GetStartedWelcome } from "@/components/get-started-welcome";
 import { RolePrompt } from "@/components/role-prompt";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
@@ -45,16 +45,7 @@ export default function GetStartedPage() {
         <section className="flex flex-col items-center gap-3 rounded-window bg-card px-6 py-8 text-center ring-1 ring-separator">
           <LogoMark className="size-14 rounded-[13px] shadow-sm ring-1 ring-black/5" />
           <h2 className="text-title-1 text-foreground">Welcome to Scoutable</h2>
-          <p className="max-w-md text-sm text-muted-foreground">
-            Scouting lives in the desktop app. Download it, sign in with this account, and you&apos;ll find a
-            sample game ready to explore.
-          </p>
-          <Button asChild className="mt-2">
-            <a href="https://scoutable.se/#download" target="_blank" rel="noreferrer">
-              <Download />
-              Download the desktop app
-            </a>
-          </Button>
+          <GetStartedWelcome />
         </section>
 
         <section>

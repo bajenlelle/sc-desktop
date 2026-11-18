@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { safeNext } from "@scoutable/shared/lib/safe-next";
 import { DEFAULT_NEXT } from "@/lib/with-next";
 import { pendingInvitePath } from "@/lib/pending-invite";
+import { SIGNUP_LANG_COOKIE, parseSignupLang } from "@/lib/signup-lang";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -32,7 +33,20 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${origin}${next ?? pendingInvitePath(data.user) ?? DEFAULT_NEXT}`);
+      // OAuth signups carry the landing language in a short-lived cookie.
+      // The welcome email reads user_metadata.lang ~10 min after confirm,
+      // so writing it here is in time. Never blocks the redirect.
+      const lang = parseSignupLang(cookieStore.get(SIGNUP_LANG_COOKIE)?.value ?? null);
+      if (lang && !data.user?.user_metadata?.lang) {
+        try {
+          await supabase.auth.updateUser({ data: { lang } });
+        } catch {
+          // best effort
+        }
+      }
+      const res = NextResponse.redirect(`${origin}${next ?? pendingInvitePath(data.user) ?? DEFAULT_NEXT}`);
+      res.cookies.delete(SIGNUP_LANG_COOKIE);
+      return res;
     }
   }
 
