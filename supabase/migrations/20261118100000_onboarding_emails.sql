@@ -19,8 +19,9 @@
 -- hold also gives the web app time to write lang for Google/Apple signups;
 -- the email's data is read when it is sent, not when it is queued.
 --
--- Reminder: once per account, 2 to 7 days after the welcome was sent, only
--- without a desktop sign-in and only to accounts that can take marketing email
+-- Reminder: once per account, 2 to 7 days after the welcome was sent, never
+-- when the welcome was skipped (a later resend doesn't change that) or the
+-- account now meets a skip rule, only without a desktop sign-in and only to accounts that can take marketing email
 -- (_marketing_unsubscribe_url, the same rule as the free refills). It carries
 -- an unsubscribe link.
 --
@@ -35,6 +36,10 @@
 -- The send-email function must know the 'welcome' and 'onboarding_reminder'
 -- templates first.
 --
+-- Sends are at-most-once: a row is marked sent when its request is queued,
+-- so if notify_email_fn_url is missing or pg_net fails the email is lost.
+-- Confirm notify_email_fn_url before turning the switch on.
+--
 -- Crons (UTC): send-queued-welcomes */5 * * * *, onboarding-reminders 0 8 * * *.
 -- =============================================================================
 
@@ -46,7 +51,7 @@ CREATE TABLE IF NOT EXISTS onboarding_emails (
   kind            text NOT NULL CHECK (kind IN ('welcome', 'reminder')),
   queued_at       timestamptz NOT NULL DEFAULT now(),
   sent_at         timestamptz,
-  skipped_reason  text,           -- invite | club | mobile | stale | no_email
+  skipped_reason  text,           -- invite | club | mobile | stale | no_email | error
   last_resent_at  timestamptz,    -- welcome only: the resend limit
   PRIMARY KEY (user_id, kind)
 );
@@ -166,14 +171,25 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION _queue_welcome_email() FROM PUBLIC, anon, authenticated;
 
+-- Two triggers with WHEN clauses, so the function never runs on ordinary
+-- sign-in updates; the function keeps its own guard as well.
+DROP TRIGGER IF EXISTS on_auth_user_created_queue_welcome ON auth.users;
+CREATE TRIGGER on_auth_user_created_queue_welcome
+  AFTER INSERT ON auth.users
+  FOR EACH ROW WHEN (NEW.email_confirmed_at IS NOT NULL)
+  EXECUTE FUNCTION _queue_welcome_email();
+
 DROP TRIGGER IF EXISTS on_auth_user_confirmed_queue_welcome ON auth.users;
 CREATE TRIGGER on_auth_user_confirmed_queue_welcome
-  AFTER INSERT OR UPDATE OF email_confirmed_at ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION _queue_welcome_email();
+  AFTER UPDATE OF email_confirmed_at ON auth.users
+  FOR EACH ROW WHEN (OLD.email_confirmed_at IS NULL AND NEW.email_confirmed_at IS NOT NULL)
+  EXECUTE FUNCTION _queue_welcome_email();
 
 -- ---------------------------------------------------------------------------
 -- 4. The 5-minute sender. SKIP LOCKED, so overlapping runs can't both take a
---    row. Returns how many welcomes it sent.
+--    row. A row that fails while being checked or built is marked 'error'
+--    and the run goes on, so one bad row can't stall the queue. Returns how
+--    many welcomes it sent.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION send_queued_welcomes()
 RETURNS integer
@@ -184,6 +200,7 @@ AS $$
 DECLARE
   r        record;
   v_reason text;
+  v_msg    jsonb;
   v_batch  jsonb := '[]'::jsonb;
   v_sent   integer := 0;
 BEGIN
@@ -200,21 +217,28 @@ BEGIN
      ORDER BY q.queued_at
        FOR UPDATE OF q SKIP LOCKED
   LOOP
-    v_reason := _welcome_skip_reason(r.user_id);
-    IF v_reason IS NULL AND r.queued_at < now() - interval '24 hours' THEN v_reason := 'stale'; END IF;
-    IF v_reason IS NULL AND r.email IS NULL THEN v_reason := 'no_email'; END IF;
+    BEGIN
+      v_reason := _welcome_skip_reason(r.user_id);
+      IF v_reason IS NULL AND r.queued_at < now() - interval '24 hours' THEN v_reason := 'stale'; END IF;
+      IF v_reason IS NULL AND r.email IS NULL THEN v_reason := 'no_email'; END IF;
 
-    IF v_reason IS NOT NULL THEN
-      UPDATE onboarding_emails SET skipped_reason = v_reason
+      IF v_reason IS NOT NULL THEN
+        UPDATE onboarding_emails SET skipped_reason = v_reason
+         WHERE user_id = r.user_id AND kind = 'welcome';
+        CONTINUE;
+      END IF;
+
+      -- Build first: nothing below can fail once the row is marked sent.
+      v_msg := jsonb_build_object('to', r.email, 'data', _onboarding_email_data(r.user_id, 'welcome'));
+      UPDATE onboarding_emails SET sent_at = now()
        WHERE user_id = r.user_id AND kind = 'welcome';
-      CONTINUE;
-    END IF;
-
-    UPDATE onboarding_emails SET sent_at = now()
-     WHERE user_id = r.user_id AND kind = 'welcome';
-    v_batch := v_batch || jsonb_build_array(jsonb_build_object(
-      'to', r.email, 'data', _onboarding_email_data(r.user_id, 'welcome')));
-    v_sent := v_sent + 1;
+      v_batch := v_batch || jsonb_build_array(v_msg);
+      v_sent := v_sent + 1;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING '[onboarding] welcome for % failed, marked error: %', r.user_id, SQLERRM;
+      UPDATE onboarding_emails SET skipped_reason = 'error'
+       WHERE user_id = r.user_id AND kind = 'welcome';
+    END;
   END LOOP;
 
   PERFORM _send_notification_emails_batch('welcome', v_batch);
@@ -228,7 +252,8 @@ $$;
 REVOKE EXECUTE ON FUNCTION send_queued_welcomes() FROM PUBLIC, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
--- 5. The daily reminder. Returns how many it sent.
+-- 5. The daily reminder. Set-based: one statement picks, records and builds.
+--    Returns how many it sent.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION send_onboarding_reminders()
 RETURNS integer
@@ -250,6 +275,7 @@ BEGIN
       FROM onboarding_emails w
       JOIN auth.users u ON u.id = w.user_id
      WHERE w.kind = 'welcome'
+       AND w.skipped_reason IS NULL
        AND w.sent_at <= now() - interval '48 hours'
        AND w.sent_at >= now() - interval '7 days'
        AND u.email IS NOT NULL
@@ -258,6 +284,7 @@ BEGIN
        AND NOT EXISTS (SELECT 1 FROM user_devices d
                         WHERE d.user_id = w.user_id AND d.app = 'desktop')
        AND _marketing_unsubscribe_url(w.user_id, v_consent) IS NOT NULL
+       AND _welcome_skip_reason(w.user_id) IS NULL
        FOR UPDATE OF w SKIP LOCKED
   ), ins AS (
     INSERT INTO onboarding_emails (user_id, kind, sent_at)

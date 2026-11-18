@@ -110,19 +110,6 @@ run() {  # $1=label  $2=expected  $3=sql as the actor  [$4=privileged setup sql,
 }
 
 d() { printf '$$%s$$' "$1"; }   # dollar-quote a literal
-arr() {  # arr TYPE id… → ARRAY[…]::TYPE[]
-  local t="$1" out="" x; shift
-  for x in "$@"; do out+="${out:+,}\$\$$x\$\$"; done
-  printf 'ARRAY[%s]::%s[]' "$out" "$t"
-}
-
-# Throwaway accounts that sign up inside every probe, so handle_new_user gives
-# each a personal space (and seeds its default labels).
-W="00000000-0000-4000-8000-0000000d0a01"    # the coach who moves
-V="00000000-0000-4000-8000-0000000d0a02"    # someone else
-P="00000000-0000-4000-8000-0000000d0a03"    # a player in the club
-K="00000000-0000-4000-8000-0000000d0b01"    # the club
-K2="00000000-0000-4000-8000-0000000d0b02"   # another club W coaches
 
 # Throwaway accounts that sign up inside every probe (handle_new_user gives
 # each a personal space). A confirms at sign-up, as Google and Apple do; B
@@ -146,6 +133,13 @@ SEED="INSERT INTO app_config (key, value) VALUES ('onboarding_emails_enabled', '
 ONLY="DELETE FROM onboarding_emails WHERE user_id NOT IN ($(d $A), $(d $B));"
 DUE="$ONLY UPDATE onboarding_emails SET queued_at = now() - interval '11 minutes' WHERE user_id = $(d $A);"
 OFF="DELETE FROM app_config WHERE key = 'onboarding_emails_enabled';"
+# A's row fails while being built (the data helper is swapped, inside the
+# probe only, for one that raises for A); B is due too and must still go out.
+BAD_A="$DUE UPDATE auth.users SET email_confirmed_at = now() WHERE id = $(d $B);
+  UPDATE onboarding_emails SET queued_at = now() - interval '11 minutes' WHERE user_id = $(d $B);
+  CREATE OR REPLACE FUNCTION _onboarding_email_data(p_user uuid, p_kind text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS \$f\$
+    BEGIN IF p_user = $(d $A)::uuid THEN RAISE EXCEPTION 'probe_bad_row'; END IF; RETURN '{\"lang\":\"en\"}'::jsonb; END \$f\$;"
 SENT3="$ONLY UPDATE onboarding_emails SET queued_at = now() - interval '3 days', sent_at = now() - interval '3 days' WHERE user_id = $(d $A);"
 CLUB="INSERT INTO organizations (id, name, plan_tier) VALUES ($(d $K), $(d 'Probe club'), $(d pro));
   INSERT INTO org_memberships (user_id, org_id, role) VALUES ($(d $A), $(d $K), $(d player));"
@@ -176,9 +170,10 @@ echo
 echo "## Queueing"
 run "queue on INSERT confirmed (OAuth)"                                      "ALLOWED rows=1"  "$SVC $(row welcome "sent_at IS NULL AND skipped_reason IS NULL")"
 run "queue on UPDATE NULL→now (email confirm)"                               "ALLOWED rows=1"  "$SVC UPDATE auth.users SET email_confirmed_at = now() WHERE id = $(d $B); SELECT count(*) AS n FROM onboarding_emails WHERE user_id = $(d $B) AND kind = 'welcome'"
-run "confirming a second time keeps one row"                                 "ALLOWED rows=1"  "$SVC UPDATE auth.users SET email_confirmed_at = now() WHERE id = $(d $B); UPDATE auth.users SET email_confirmed_at = NULL WHERE id = $(d $B); UPDATE auth.users SET email_confirmed_at = now() WHERE id = $(d $B); SELECT count(*) AS n FROM onboarding_emails WHERE user_id = $(d $B)"
+run "a second NULL→now confirm keeps one row"                               "ALLOWED rows=1"  "$SVC UPDATE auth.users SET email_confirmed_at = now() WHERE id = $(d $B); UPDATE auth.users SET email_confirmed_at = NULL WHERE id = $(d $B); UPDATE auth.users SET email_confirmed_at = now() WHERE id = $(d $B); SELECT count(*) AS n FROM onboarding_emails WHERE user_id = $(d $B)"
 run "unconfirmed INSERT queues nothing"                                      "ALLOWED rows=0"  "$SVC SELECT count(*) AS n FROM onboarding_emails WHERE user_id = $(d $B)"
-run "other updates of a confirmed account queue nothing new"                 "ALLOWED rows=1"  "$SVC UPDATE auth.users SET email_confirmed_at = now(), last_sign_in_at = now() WHERE id = $(d $A); SELECT count(*) AS n FROM onboarding_emails WHERE user_id = $(d $A)" "UPDATE onboarding_emails SET sent_at = now() WHERE user_id = $(d $A);"
+run "confirming an already-confirmed account again queues nothing"        "ALLOWED rows=0"  "$SVC UPDATE auth.users SET email_confirmed_at = now() WHERE id = $(d $B); SELECT count(*) AS n FROM onboarding_emails WHERE user_id = $(d $B)" "UPDATE auth.users SET email_confirmed_at = now() - interval '1 hour' WHERE id = $(d $B); DELETE FROM onboarding_emails WHERE user_id = $(d $B);"
+run "a sign-in update of a confirmed account queues nothing"                 "ALLOWED rows=0"  "$SVC UPDATE auth.users SET last_sign_in_at = now() WHERE id = $(d $A); SELECT count(*) AS n FROM onboarding_emails WHERE user_id = $(d $A)" "DELETE FROM onboarding_emails WHERE user_id = $(d $A);"
 run "trigger failure never blocks auth"                                      "ALLOWED rows=2"  "$SVC INSERT INTO auth.users (id, email, created_at, email_confirmed_at) VALUES ($(d $C), $(d probe-welcome-c@example.invalid), now(), now()); UPDATE auth.users SET email_confirmed_at = now() WHERE id = $(d $B); SELECT count(*) AS n FROM auth.users WHERE id IN ($(d $B), $(d $C)) AND email_confirmed_at IS NOT NULL" "ALTER TABLE onboarding_emails RENAME TO onboarding_emails_probe_gone;"
 
 echo
@@ -203,6 +198,8 @@ run "stale: a day old is never sent"                                         "AL
 run "switch off: nothing sent"                                               "ALLOWED rows=0"  "$SVC SELECT send_queued_welcomes() AS n" "$DUE $OFF"
 run "switch off: rows untouched"                                             "ALLOWED rows=1"  "$SVC SELECT send_queued_welcomes(); $(row welcome "sent_at IS NULL AND skipped_reason IS NULL")" "$DUE $OFF"
 run "switch at anything but 'true' is off"                                   "ALLOWED rows=0"  "$SVC SELECT send_queued_welcomes() AS n" "$DUE UPDATE app_config SET value = 'yes' WHERE key = 'onboarding_emails_enabled';"
+run "one bad row is marked error, the rest still send"                       "ALLOWED rows=2"  "$SVC SELECT send_queued_welcomes(); SELECT count(*) AS n FROM onboarding_emails WHERE kind = 'welcome' AND ((user_id = $(d $A) AND skipped_reason = 'error' AND sent_at IS NULL) OR (user_id = $(d $B) AND sent_at IS NOT NULL))" "$BAD_A"
+run "…and the good row's email goes out"                                     "ALLOWED rows=1"  "$SVC SELECT send_queued_welcomes() AS n" "$BAD_A"
 
 echo
 echo "## The reminder"
@@ -217,6 +214,9 @@ run "reminder skips sent_at 1 day ago"                                       "AL
 run "reminder skips sent_at 8 days ago"                                      "ALLOWED rows=0"  "$SVC SELECT send_onboarding_reminders() AS n" "$SENT3 UPDATE onboarding_emails SET sent_at = now() - interval '8 days' WHERE user_id = $(d $A);"
 run "reminder skips a welcome that was never sent"                           "ALLOWED rows=0"  "$SVC SELECT send_onboarding_reminders() AS n" "$SENT3 UPDATE onboarding_emails SET sent_at = NULL, skipped_reason = 'club' WHERE user_id = $(d $A);"
 run "reminder waits on the switch"                                           "ALLOWED rows=0"  "$SVC SELECT send_onboarding_reminders() AS n" "$SENT3 $OFF"
+run "reminder skips a club member"                                           "ALLOWED rows=0"  "$SVC SELECT send_onboarding_reminders() AS n" "$SENT3 $CLUB"
+run "reminder skips a phone-app user"                                        "ALLOWED rows=0"  "$SVC SELECT send_onboarding_reminders() AS n" "$SENT3 $(device mobile)"
+run "reminder skips a skipped-then-resent account"                           "ALLOWED rows=0"  "$SVC SELECT send_onboarding_reminders() AS n" "$SENT3 UPDATE onboarding_emails SET sent_at = NULL, skipped_reason = 'club' WHERE user_id = $(d $A); SELECT set_config('request.jwt.claims', '{\"sub\":\"$A\",\"role\":\"authenticated\"}', true); SET LOCAL ROLE authenticated; SELECT resend_welcome_email(); RESET ROLE; UPDATE onboarding_emails SET sent_at = now() - interval '3 days' WHERE user_id = $(d $A);"
 
 echo
 echo "## Resend"
