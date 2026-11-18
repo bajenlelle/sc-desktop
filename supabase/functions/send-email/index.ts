@@ -24,14 +24,23 @@ type TemplateId =
   | "org_invite"
   | "free_refill"
   | "player_purchase"
-  | "service_notice";
+  | "service_notice"
+  | "welcome"
+  | "onboarding_reminder";
+
+import { normalizeLang, onboardingCopy, type Lang, type OnboardingKind } from "./onboarding.ts";
 
 // Marketing templates (an offer, not a service notice) never go to anyone
 // who unsubscribed (email_preferences, 20261001110000; the SQL caller checks).
 // They must carry an unsubscribe_url, come from a replyable address, and send
 // List-Unsubscribe headers (RFC 8058 one-click), or they aren't sent at all.
-const MARKETING_TEMPLATES = new Set<TemplateId>(["free_refill"]);
+const MARKETING_TEMPLATES = new Set<TemplateId>(["free_refill", "onboarding_reminder"]);
 const FROM_MARKETING = "Scoutable <hello@scoutable.se>";
+// Transactional templates that still send from the replyable address.
+// The welcome email is a service message (no unsubscribe) but a person-facing one.
+const FROM_BY_TEMPLATE: Partial<Record<TemplateId, string>> = {
+  welcome: FROM_MARKETING,
+};
 
 // One email ({to, data}) or a batch of up to BATCH_MAX that share a template
 // ({batch}). A bulk invite sends one batch request instead of one request per
@@ -84,9 +93,16 @@ function ctaButton(href: string, label: string): string {
 </table>`;
 }
 
-function wrapEmail(title: string, bodyHtml: string, footerNote: string, unsubscribeUrl?: string): string {
+function wrapEmail(
+  title: string,
+  bodyHtml: string,
+  footerNote: string,
+  unsubscribeUrl?: string,
+  lang: Lang = "en",
+  unsubscribeLabel = "Unsubscribe from tips and offers",
+): string {
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -123,7 +139,7 @@ function wrapEmail(title: string, bodyHtml: string, footerNote: string, unsubscr
             <td style="background-color:#f9fafb;padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center;">
               <p style="margin:0;font-size:11px;line-height:1.5;color:#9ca3af;">${esc(footerNote)}</p>${
                 unsubscribeUrl
-                  ? `\n              <p style="margin:8px 0 0 0;font-size:11px;line-height:1.5;color:#9ca3af;"><a href="${esc(unsubscribeUrl)}" style="color:#6b7280;text-decoration:underline;">Unsubscribe from tips and offers</a></p>`
+                  ? `\n              <p style="margin:8px 0 0 0;font-size:11px;line-height:1.5;color:#9ca3af;"><a href="${esc(unsubscribeUrl)}" style="color:#6b7280;text-decoration:underline;">${esc(unsubscribeLabel)}</a></p>`
                   : ""
               }
             </td>
@@ -520,6 +536,37 @@ ${bodyHtml}${ctaUrl ? `\n${ctaButton(ctaUrl, ctaLabel)}` : ""}`,
       };
     }
 
+    // Sent by the welcome queue (10 min after signup) and the 48 h+ reminder.
+    // Data: {lang, role, first_name, mac_url, win_url, unsubscribe_url?}.
+    case "welcome":
+    case "onboarding_reminder": {
+      const lang = normalizeLang(d("lang"));
+      const copy = onboardingCopy(
+        template as OnboardingKind,
+        lang,
+        d("role") || undefined,
+        d("first_name") || undefined,
+      );
+      const p = (text: string, margin: string) =>
+        `<p style="margin:${margin};font-size:14px;line-height:1.65;color:#6b7280;">${esc(text)}</p>`;
+      return {
+        subject: copy.subject,
+        html: wrapEmail(
+          copy.heading,
+          `${copy.greeting ? p(copy.greeting, "0 0 12px 0") + "\n" : ""}<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">${esc(copy.heading)}</h1>
+${p(copy.body, "0 0 16px 0")}
+${p(copy.roleLine, "0 0 32px 0")}
+${ctaButton(d("mac_url"), copy.mac)}
+<div style="height:12px;line-height:12px;font-size:0;">&nbsp;</div>
+${ctaButton(d("win_url"), copy.windows)}`,
+          copy.footer,
+          template === "onboarding_reminder" ? d("unsubscribe_url") : undefined,
+          lang,
+          copy.unsubscribe,
+        ),
+      };
+    }
+
     default:
       throw new Error(`Unknown template: ${template}`);
   }
@@ -603,7 +650,7 @@ Deno.serve(async (req) => {
   try {
     emails = messages.map((m) => {
       const result: TemplateResult = renderTemplate(template as TemplateId, m.data ?? {}, APP_URL);
-      if (!marketing) return { from: FROM, to: [m.to], subject: result.subject, html: result.html };
+      if (!marketing) return { from: FROM_BY_TEMPLATE[template as TemplateId] ?? FROM, to: [m.to], subject: result.subject, html: result.html };
       // One-click unsubscribe posts to the API route next to the page link.
       const oneClick = m.data!.unsubscribe_url.replace("/unsubscribe?", "/api/unsubscribe?");
       return {
