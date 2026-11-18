@@ -17,6 +17,9 @@ export type AnalyticsEvent =
   | "login_provider_clicked"
   | "declared_role_selected"
   | "page_viewed"
+  // Welcome email (web + desktop). result: sent | too_soon | disabled | error
+  | "welcome_link_resent"
+  | "desktop_first_signin"
   // Your team (all apps). surface: step | profile | import
   | "team_step_shown" // role
   | "team_selected" // surface, league_id, team_name, suggested, spaces, includes_personal
