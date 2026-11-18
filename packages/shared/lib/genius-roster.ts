@@ -82,7 +82,7 @@ export function trimPerson(p: Json): PersonRow | null {
     first_name: text(p.firstName) ?? "",
     family_name: text(p.familyName) ?? "",
     default_shirt_number: text(p.defaultShirtNumber),
-    playing_position: text(p.defaultPlayingPosition),
+    playing_position: text(p.defaultPlayingPosition) ?? text(p.competition_player?.playingPosition),
     dob: isoDate(p.dob),
     height_cm: measure(p.height, 100, 250),
     weight_kg: measure(p.weight, 30, 200),

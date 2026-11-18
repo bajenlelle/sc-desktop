@@ -111,6 +111,13 @@ describe("genius roster parsing", () => {
     });
     expect(trimPerson({ personId: "x" })).toBeNull();
     expect(trimPerson({ personId: 1, dob: "0000-00-00" })?.dob).toBeNull();
+    // What SBF actually sends today: zeros and empty strings for unknowns; position may sit on the season entry.
+    expect(trimPerson({ personId: 1, height: 0, weight: 0, defaultShirtNumber: "", defaultPlayingPosition: "", competition_player: { playingPosition: "G" } })).toMatchObject({
+      height_cm: null,
+      weight_kg: null,
+      default_shirt_number: null,
+      playing_position: "G",
+    });
   });
 
   it("reads the photo URLs, their hash and our key", () => {
