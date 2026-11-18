@@ -6,6 +6,7 @@ import { getMyProfile, getMyOrgs, ensurePersonalOrg } from "@/lib/profile-db";
 import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
 import { keepIfSame } from "@scoutable/shared/lib/keep-if-same";
 import { touchThisDevice } from "@/lib/device-registry";
+import { trackFirstDesktopSignin } from "@/lib/first-signin";
 import { Sentry } from "@/lib/sentry";
 import { seedDemoMatch } from "@/lib/matches-db";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@/types/org";
@@ -305,7 +306,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Fire-and-forget so sign-in latency is untouched; a blocked verdict
         // flips the gate after the fact (content may flash for the sub-second
         // before it lands — fail-open by design).
+        const signedInUserId = session.user.id;
         void touchThisDevice().then((v) => {
+          if (v) void trackFirstDesktopSignin(signedInUserId);
           if (v?.status === "blocked") {
             setDeviceBlocked(true);
             trackEvent("device_gate_hit", { active_count: v.activeCount, cap: v.cap });
@@ -365,6 +368,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // explicit user action, not a session re-emit.
   const retryDeviceGate = useCallback(async () => {
     const v = await touchThisDevice();
+    if (v && userRef.current) void trackFirstDesktopSignin(userRef.current.id);
     if (v?.status === "ok") {
       setDeviceBlocked(false);
       trackEvent("device_gate_resolved");
