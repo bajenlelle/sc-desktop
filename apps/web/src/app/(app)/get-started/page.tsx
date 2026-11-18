@@ -50,7 +50,7 @@ export default function GetStartedPage() {
             sample game ready to explore.
           </p>
           <Button asChild className="mt-2">
-            <a href="https://scoutable.se/#download" target="_blank" rel="noreferrer">
+            <a href="https://scoutable.se/en/download" target="_blank" rel="noreferrer">
               <Download />
               Download the desktop app
             </a>

@@ -11,7 +11,7 @@ import { AccountMenu } from "./account-menu";
 import { DESTINATION_ICON, useNavUser } from "./nav";
 import { SpaceSwitcher } from "./space-switcher";
 
-export const DESKTOP_APP_URL = "https://scoutable.se/#download";
+export const DESKTOP_APP_URL = "https://scoutable.se/en/download";
 
 function NavItem({
   href,

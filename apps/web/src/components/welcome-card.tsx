@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Callout } from "@/components/ui/group";
 import { dismissWelcome } from "@/lib/profile-db";
 
-const DESKTOP_APP_URL = "https://scoutable.se/#download";
+const DESKTOP_APP_URL = "https://scoutable.se/en/download";
 
 /**
  * First-visit welcome on /my-playlists — mainly for invited players, who
