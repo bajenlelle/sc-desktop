@@ -12,6 +12,7 @@
  */
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { playerPhotoSources } from "@scoutable/shared/lib/player-photos";
 import { formatCardDate } from "@scoutable/shared/lib/stats-card";
 import { JUMP_BAR_MIN_SECTIONS, reportJumpItems, type ReportBlock, type ReportClip, type ReportSection, type ReportStats, type ScoutingReport } from "@scoutable/shared/lib/scouting-report";
 import { ClipTile } from "./clip-tile";
@@ -114,19 +115,44 @@ function Blocks({ blocks, mediaBase }: { blocks: ReportBlock[]; mediaBase: strin
   return <>{out}</>;
 }
 
+/** The player's photo in the section header, in CSS pixels. */
+const PHOTO_PX = 56;
+
 function Section({ section, report, mediaBase, bare }: { section: ReportSection; report: ScoutingReport; mediaBase: string | null; bare?: boolean }) {
   const { header } = report;
   const p = section.player;
   const label = [header.title, header.opponent, formatCardDate(header.preparedAt)].filter(Boolean).join(" · ");
+  const photo = p ? playerPhotoSources(mediaBase, p.photoKey, PHOTO_PX) : null;
   return (
     <section id={section.id} aria-labelledby={`${section.id}-h`} className={cn("report-section flex flex-col gap-5 print:border-t-0 print:pt-0", bare ? "pt-0" : "border-t border-separator pt-8")}>
       <p className="report-print-only text-footnote text-muted-foreground">{label}</p>
       <div className="report-intro flex flex-col gap-4">
         <div className="flex items-center gap-3">
-          {p?.number && (
-            <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-full text-callout font-semibold text-foreground ring-1 ring-foreground/30 nums">
-              {p.number}
+          {photo ? (
+            <span aria-hidden className="relative shrink-0" style={{ width: PHOTO_PX, height: PHOTO_PX }}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- a fixed-size photo from our media host */}
+              <img
+                src={photo.src}
+                srcSet={photo.srcSet}
+                alt=""
+                width={PHOTO_PX}
+                height={PHOTO_PX}
+                loading="lazy"
+                decoding="async"
+                className="size-full rounded-full bg-fill-1 object-cover object-top ring-1 ring-foreground/10"
+              />
+              {p?.number && (
+                <span className="absolute -bottom-0.5 -right-1 grid h-5 min-w-5 place-items-center rounded-full bg-background px-1 text-caption font-semibold text-foreground ring-1 ring-foreground/30 nums">
+                  {p.number}
+                </span>
+              )}
             </span>
+          ) : (
+            p?.number && (
+              <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-full text-callout font-semibold text-foreground ring-1 ring-foreground/30 nums">
+                {p.number}
+              </span>
+            )
           )}
           <div className="min-w-0">
             <h2 id={`${section.id}-h`} aria-label={p?.number ? `${p.name}, number ${p.number}` : undefined} className="text-title-2 text-foreground">

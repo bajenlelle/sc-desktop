@@ -18,9 +18,24 @@
 //                                                    catalogue from every
 //                                                    catalogued season,
 //                                                    platform-admin only
+//   { action: "sync_rosters", competitionId? }     → league players + photos
+//                                                    (one competition, or every
+//                                                    current season), platform-
+//                                                    admin only; repeat until
+//                                                    photosPending is 0
 
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { AwsClient } from "npm:aws4fetch@1.0.20";
 import { correctKnownFeedErrors } from "./feed-corrections.ts";
+import {
+  PHOTO_SIZES,
+  photoHash,
+  photoKey,
+  photoUrls,
+  rosterShirt,
+  trimPerson,
+  type PersonRow,
+} from "../../../packages/shared/lib/genius-roster.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -29,6 +44,11 @@ const GENIUS_API_KEY = Deno.env.get("GENIUS_API_KEY") ?? "";
 const AUDIT_SECRET = Deno.env.get("SEASON_AUDIT_SECRET") ?? "";
 const GITHUB_ISSUES_TOKEN = Deno.env.get("GITHUB_ISSUES_TOKEN") ?? "";
 const GITHUB_REPO = Deno.env.get("GITHUB_ISSUES_REPO") ?? "bajenlelle/sc-desktop";
+// Media bucket (the same secrets presign-upload signs with) for player photos.
+const R2_ENDPOINT = Deno.env.get("R2_ENDPOINT") ?? "";
+const R2_ACCESS_KEY_ID = Deno.env.get("R2_ACCESS_KEY_ID") ?? "";
+const R2_SECRET_ACCESS_KEY = Deno.env.get("R2_SECRET_ACCESS_KEY") ?? "";
+const R2_BUCKET = Deno.env.get("R2_BUCKET") ?? "";
 
 const GENIUS_BASE = "https://api.wh.geniussports.com/v1/basketball";
 const FIXTURES_TTL_MS = 6 * 60 * 60 * 1000;
@@ -113,7 +133,7 @@ const COMPETITIONS = new Set<number>(
 );
 
 /** Actions that address no single competition, so they skip the id guard. */
-const COMPETITION_FREE_ACTIONS = new Set(["competitions", "leagues", "sync_teams"]);
+const COMPETITION_FREE_ACTIONS = new Set(["competitions", "leagues", "sync_teams", "sync_rosters"]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -384,6 +404,190 @@ async function syncAllTeams(admin: SupabaseClient): Promise<Json> {
   return { synced };
 }
 
+// ---------------------------------------------------------------------------
+// League players (rosters + photos)
+//
+// One /competitions/{c}/teams/{t}/persons call per team gives the whole roster
+// with photo URLs, so a league-season costs ~15 calls. Rows land in
+// league_players / league_player_teams; photos are copied into the media
+// bucket so reports don't depend on Genius's image host. A photo is copied
+// once per Genius image hash; a run stops copying at its deadline and reports
+// photosPending, and the next run (weekly cron, or the admin action again)
+// picks up the rest. Player data is always saved in full.
+
+/** Copy budget per invocation, well inside the edge runtime's wall-clock limit. */
+const ROSTER_DEADLINE_MS = 100_000;
+const PHOTO_CONCURRENCY = 6;
+
+let r2Client: AwsClient | null = null;
+function r2(): AwsClient | null {
+  if (!R2_ENDPOINT || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET) return null;
+  r2Client ??= new AwsClient({
+    accessKeyId: R2_ACCESS_KEY_ID,
+    secretAccessKey: R2_SECRET_ACCESS_KEY,
+    service: "s3",
+    region: "auto",
+  });
+  return r2Client;
+}
+
+/** Download every size of one photo and put it in the bucket. Throws on any failure. */
+async function copyPhoto(client: AwsClient, personId: string, hash: string, urls: Partial<Record<string, string>>) {
+  for (const size of PHOTO_SIZES) {
+    const src = urls[size];
+    if (!src) throw new Error(`photo ${personId}: no ${size}`);
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`photo ${personId} ${size}: GET ${res.status}`);
+    const body = new Uint8Array(await res.arrayBuffer());
+    const key = photoKey("genius", personId, hash, size);
+    const put = await client.fetch(`${R2_ENDPOINT}/${R2_BUCKET}/${key}`, {
+      method: "PUT",
+      body,
+      headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=31536000, immutable" },
+    });
+    if (!put.ok) throw new Error(`photo ${personId} ${size}: PUT ${put.status}`);
+  }
+}
+
+interface RosterResult {
+  league: string;
+  season: string;
+  teams: number;
+  players: number;
+  withPhoto: number;
+  photosCopied: number;
+  photosPending: number;
+  photosFailed: number;
+}
+
+/** Sync one league-season's rosters, copying photos until `deadline` (epoch ms). */
+async function syncRoster(admin: SupabaseClient, competitionId: number, deadline: number): Promise<RosterResult> {
+  const league = CATALOG.find((l) => l.seasons.some((s) => s.competitionId === competitionId));
+  const season = league?.seasons.find((s) => s.competitionId === competitionId);
+  if (!league || !season) throw new Error(`unknown competition ${competitionId}`);
+
+  const { fixtures } = await loadFixtures(admin, competitionId);
+  const teamIds = competitorsOf(fixtures).map((t) => t.id as string);
+  const { data: sources } = await admin
+    .from("league_team_sources")
+    .select("source_team_id, league_team_id")
+    .eq("source", "genius")
+    .in("source_team_id", teamIds.length ? teamIds : ["-"]);
+  const leagueTeamOf = new Map((sources ?? []).map((s) => [s.source_team_id as string, s.league_team_id as string]));
+
+  const people = new Map<string, { row: PersonRow; urls: Partial<Record<string, string>>; hash: string | null }>();
+  const memberships: Json[] = [];
+  const now = new Date().toISOString();
+  for (const teamId of teamIds) {
+    const roster = await geniusAll(`/competitions/${competitionId}/teams/${teamId}/persons`);
+    for (const p of roster) {
+      const row = trimPerson(p);
+      if (!row) continue;
+      const urls = photoUrls(p);
+      people.set(row.source_person_id, { row, urls, hash: photoHash(urls.S1) });
+      memberships.push({
+        source: "genius",
+        source_person_id: row.source_person_id,
+        source_team_id: teamId,
+        league_team_id: leagueTeamOf.get(teamId) ?? null,
+        league_id: league.id,
+        season_id: season.id,
+        shirt_number: rosterShirt(p),
+        updated_at: now,
+      });
+    }
+  }
+
+  const ids = [...people.keys()];
+  if (ids.length > 0) {
+    // Photo columns are left out, so an upsert never clears a copied photo.
+    const { error: pErr } = await admin
+      .from("league_players")
+      .upsert(ids.map((id) => ({ ...people.get(id)!.row, fetched_at: now, updated_at: now })), {
+        onConflict: "source,source_person_id",
+      });
+    if (pErr) throw new Error(`league_players upsert failed: ${pErr.message}`);
+    const { error: mErr } = await admin
+      .from("league_player_teams")
+      .upsert(memberships, { onConflict: "source,source_person_id,source_team_id" });
+    if (mErr) throw new Error(`league_player_teams upsert failed: ${mErr.message}`);
+  }
+
+  // Which photos still need copying: a hash we haven't copied yet.
+  const copied = new Map<string, string | null>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await admin
+      .from("league_players")
+      .select("source_person_id, photo_source, photo_key")
+      .eq("source", "genius")
+      .in("source_person_id", ids.slice(i, i + 200));
+    for (const r of data ?? []) copied.set(r.source_person_id as string, r.photo_key ? (r.photo_source as string) : null);
+  }
+  const todo = ids.filter((id) => {
+    const h = people.get(id)!.hash;
+    return h !== null && copied.get(id) !== h;
+  });
+
+  const result: RosterResult = {
+    league: league.id,
+    season: season.id,
+    teams: teamIds.length,
+    players: ids.length,
+    withPhoto: ids.filter((id) => people.get(id)!.hash !== null).length,
+    photosCopied: 0,
+    photosPending: todo.length,
+    photosFailed: 0,
+  };
+
+  const client = r2();
+  if (!client) {
+    if (todo.length) console.error("[genius] R2 secrets missing — player photos not copied");
+    return result;
+  }
+
+  let next = 0;
+  const worker = async () => {
+    while (next < todo.length && Date.now() < deadline) {
+      const id = todo[next++];
+      const { hash, urls } = people.get(id)!;
+      try {
+        await copyPhoto(client, id, hash!, urls);
+        const { error } = await admin
+          .from("league_players")
+          .update({ photo_key: photoKey("genius", id, hash!, "S1"), photo_source: hash, updated_at: new Date().toISOString() })
+          .eq("source", "genius")
+          .eq("source_person_id", id);
+        if (error) throw new Error(error.message);
+        result.photosCopied++;
+      } catch (e) {
+        result.photosFailed++;
+        console.error("[genius] photo copy failed:", e instanceof Error ? e.message : String(e));
+      }
+      result.photosPending--;
+    }
+  };
+  await Promise.all(Array.from({ length: PHOTO_CONCURRENCY }, worker));
+  // A failed copy is retried next run, so it still counts as pending.
+  result.photosPending += result.photosFailed;
+  return result;
+}
+
+/** Rosters of the given competitions (default: every league's current season), one at a time. */
+async function syncRosters(admin: SupabaseClient, competitionIds?: number[]): Promise<Json> {
+  const deadline = Date.now() + ROSTER_DEADLINE_MS;
+  const ids = competitionIds ?? CATALOG.map((l) => l.seasons[0].competitionId);
+  const synced: Json[] = [];
+  for (const id of ids) {
+    try {
+      synced.push(await syncRoster(admin, id, deadline));
+    } catch (e) {
+      console.error("[genius] roster sync failed:", id, e instanceof Error ? e.message : String(e));
+      synced.push({ competitionId: id, error: "roster_sync_failed" });
+    }
+  }
+  return { synced };
+}
+
 /** Raw fixture → the trimmed shape clients receive (~10× smaller). */
 function trimFixture(m: Json): Json {
   return {
@@ -479,7 +683,16 @@ Deno.serve(async (req) => {
       console.error("[genius] team sync failed:", e instanceof Error ? e.message : String(e));
       teams = { error: "team_sync_failed" };
     }
-    return ok({ ...audit, teams });
+    // Then the current seasons' players and photos, after teams so new
+    // league_team_sources rows exist to link to.
+    let rosters: Json;
+    try {
+      rosters = await syncRosters(admin);
+    } catch (e) {
+      console.error("[genius] roster sync failed:", e instanceof Error ? e.message : String(e));
+      rosters = { error: "roster_sync_failed" };
+    }
+    return ok({ ...audit, teams, rosters });
   }
 
   const jwt = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
@@ -504,7 +717,7 @@ Deno.serve(async (req) => {
     // new season's ids (a Genius competition IS a league-season). Raw objects
     // on purpose — this is a discovery tool, trimming would hide the fields
     // you're looking for. Admin-gated: it always costs upstream quota.
-    if (payload.action === "competitions" || payload.action === "sync_teams") {
+    if (payload.action === "competitions" || payload.action === "sync_teams" || payload.action === "sync_rosters") {
       const { data: prof } = await admin
         .from("profiles")
         .select("is_platform_admin")
@@ -512,6 +725,10 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (!prof?.is_platform_admin) return err(403, "not_platform_admin");
       if (payload.action === "sync_teams") return ok(await syncAllTeams(admin));
+      if (payload.action === "sync_rosters") {
+        if (payload.competitionId != null && !COMPETITIONS.has(competitionId)) return err(400, "unknown_competition");
+        return ok(await syncRosters(admin, payload.competitionId != null ? [competitionId] : undefined));
+      }
       const competitions = await geniusAll("/competitions");
       return ok({ competitions });
     }
