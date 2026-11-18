@@ -15,6 +15,7 @@ import { trackEvent, getStashedAttribution } from "@/lib/analytics";
 import { safeNext } from "@scoutable/shared/lib/safe-next";
 import { DEFAULT_NEXT, withNext } from "@/lib/with-next";
 import { INVITE_CODE } from "@/lib/pending-invite";
+import { SIGNUP_LANG_COOKIE, parseSignupLang } from "@/lib/signup-lang";
 
 /**
  * Self-declared role: a copy and analytics signal only, never a permission
@@ -35,7 +36,13 @@ function SignupContent() {
   // email in another browser (lib/pending-invite.ts).
   const inviteCode = next.match(/^\/join\/([^/]+)$/)?.[1] ?? "";
   const pendingInvite = INVITE_CODE.test(inviteCode) ? inviteCode.toUpperCase() : null;
-  const [declaredRole, setDeclaredRole] = useState<DeclaredRole | null>(null);
+  // The landing page links here with `role` and `lang`; both optional.
+  const roleParam = searchParams.get("role");
+  const rolePrefilled = roleParam === "coach" || roleParam === "player";
+  const lang = parseSignupLang(searchParams.get("lang"));
+  const [declaredRole, setDeclaredRole] = useState<DeclaredRole | null>(
+    rolePrefilled ? roleParam : null,
+  );
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -71,6 +78,7 @@ function SignupContent() {
         data: {
           full_name: `${firstName.trim()} ${lastName.trim()}`,
           declared_role: declaredRole,
+          ...(lang ? { lang } : {}),
           ...(pendingInvite ? { pending_invite: pendingInvite } : {}),
         },
         // `flow=signup` lets the callback tell a confirmed email from a
@@ -85,13 +93,22 @@ function SignupContent() {
       return;
     }
 
-    trackEvent("signed_up", { declared_role: declaredRole, ...getStashedAttribution() });
+    trackEvent("signed_up", {
+      declared_role: declaredRole,
+      lang: lang ?? "none",
+      role_prefilled: rolePrefilled,
+      ...getStashedAttribution(),
+    });
     setSuccess(true);
     setLoading(false);
   }
 
   async function signInWithProvider(provider: "google" | "apple") {
     trackEvent("signup_provider_clicked", { provider });
+    // The callback copies this onto the account (it can't see the query).
+    if (lang) {
+      document.cookie = `${SIGNUP_LANG_COOKIE}=${lang}; path=/; max-age=3600; samesite=lax; secure`;
+    }
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
@@ -112,6 +129,9 @@ function SignupContent() {
         <p className="mt-1.5 text-sm text-muted-foreground">
           We sent a confirmation link to <span className="font-medium text-foreground">{email}</span>. Open it to
           activate your account.
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {"Once you confirm, we'll also email you the download link for your computer."}
         </p>
         <p className="mt-6 text-callout text-muted-foreground">
           Already confirmed?{" "}
