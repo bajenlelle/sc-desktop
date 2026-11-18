@@ -414,9 +414,15 @@ async function syncAllTeams(admin: SupabaseClient): Promise<Json> {
 // once per Genius image hash; a run stops copying at its deadline and reports
 // photosPending, and the next run (weekly cron, or the admin action again)
 // picks up the rest. Player data is always saved in full.
+//
+// Two budgets per invocation: wall clock, and a photo count. The count is the
+// one that bites: on staging (2026-11-18) one call copied 199 photos fine,
+// while ~400 in one call hit WORKER_RESOURCE_LIMIT (HTTP 546).
 
 /** Copy budget per invocation, well inside the edge runtime's wall-clock limit. */
 const ROSTER_DEADLINE_MS = 100_000;
+/** Photos (×4 sizes) one invocation copies at most, across every competition it syncs. */
+const PHOTOS_PER_RUN = 150;
 const PHOTO_CONCURRENCY = 6;
 
 let r2Client: AwsClient | null = null;
@@ -443,7 +449,12 @@ async function copyPhoto(client: AwsClient, personId: string, hash: string, urls
     const put = await client.fetch(`${R2_ENDPOINT}/${R2_BUCKET}/${key}`, {
       method: "PUT",
       body,
-      headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=31536000, immutable" },
+      headers: {
+        "Content-Type": "image/jpeg",
+        "Cache-Control": "public, max-age=31536000, immutable",
+        // R2 accepts unsigned bodies; skips hashing every image (CPU is this function's limit).
+        "X-Amz-Content-Sha256": "UNSIGNED-PAYLOAD",
+      },
     });
     if (!put.ok) throw new Error(`photo ${personId} ${size}: PUT ${put.status}`);
   }
@@ -461,7 +472,12 @@ interface RosterResult {
 }
 
 /** Sync one league-season's rosters, copying photos until `deadline` (epoch ms). */
-async function syncRoster(admin: SupabaseClient, competitionId: number, deadline: number): Promise<RosterResult> {
+async function syncRoster(
+  admin: SupabaseClient,
+  competitionId: number,
+  deadline: number,
+  budget: { photos: number },
+): Promise<RosterResult> {
   const league = CATALOG.find((l) => l.seasons.some((s) => s.competitionId === competitionId));
   const season = league?.seasons.find((s) => s.competitionId === competitionId);
   if (!league || !season) throw new Error(`unknown competition ${competitionId}`);
@@ -547,7 +563,8 @@ async function syncRoster(admin: SupabaseClient, competitionId: number, deadline
 
   let next = 0;
   const worker = async () => {
-    while (next < todo.length && Date.now() < deadline) {
+    while (next < todo.length && Date.now() < deadline && budget.photos > 0) {
+      budget.photos--;
       const id = todo[next++];
       const { hash, urls } = people.get(id)!;
       try {
@@ -575,11 +592,12 @@ async function syncRoster(admin: SupabaseClient, competitionId: number, deadline
 /** Rosters of the given competitions (default: every league's current season), one at a time. */
 async function syncRosters(admin: SupabaseClient, competitionIds?: number[]): Promise<Json> {
   const deadline = Date.now() + ROSTER_DEADLINE_MS;
+  const budget = { photos: PHOTOS_PER_RUN };
   const ids = competitionIds ?? CATALOG.map((l) => l.seasons[0].competitionId);
   const synced: Json[] = [];
   for (const id of ids) {
     try {
-      synced.push(await syncRoster(admin, id, deadline));
+      synced.push(await syncRoster(admin, id, deadline, budget));
     } catch (e) {
       console.error("[genius] roster sync failed:", id, e instanceof Error ? e.message : String(e));
       synced.push({ competitionId: id, error: "roster_sync_failed" });
