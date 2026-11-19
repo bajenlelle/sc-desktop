@@ -162,6 +162,24 @@ export function parseGameClock(raw: string): number {
   return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
 }
 
+/**
+ * A game's plays in the order they happened: period, then wall-clock time,
+ * then event id. The database returns a game's plays in no particular order,
+ * so anything that lists them reads them through this. A play without a usable
+ * `realWorldTime` goes after the timed ones of its period, by event id. Returns
+ * a new array (the cached lists are shared and never mutated).
+ */
+export function sortPlaysChronologically<T extends Pick<PlayByPlayEvent, "eventId" | "period" | "realWorldTime">>(plays: readonly T[]): T[] {
+  const ms = (p: T) => {
+    const t = p.realWorldTime ? new Date(p.realWorldTime).getTime() : Number.NaN;
+    return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+  };
+  return plays
+    .map((play) => ({ play, t: ms(play) }))
+    .sort((a, b) => (a.play.period ?? 0) - (b.play.period ?? 0) || (a.t === b.t ? 0 : a.t < b.t ? -1 : 1) || a.play.eventId - b.play.eventId)
+    .map((x) => x.play);
+}
+
 /** "First Last", or an em dash when the event has no player attached. */
 export function playerName(e: PlayByPlayEvent): string {
   if (!e.player) return "—";
