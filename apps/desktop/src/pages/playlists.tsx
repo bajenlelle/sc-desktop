@@ -149,6 +149,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { getExportWatermarkDisabled, getSyncTipSeen, setHasExported, setSyncTipSeen } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
 import { buildShipSegments, DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL, demoShipBlockReason, shipPlaylistClips } from "@/lib/ship-clips";
+import { onUploaded, shipScheduler } from "@/lib/background-ship";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
@@ -3897,7 +3898,11 @@ export function PlaylistsPage() {
     // Drain one pending ship; isShipping flipping back to false re-runs this
     // effect, so multiple pending playlists ship sequentially.
     const targetId = [...pendingShipRef.current].find(
-      (id) => shipHeldRef.current.get(id) !== shipNonce && (selected?.id === id || playlists.some((p) => p.id === id))
+      (id) =>
+        shipHeldRef.current.get(id) !== shipNonce &&
+        // The game view is sending this playlist now: wait for it (its files arrive through onUploaded).
+        !waitForGameView(id) &&
+        (selected?.id === id || playlists.some((p) => p.id === id))
     );
     if (!targetId) return;
     const target = selected?.id === targetId ? selected : playlists.find((p) => p.id === targetId)!;
@@ -3906,6 +3911,29 @@ export function PlaylistsPage() {
     void handleShipRef.current(target, shipNonce);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipNonce, selected, playlists, matches, loading, isShipping]);
+
+  // The game view's sends: a playlist waiting on one is tried again once it ends, and the files it put up
+  // land in this copy, so this page never cuts them a second time.
+  const waitingOnGameView = useRef(new Set<string>());
+  function waitForGameView(id: string): boolean {
+    if (!shipScheduler.busy(id)) return false;
+    waitingOnGameView.current.add(id);
+    return true;
+  }
+  useEffect(
+    () =>
+      shipScheduler.subscribe(() => {
+        // Only a send this page waited on that has ended wakes the watcher: a progress tick is no new trigger.
+        const ended = [...waitingOnGameView.current].filter((id) => !shipScheduler.busy(id));
+        if (ended.length === 0) return;
+        for (const id of ended) waitingOnGameView.current.delete(id);
+        setShipNonce((n) => n + 1);
+      }),
+    [],
+  );
+  const applyR2UrlsRef = useRef(applyR2Urls);
+  applyR2UrlsRef.current = applyR2Urls;
+  useEffect(() => onUploaded((plId, uploaded) => applyR2UrlsRef.current(uploaded, plId)), []);
 
   // ---------------------------------------------------------------------------
   // Sidebar helpers

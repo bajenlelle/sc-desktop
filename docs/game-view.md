@@ -406,6 +406,9 @@ on the selection when that row is in it.
 - **One target playlist, chosen once** and remembered per game on this device
   (`lib/prefs.ts`). With none chosen, the first add opens the picker from the
   control that was pressed; the choice sets the target and adds the play.
+  Its field reads "Search or create…", as in the editor's picker: a typed
+  name that no playlist has is offered as Create "name". There is no
+  ready-made name in it, so that row isn't read as the only way to create.
 - **Every clip is a play.** An add is `appendClips` on one promise chain per
   playlist, so quick adds get increasing positions. Undo and removing through
   the row's check are `writePlaylistItems`, and only for clips added on this
@@ -416,24 +419,53 @@ on the selection when that row is in it.
   one named after the game. The target doesn't change. The menu is one
   `ContextMenu` around the list (`game-play-menu.tsx`), not one per row, so
   adding doesn't redraw every row; markers and headers have none.
-- **A playlist players already have**: the add is the same write. The control
-  counts, per shared playlist, the clips players don't have yet: the target's,
-  and any shared playlist holding one of this game's clips without a file
-  (`heldForPlayers` in `packages/shared/lib/playlist-sharing.ts`). It is read
-  from the playlists, so it survives leaving the page. One playlist: "Send n
-  clips" cuts and uploads them from here, without leaving the game, through
-  the editor's own path (`apps/desktop/src/lib/ship-clips.ts`, which the
-  editor's deferred ship also runs): the writes still out for that playlist
-  land first, the footage and plays of any other game in the playlist are
-  read, one toast carries the progress and ends on "Sent n clips to
-  {playlist}", a failure is said as the editor says it, and the count comes
-  down as the files land. Several: the same button opens a menu of them.
-  "Open playlist" opens the target in the editor whenever there is one; it
-  uploads nothing on arrival. Players' feeds skip clips with no uploaded
-  file, so they see nothing until then. Both leave the game only through
-  "Open playlist", which hands the editor the way back (`state.from`, the
-  "‹ {game}" button in the editor's toolbar; so does Details' "Build a
-  playlist").
+- **A playlist players already have**: the add is the same write, and the
+  clips go out by themselves, with no Send to remember. Each add to a shared
+  playlist schedules its send (`packages/shared/lib/ship-scheduler.ts`, one
+  scheduler for the app in `apps/desktop/src/lib/background-ship.ts`): 30 s
+  after the last add (`SHIP_IDLE_MS`), at once when the target changes, and
+  at once when the game is left (another tab or page). A quiet spell, not
+  every add, because each clip is cut with x264 on this computer while the
+  coach is watching; it also leaves an Undo time to take a clip back before
+  it is sent, since the send reads what the server holds when it runs. One
+  send per playlist at a time; adds during it go in the next. The cut and
+  upload are the editor's own path (`apps/desktop/src/lib/ship-clips.ts`):
+  the writes still out land first, the footage and plays of other games in
+  the playlist are read, and a failure is said as the editor says it.
+  Signing out drops whatever waits. Every game in the playlist is read when
+  the send runs, so a sync fixed meanwhile is the one the clips are cut
+  with, and a sync change (`lib/sync-change.ts`) waits for a send still
+  running before it re-cuts. Clips no cut here can make (their game isn't
+  synced, its video isn't on this computer, the play couldn't be read) are
+  said in a toast with what to do, and the send counts as failed
+  (`unsendableClips` in `packages/shared/lib/held-clips.ts`). The files a
+  send put up reach every copy on screen (`onUploaded`): another game
+  view's too, so a tab switch mid-send never cuts them twice.
+- **Quiet unless the coach is needed** (`packages/shared/lib/ship-pill.ts`,
+  the Apple-design rule that status takes little room and only warnings and
+  errors ask for attention). Clips waiting for the quiet spell show nothing:
+  the first add to a shared playlist says once "Players get new clips
+  automatically." A send in progress is a 12 px ring on the "Adding to"
+  count, filling as clips go up, its words in a tooltip ("Sending 2 of 3
+  clips to players"); for another playlist (after a switch) the same ring
+  stands beside the control, its tooltip naming that playlist. A send that
+  works says nothing (`quiet` in `shipPlaylistClips`). Clips that didn't go,
+  or were left from an earlier visit (the app closed, a failure), show "n
+  not sent" in the warning color; its popover lists the playlists, each with
+  "Send again". They are never sent by themselves: a missing video would
+  otherwise fail again on every visit. They are counted per shared playlist
+  from the clips players don't have yet (`heldForPlayers` in
+  `packages/shared/lib/playlist-sharing.ts`: the target's, and any shared
+  playlist holding one of this game's clips without a file). A failure is
+  said in a toast wherever the coach is.
+- **The editor waits for it**: a ship the editor arms for a playlist the
+  game view is sending waits until that send ends, and the files it put up
+  are patched into the editor's copy (`onUploaded`), so nothing is cut
+  twice. "Open playlist" opens the target in the editor whenever there is
+  one, and hands it the way back (`state.from`, the "‹ {game}" button in
+  the editor's toolbar; so does Details' "Build a playlist"). Players'
+  feeds skip clips with no uploaded file, so they see a clip once it is
+  sent.
 - Labels are independent of collecting: label now, build later through the
   label filter in Add clips.
 

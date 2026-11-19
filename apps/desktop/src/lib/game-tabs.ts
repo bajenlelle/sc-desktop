@@ -38,6 +38,7 @@ import {
 import { EMPTY_GAME_FILTERS, type GameFilters } from "@scoutable/shared/lib/game-list";
 import type { GameViewMode } from "@/components/game/game-view-switch";
 import { forgetPlaylistsRead } from "@/components/game/use-collect";
+import { shipScheduler } from "@/lib/background-ship";
 import { listMatchesByIds } from "@/lib/matches-db";
 import { createClient } from "@/lib/supabase/client";
 import { forgetLabelsRead } from "@/lib/use-clip-labels";
@@ -118,6 +119,8 @@ function onAuthChanged(userId: string | null) {
     closedTabs.clear();
     forgetPlaylistsRead();
     forgetLabelsRead();
+    // Clips still waiting to go out belong to the user who added them: nothing is sent under the next one.
+    shipScheduler.cancelAll();
   }
   cachedFor = userId;
 }

@@ -12,9 +12,19 @@ import { appendClips, createPlaylist, listPlaylists, writePlaylistItems } from "
 import { getCollectTarget, setAddClipsScope, setCollectTarget } from "@/lib/prefs";
 import { Sentry } from "@/lib/sentry";
 import { DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL, demoShipBlockReason, eventLookup, shipPlaylistClips } from "@/lib/ship-clips";
+import { emitUploaded, onUploaded, shipScheduler, useShipStatuses } from "@/lib/background-ship";
+import { unsendableClips, withUploadedFiles, type UnsendableReason } from "@scoutable/shared/lib/held-clips";
+import type { ShipJob } from "@scoutable/shared/lib/ship-scheduler";
 
 /** Where an add came from: a row's plus, the Now bar (or A), "Add all", a row's menu, or the selected plays. */
 export type CollectVia = "row" | "now_bar" | "bulk" | "menu" | "selection";
+
+/** Why clips can't be sent from here, and what the coach does about it. */
+const UNSENDABLE: Record<UnsendableReason, string> = {
+  sync: "Their game isn't synced yet. Set the tip-off in the game's Details, then send them.",
+  video: "Their game's video isn't on this computer. Link it in the Library, then send them.",
+  play: "Their plays couldn't be read. Check the connection and send them again.",
+};
 
 /** One toast for the whole view: the latest add replaces the one before, and its Undo is the only one on offer. */
 const COLLECT_TOAST = "game-collect";
@@ -55,10 +65,12 @@ export function forgetPlaylistsRead(): void {
  * write goes from, and adds shown on the earlier list are shown again on the
  * fresh one.
  *
- * When players already have a playlist, the new clips are held: `held`
- * counts them per shared playlist, and `send` cuts and uploads them from
- * here, without leaving the game (`lib/ship-clips.ts`, the editor's path).
- * `openPlaylist` opens one in the editor, with the way back to this game.
+ * When players already have a playlist, its new clips go out by themselves:
+ * an add schedules the send (`lib/background-ship.ts`), which runs after a
+ * quiet spell, on a change of target, or as the game is left. `held` counts
+ * the clips players don't have yet per shared playlist, `shipStatuses` says
+ * where each send stands, and `send` sends one now. `openPlaylist` opens a
+ * playlist in the editor, with the way back to this game.
  */
 export function useCollect({
   match,
@@ -86,14 +98,16 @@ export function useCollect({
   const keyNow = useRef(key);
   keyNow.current = key;
   const [targetId, setTargetId] = useState<string | null>(() => getCollectTarget(match.id));
+  const targetIdRef = useRef(targetId);
+  targetIdRef.current = targetId;
   const [pickerOpen, setPickerOpenState] = useState(false);
   /** The control that asked for the picker (a row's plus, the Now bar's Add): it opens from there. Null: from its own button. */
   const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
   /** `${playlistId}|${clipKey}` of every clip this visit added. */
   const [addedHere, setAddedHere] = useState<ReadonlySet<string>>(() => new Set());
   const [addedTotal, setAddedTotal] = useState(0);
-  /** The playlist whose held clips are being cut and uploaded now, if any. */
-  const [sending, setSending] = useState<string | null>(null);
+  /** Shared playlists this visit scheduled a send for: they go out at once when the visit ends. */
+  const scheduledHere = useRef(new Set<string>());
   const pendingRef = useRef<{ plays: readonly TimedPlay[]; via: CollectVia; moment: string | null; onAdded?: () => void } | null>(null);
   /** What the server holds for each playlist: the base every write goes from. */
   const saved = useRef(new Map<string, PlaylistItem[]>());
@@ -136,6 +150,14 @@ export function useCollect({
     };
   }, [key, orgId, includeUnscoped]);
 
+  // Leaving the game (another tab, another page) sends what this visit added to shared playlists now.
+  useEffect(() => {
+    const ids = scheduledHere.current;
+    return () => {
+      for (const id of ids) void shipScheduler.flush(id, "leave");
+    };
+  }, []);
+
   // Kept current through every add, for the next visit.
   useEffect(() => {
     if (playlists && listKey.current) lastList = { key: listKey.current, list: playlists };
@@ -161,6 +183,18 @@ export function useCollect({
     (playlistId: string, change: (items: PlaylistItem[]) => PlaylistItem[]) => {
       edit((prev) => prev?.map((p) => (p.id === playlistId ? { ...p, items: change(p.items) } : p)) ?? prev);
     },
+    [edit],
+  );
+
+  // Files any send put up (this view's, an earlier game view's still running, the editor's): the shown and the
+  // saved copies learn them, so `held` counts down and no later send cuts them again.
+  useEffect(
+    () =>
+      onUploaded((playlistId, uploaded) => {
+        const base = saved.current.get(playlistId);
+        if (base) saved.current.set(playlistId, withUploadedFiles(base, uploaded));
+        edit((prev) => prev?.map((p) => (p.id === playlistId ? { ...p, items: withUploadedFiles(p.items, uploaded) } : p)) ?? prev);
+      }),
     [edit],
   );
 
@@ -212,6 +246,78 @@ export function useCollect({
       });
     },
     [mutate, enqueue],
+  );
+
+  /**
+   * The send of a shared playlist's clips with no file, for the scheduler.
+   * It reads what to send when it runs (after the writes still out), so a
+   * clip taken back meanwhile is never cut. Quiet when it works: the control
+   * shows a small ring while it runs, and nothing says "sent". A failure is
+   * said as the editor says it, on the page or wherever the coach went.
+   */
+  const shipJob = useCallback(
+    (playlist: Playlist): ShipJob =>
+      async ({ trigger, report }) => {
+        try {
+          await (chains.get(playlist.id) ?? Promise.resolve());
+          // What the server holds, so a clip whose add is still out is never cut without its row.
+          const items = saved.current.get(playlist.id) ?? playlist.items;
+          const count = items.filter((i) => isClipItem(i) && !i.r2Url).length;
+          if (count === 0) return "sent";
+          trackEvent("collect_sent", { clips: count, target: playlist.id === targetIdRef.current, trigger });
+          const toShip: Playlist = { ...playlist, items };
+          // Every game in the playlist read now, this one too: a sync fixed while the clips waited is the one they are cut with.
+          const ids = [...new Set(items.filter(isClipItem).map((c) => c.matchId))];
+          const read = mergeEventsIntoMatches(await listMatchesByIds(ids), await listEventsForMatches(ids));
+          const games = read.some((m) => m.id === match.id) ? read : [match, ...read];
+          const matchLookup = new Map(games.map((m) => [m.id, m]));
+          const demoBlock = demoShipBlockReason(toShip, matchLookup);
+          if (demoBlock) {
+            toast.error("Couldn't send the clips", { description: demoBlock });
+            return "failed";
+          }
+          const eventByKey = eventLookup(games);
+          // Clips no cut here can make (no sync, no video, no play) would be left behind in silence: said, and the send counts as failed.
+          const stuck = unsendableClips(items, matchLookup, (k) => eventByKey.has(k));
+          const result = await shipPlaylistClips(toShip, {
+            matchLookup,
+            eventByKey,
+            preRoll: DEFAULT_PRE_ROLL,
+            postRoll: DEFAULT_POST_ROLL,
+            quiet: true,
+            onProgress: report,
+            onUploaded: (uploaded) => {
+              // This visit's saved copy learns the files even once the page has gone; the shown copies (here and in
+              // any other game view or the editor) learn them through the bus.
+              const base = saved.current.get(playlist.id);
+              if (base) saved.current.set(playlist.id, withUploadedFiles(base, uploaded));
+              emitUploaded(playlist.id, uploaded);
+            },
+          });
+          if (stuck.count > 0) {
+            toast.error(`${stuck.count} ${stuck.count === 1 ? "clip" : "clips"} in ${playlist.name} can't be sent yet`, {
+              description: UNSENDABLE[stuck.reason ?? "play"],
+            });
+            return "failed";
+          }
+          return result && result.failures.length === 0 ? "sent" : "failed";
+        } catch (e) {
+          Sentry.captureException(e);
+          toast.error("Couldn't send the clips", { description: e instanceof Error ? e.message : String(e) });
+          return "failed";
+        }
+      },
+    [match, mutate],
+  );
+
+  /** A shared playlist's new clips go out after a quiet spell (or when the coach moves on). */
+  const scheduleShip = useCallback(
+    (playlist: Playlist) => {
+      if (!playlistIsShared(playlist)) return;
+      scheduledHere.current.add(playlist.id);
+      shipScheduler.schedule(playlist.id, shipJob(playlist));
+    },
+    [shipJob],
   );
 
   /**
@@ -278,17 +384,20 @@ export function useCollect({
           });
         }
       });
-      // Players already have this playlist: say once that new clips wait for the coach.
+      scheduleShip(playlist);
+      // Players already have this playlist: say once when they get the new clips.
       const sayHeld = playlistIsShared(playlist) && !saidHeld.current;
       if (sayHeld) saidHeld.current = true;
       toast(fresh.length === 1 ? `Added to ${playlist.name}` : `${fresh.length} clips added to ${playlist.name}`, {
         id: COLLECT_TOAST,
         // Sonner's own description grey is unreadable on the dark themes.
-        description: sayHeld ? createElement("span", { className: "text-muted-foreground" }, "Players see new clips once you send them.") : undefined,
+        description: sayHeld
+          ? createElement("span", { className: "text-muted-foreground" }, "Players get new clips automatically.")
+          : undefined,
         action: { label: "Undo", onClick: () => undo(playlist, keys, "toast") },
       });
     },
-    [match.id, mutate, enqueue, undo],
+    [match.id, mutate, enqueue, undo, scheduleShip],
   );
 
   /**
@@ -324,6 +433,8 @@ export function useCollect({
     (playlist: Playlist, source: "existing" | "new") => {
       const pending = pendingRef.current;
       pendingRef.current = null;
+      // Moving on from a playlist sends what waits in it now, before it is out of sight.
+      if (targetId && targetId !== playlist.id) void shipScheduler.flush(targetId, "switch");
       setTargetId(playlist.id);
       setCollectTarget(match.id, playlist.id);
       setPickerOpenState(false);
@@ -333,7 +444,7 @@ export function useCollect({
         pending.onAdded?.();
       }
     },
-    [match.id, addToPlaylist],
+    [match.id, addToPlaylist, targetId],
   );
 
   const createTarget = useCallback(
@@ -397,68 +508,22 @@ export function useCollect({
   );
 
   /**
-   * Cuts and uploads a shared playlist's held clips from here, as the editor
-   * would on arrival, so the coach stays in the game. One at a time; the
-   * writes still out for that playlist land first, so every add is in the
-   * copy that is cut. Progress and the outcome are one toast.
+   * Sends a shared playlist's waiting clips now, through the scheduler, so it
+   * never runs beside a send already going for that playlist (the control's
+   * "Send n clips", and a click on "n clips waiting").
    */
   const send = useCallback(
     async (playlistId: string) => {
-      const waiting = held.find((h) => h.playlist.id === playlistId);
-      if (!waiting || sending) return;
-      const { playlist, count } = waiting;
-      trackEvent("collect_sent", { clips: count, target: playlistId === targetId, in_place: true });
-      setSending(playlistId);
-      const id = `${COLLECT_TOAST}-send-${playlistId}`;
-      toast.loading(`Sending ${count} ${count === 1 ? "clip" : "clips"} to ${playlist.name}…`, { id });
-      try {
-        await (chains.get(playlistId) ?? Promise.resolve());
-        // What the server holds, so a clip whose add is still out is never cut without its row.
-        const items = saved.current.get(playlistId) ?? playlist.items;
-        const toShip: Playlist = { ...playlist, items };
-        // The playlist may hold clips of other games: their footage and plays are read for the cut.
-        const otherIds = [...new Set(items.filter(isClipItem).map((c) => c.matchId).filter((m) => m !== match.id))];
-        const others = otherIds.length > 0
-          ? mergeEventsIntoMatches(await listMatchesByIds(otherIds), await listEventsForMatches(otherIds))
-          : [];
-        const games = [match, ...others];
-        const matchLookup = new Map(games.map((m) => [m.id, m]));
-        const demoBlock = demoShipBlockReason(toShip, matchLookup);
-        if (demoBlock) {
-          toast.error("Couldn't send the clips", { id, description: demoBlock });
-          return;
-        }
-        const result = await shipPlaylistClips(toShip, {
-          matchLookup,
-          eventByKey: eventLookup(games),
-          preRoll: DEFAULT_PRE_ROLL,
-          postRoll: DEFAULT_POST_ROLL,
-          toastId: id,
-          onProgress: (done, total) => toast.loading(`Sending clips to ${playlist.name} · ${done} of ${total}`, { id }),
-          onUploaded: (uploaded) => {
-            // The shown and the saved copies both learn the files, so `held` counts down and no later write forgets them.
-            const byKey = new Map(uploaded.map((u) => [`${u.matchId}:${u.eventId}`, u.r2Url]));
-            const patch = (list: PlaylistItem[]) =>
-              list.map((i) => (isClipItem(i) && byKey.has(itemKey(i)) ? { ...i, r2Url: byKey.get(itemKey(i)) } : i));
-            mutate(playlistId, patch);
-            const base = saved.current.get(playlistId);
-            if (base) saved.current.set(playlistId, patch(base));
-          },
-          success: (shipped) => ({ title: `Sent ${shipped} ${shipped === 1 ? "clip" : "clips"} to ${playlist.name}` }),
-        });
-        // Nothing went up and nothing failed: the files were there already (another computer sent them).
-        if (result && result.shipped === 0 && result.failures.length === 0) {
-          toast(`Everything in ${playlist.name} is sent already`, { id, duration: 3000 });
-        }
-      } catch (e) {
-        Sentry.captureException(e);
-        toast.error("Couldn't send the clips", { id, description: e instanceof Error ? e.message : String(e) });
-      } finally {
-        setSending(null);
-      }
+      const playlist = playlists?.find((p) => p.id === playlistId);
+      if (!playlist) return;
+      shipScheduler.schedule(playlist.id, shipJob(playlist));
+      await shipScheduler.flush(playlist.id, "manual");
     },
-    [held, sending, targetId, match, mutate],
+    [playlists, shipJob],
   );
+
+  /** Where each playlist's send stands (waiting, sending, failed), for the control. */
+  const shipStatuses = useShipStatuses(held.map((h) => h.playlist.id));
 
   const openTarget = useCallback(() => {
     if (target) openPlaylist(target.id);
@@ -487,7 +552,7 @@ export function useCollect({
     pickerAnchor,
     setPickerOpen,
     held,
-    sending,
+    shipStatuses,
     send,
     openPlaylist,
     openTarget,

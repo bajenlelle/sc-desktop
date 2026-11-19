@@ -87,6 +87,8 @@ export interface ShipOptions {
   toastId?: string;
   /** What to say when clips went up; the editor's "Clips uploaded to …" otherwise. */
   success?: (shipped: number, total: number) => { title: string; description?: string };
+  /** Says nothing when every clip went up (the game view's background send); failures are still said. */
+  quiet?: boolean;
 }
 
 /**
@@ -113,6 +115,9 @@ export async function shipPlaylistClips(target: Playlist, opts: ShipOptions): Pr
         `${result.failures.length} of ${total} clips in "${target.name}" didn't upload`,
         { id: toastId, description: "Recipients can't see these clips yet — try again from Shared by me." },
       );
+    } else if (result.shipped > 0 && opts.quiet) {
+      if (toastId) toast.dismiss(toastId);
+      trackEvent("playlist_shipped", { playlist_id: target.id, clip_count: uploadedCount });
     } else if (result.shipped > 0) {
       // Silent when everything was already in the cloud (idempotent re-run).
       const said = opts.success?.(result.shipped, total) ?? {
