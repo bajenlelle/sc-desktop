@@ -419,24 +419,42 @@ on the selection when that row is in it.
   one named after the game. The target doesn't change. The menu is one
   `ContextMenu` around the list (`game-play-menu.tsx`), not one per row, so
   adding doesn't redraw every row; markers and headers have none.
-- **A playlist players already have**: the add is the same write. The control
-  counts, per shared playlist, the clips players don't have yet: the target's,
-  and any shared playlist holding one of this game's clips without a file
-  (`heldForPlayers` in `packages/shared/lib/playlist-sharing.ts`). It is read
-  from the playlists, so it survives leaving the page. One playlist: "Send n
-  clips" cuts and uploads them from here, without leaving the game, through
-  the editor's own path (`apps/desktop/src/lib/ship-clips.ts`, which the
-  editor's deferred ship also runs): the writes still out for that playlist
-  land first, the footage and plays of any other game in the playlist are
-  read, one toast carries the progress and ends on "Sent n clips to
-  {playlist}", a failure is said as the editor says it, and the count comes
-  down as the files land. Several: the same button opens a menu of them.
-  "Open playlist" opens the target in the editor whenever there is one; it
-  uploads nothing on arrival. Players' feeds skip clips with no uploaded
-  file, so they see nothing until then. Both leave the game only through
-  "Open playlist", which hands the editor the way back (`state.from`, the
-  "‹ {game}" button in the editor's toolbar; so does Details' "Build a
-  playlist").
+- **A playlist players already have**: the add is the same write, and the
+  clips go out by themselves, with no Send to remember. Each add to a shared
+  playlist schedules its send (`packages/shared/lib/ship-scheduler.ts`, one
+  scheduler for the app in `apps/desktop/src/lib/background-ship.ts`): 30 s
+  after the last add (`SHIP_IDLE_MS`), at once when the target changes, and
+  at once when the game is left (another tab or page). A quiet spell, not
+  every add, because each clip is cut with x264 on this computer while the
+  coach is watching; it also leaves an Undo time to take a clip back before
+  it is sent, since the send reads what the server holds when it runs. One
+  send per playlist at a time; adds during it go in the next. The cut and
+  upload are the editor's own path (`apps/desktop/src/lib/ship-clips.ts`):
+  the writes still out land first, the footage and plays of other games in
+  the playlist are read, and a failure is said as the editor says it.
+  Signing out drops whatever waits.
+- **The control says where the clips stand**, in place of a Send button
+  (`packages/shared/lib/ship-pill.ts`), counting per shared playlist the
+  clips players don't have yet (`heldForPlayers` in
+  `packages/shared/lib/playlist-sharing.ts`: the target's, and any shared
+  playlist holding one of this game's clips without a file): "3 clips
+  waiting" (a press sends now), "Sending 2 of 3", or "Send 3 clips" for
+  clips that didn't go or were left from an earlier visit (the app closed,
+  a failure). Those are never sent by themselves: a missing video would
+  otherwise fail again on every visit. A playlist other than the target is
+  named ("3 clips waiting in A"), so it is never read as the one beside
+  "Adding to". Several playlists: one button with the total opens a menu of
+  them. On the page the control carries the progress and a toast says "Sent
+  n clips to {playlist}"; a send still running after the game was left
+  carries its progress in a toast wherever the coach went.
+- **The editor waits for it**: a ship the editor arms for a playlist the
+  game view is sending waits until that send ends, and the files it put up
+  are patched into the editor's copy (`onUploaded`), so nothing is cut
+  twice. "Open playlist" opens the target in the editor whenever there is
+  one, and hands it the way back (`state.from`, the "‹ {game}" button in
+  the editor's toolbar; so does Details' "Build a playlist"). Players'
+  feeds skip clips with no uploaded file, so they see a clip once it is
+  sent.
 - Labels are independent of collecting: label now, build later through the
   label filter in Add clips.
 

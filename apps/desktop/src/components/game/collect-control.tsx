@@ -19,11 +19,11 @@ import type { Collect } from "./use-collect";
  * list puts the playlists that already hold this game's clips first, and its
  * "Search or create…" field doubles as the name of a new one, offered as
  * Create "name" once typed (the editor's "Add to another playlist"). Beside
- * it, "Open playlist" opens the target in the editor (with the way back here), and "Send n clips" cuts and
- * uploads, without leaving the game, the clips players don't have yet, while
- * any shared playlist holding this game's plays has such clips; with several
- * such playlists, that button opens a menu of them. While a send runs, the
- * button shows it and takes no second press.
+ * it, "Open playlist" opens the target in the editor (with the way back
+ * here). While a shared playlist holding this game's plays has clips players
+ * don't have yet, a button says where they stand (`shipPill`): waiting for a
+ * quiet spell (a press sends now), sending, or not sent ("Send n clips");
+ * with several such playlists, one button opens a menu of them.
  */
 export function CollectControl({ collect, highlight }: { collect: Collect; highlight?: boolean }) {
   const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, held, shipStatuses } = collect;

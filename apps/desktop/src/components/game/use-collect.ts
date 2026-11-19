@@ -57,10 +57,12 @@ export function forgetPlaylistsRead(): void {
  * write goes from, and adds shown on the earlier list are shown again on the
  * fresh one.
  *
- * When players already have a playlist, the new clips are held: `held`
- * counts them per shared playlist, and `send` cuts and uploads them from
- * here, without leaving the game (`lib/ship-clips.ts`, the editor's path).
- * `openPlaylist` opens one in the editor, with the way back to this game.
+ * When players already have a playlist, its new clips go out by themselves:
+ * an add schedules the send (`lib/background-ship.ts`), which runs after a
+ * quiet spell, on a change of target, or as the game is left. `held` counts
+ * the clips players don't have yet per shared playlist, `shipStatuses` says
+ * where each send stands, and `send` sends one now. `openPlaylist` opens a
+ * playlist in the editor, with the way back to this game.
  */
 export function useCollect({
   match,
