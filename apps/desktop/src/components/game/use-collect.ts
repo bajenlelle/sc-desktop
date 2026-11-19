@@ -108,8 +108,6 @@ export function useCollect({
   const [addedTotal, setAddedTotal] = useState(0);
   /** Shared playlists this visit scheduled a send for: they go out at once when the visit ends. */
   const scheduledHere = useRef(new Set<string>());
-  /** False once the page has gone: a send still running then says its progress in a toast. */
-  const mountedRef = useRef(true);
   const pendingRef = useRef<{ plays: readonly TimedPlay[]; via: CollectVia; moment: string | null; onAdded?: () => void } | null>(null);
   /** What the server holds for each playlist: the base every write goes from. */
   const saved = useRef(new Map<string, PlaylistItem[]>());
@@ -154,10 +152,8 @@ export function useCollect({
 
   // Leaving the game (another tab, another page) sends what this visit added to shared playlists now.
   useEffect(() => {
-    mountedRef.current = true;
     const ids = scheduledHere.current;
     return () => {
-      mountedRef.current = false;
       for (const id of ids) void shipScheduler.flush(id, "leave");
     };
   }, []);
@@ -255,23 +251,20 @@ export function useCollect({
   /**
    * The send of a shared playlist's clips with no file, for the scheduler.
    * It reads what to send when it runs (after the writes still out), so a
-   * clip taken back meanwhile is never cut. On the page the control shows its
-   * progress; once the page has gone, a toast does. Its outcome is said as
-   * the editor says it.
+   * clip taken back meanwhile is never cut. Quiet when it works: the control
+   * shows a small ring while it runs, and nothing says "sent". A failure is
+   * said as the editor says it, on the page or wherever the coach went.
    */
   const shipJob = useCallback(
     (playlist: Playlist): ShipJob =>
       async ({ trigger, report }) => {
-        const id = `${COLLECT_TOAST}-send-${playlist.id}`;
-        const loud = !mountedRef.current;
         try {
           await (chains.get(playlist.id) ?? Promise.resolve());
           // What the server holds, so a clip whose add is still out is never cut without its row.
           const items = saved.current.get(playlist.id) ?? playlist.items;
           const count = items.filter((i) => isClipItem(i) && !i.r2Url).length;
           if (count === 0) return "sent";
-          trackEvent("collect_sent", { clips: count, target: playlist.id === targetIdRef.current, in_place: !loud, trigger });
-          if (loud) toast.loading(`Sending ${count} ${count === 1 ? "clip" : "clips"} to ${playlist.name}…`, { id });
+          trackEvent("collect_sent", { clips: count, target: playlist.id === targetIdRef.current, trigger });
           const toShip: Playlist = { ...playlist, items };
           // Every game in the playlist read now, this one too: a sync fixed while the clips waited is the one they are cut with.
           const ids = [...new Set(items.filter(isClipItem).map((c) => c.matchId))];
@@ -280,7 +273,7 @@ export function useCollect({
           const matchLookup = new Map(games.map((m) => [m.id, m]));
           const demoBlock = demoShipBlockReason(toShip, matchLookup);
           if (demoBlock) {
-            toast.error("Couldn't send the clips", { id: loud ? id : undefined, description: demoBlock });
+            toast.error("Couldn't send the clips", { description: demoBlock });
             return "failed";
           }
           const eventByKey = eventLookup(games);
@@ -291,11 +284,8 @@ export function useCollect({
             eventByKey,
             preRoll: DEFAULT_PRE_ROLL,
             postRoll: DEFAULT_POST_ROLL,
-            toastId: loud ? id : undefined,
-            onProgress: (done, total) => {
-              report(done, total);
-              if (loud) toast.loading(`Sending clips to ${playlist.name} · ${done} of ${total}`, { id });
-            },
+            quiet: true,
+            onProgress: report,
             onUploaded: (uploaded) => {
               // This visit's saved copy learns the files even once the page has gone; the shown copies (here and in
               // any other game view or the editor) learn them through the bus.
@@ -303,7 +293,6 @@ export function useCollect({
               if (base) saved.current.set(playlist.id, withUploadedFiles(base, uploaded));
               emitUploaded(playlist.id, uploaded);
             },
-            success: (shipped) => ({ title: `Sent ${shipped} ${shipped === 1 ? "clip" : "clips"} to ${playlist.name}` }),
           });
           if (stuck.count > 0) {
             toast.error(`${stuck.count} ${stuck.count === 1 ? "clip" : "clips"} in ${playlist.name} can't be sent yet`, {
@@ -314,7 +303,7 @@ export function useCollect({
           return result && result.failures.length === 0 ? "sent" : "failed";
         } catch (e) {
           Sentry.captureException(e);
-          toast.error("Couldn't send the clips", { id: loud ? id : undefined, description: e instanceof Error ? e.message : String(e) });
+          toast.error("Couldn't send the clips", { description: e instanceof Error ? e.message : String(e) });
           return "failed";
         }
       },
@@ -403,7 +392,7 @@ export function useCollect({
         id: COLLECT_TOAST,
         // Sonner's own description grey is unreadable on the dark themes.
         description: sayHeld
-          ? createElement("span", { className: "text-muted-foreground" }, "Players get new clips once you pause adding or leave the game.")
+          ? createElement("span", { className: "text-muted-foreground" }, "Players get new clips automatically.")
           : undefined,
         action: { label: "Undo", onClick: () => undo(playlist, keys, "toast") },
       });

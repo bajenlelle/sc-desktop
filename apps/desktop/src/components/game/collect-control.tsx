@@ -1,10 +1,9 @@
 import * as React from "react";
-import { Check, ChevronDown, ChevronsUpDown, Clock, ListPlus, Loader2, Plus, Send } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, ListPlus, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
-import { shipPhase, shipPill, type ShipPillPhase } from "@scoutable/shared/lib/ship-pill";
+import { shipIndicator } from "@scoutable/shared/lib/ship-pill";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchField } from "@/components/ui/search-field";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -20,10 +19,11 @@ import type { Collect } from "./use-collect";
  * "Search or create…" field doubles as the name of a new one, offered as
  * Create "name" once typed (the editor's "Add to another playlist"). Beside
  * it, "Open playlist" opens the target in the editor (with the way back
- * here). While a shared playlist holding this game's plays has clips players
- * don't have yet, a button says where they stand (`shipPill`): waiting for a
- * quiet spell (a press sends now), sending, or not sent ("Send n clips");
- * with several such playlists, one button opens a menu of them.
+ * here). Clips for players go out by themselves, so their state stays quiet
+ * (`shipIndicator`): nothing while they wait, a small ring on the count while
+ * the target's are sent (beside the control for another playlist), and only
+ * clips that didn't go ask for the coach: "n not sent", whose popover sends
+ * them again.
  */
 export function CollectControl({ collect, highlight }: { collect: Collect; highlight?: boolean }) {
   const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, held, shipStatuses } = collect;
@@ -56,8 +56,9 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
   }
 
   const clipCount = target ? target.items.filter((i) => i.type === "clip").length : 0;
-  const pill = shipPill(held, shipStatuses, target?.id ?? null);
-  const unsentOf = (id: string) => held.find((h) => h.playlist.id === id);
+  const { sending, unsent } = shipIndicator(held, shipStatuses, target?.id ?? null);
+  const sendingHere = sending?.onTarget ? sending : null;
+  const sendingElsewhere = sending && !sending.onTarget ? sending : null;
 
   return (
     <>
@@ -72,7 +73,11 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label={target ? `Adding to ${target.name}. Change playlist` : "Choose the playlist to add plays to"}
+            aria-label={
+              target
+                ? `Adding to ${target.name}.${sendingHere ? ` ${sendingHere.label}.` : ""} Change playlist`
+                : "Choose the playlist to add plays to"
+            }
             className={cn(
               "inline-flex h-8 max-w-64 min-w-0 items-center gap-1.5 rounded-md bg-card pr-1.5 pl-2.5 text-sm shadow-xs ring-1 ring-separator outline-none",
               "transition-[background-color,transform,box-shadow] duration-100 hover:bg-fill-1 active:scale-[0.98] active:bg-fill-2 data-[state=open]:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
@@ -84,7 +89,19 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
               <>
                 <span className="shrink-0 text-muted-foreground">Adding to</span>
                 <span className="min-w-0 truncate font-medium">{target.name}</span>
-                <span className="shrink-0 rounded-full bg-fill-2 px-1.5 text-xs nums text-muted-foreground">{clipCount}</span>
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-fill-2 px-1.5 text-xs nums text-muted-foreground">
+                  {sendingHere && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <SendRing done={sendingHere.done} total={sendingHere.total} />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>{sendingHere.label}</TooltipContent>
+                    </Tooltip>
+                  )}
+                  {clipCount}
+                </span>
               </>
             ) : (
               <>
@@ -156,70 +173,76 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
           Open playlist
         </Button>
       )}
-      {pill === null ? null : pill.kind === "several" ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm" variant={pill.worst === "unsent" ? "default" : "outline"}>
-              <PhaseIcon phase={pill.worst} />
-              {pill.label}
-              <ChevronDown />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuLabel>Not sent yet</DropdownMenuLabel>
-            {held.map(({ playlist, count }) => {
-              const phase = shipPhase(shipStatuses.get(playlist.id));
-              return (
-                <DropdownMenuItem key={playlist.id} disabled={phase === "sending"} onSelect={() => void collect.send(playlist.id)}>
-                  <PhaseIcon phase={phase} />
-                  <span className="min-w-0 flex-1 truncate">{playlist.name}</span>
-                  <span className="shrink-0 text-xs nums text-muted-foreground">
-                    {phase === "sending" ? "Sending…" : phase === "waiting" ? `${count} waiting` : count}
-                  </span>
-                </DropdownMenuItem>
-              );
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : pill.kind === "sending" ? (
-        <Button size="sm" variant="outline" disabled>
-          <Loader2 className="animate-spin" />
-          <span className="max-w-56 truncate">{pill.label}</span>
-        </Button>
-      ) : pill.kind === "waiting" ? (
+      {sendingElsewhere && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button size="sm" variant="outline" onClick={() => void collect.send(pill.playlistId)}>
-              <Clock />
-              <span className="max-w-56 truncate">{pill.label}</span>
-            </Button>
+            <span role="status" aria-label={sendingElsewhere.label} className="inline-flex size-8 items-center justify-center text-muted-foreground">
+              <SendRing done={sendingElsewhere.done} total={sendingElsewhere.total} />
+            </span>
           </TooltipTrigger>
-          <TooltipContent>Players get these once you pause adding, switch playlist or leave the game. Click to send now.</TooltipContent>
+          <TooltipContent>{sendingElsewhere.label}</TooltipContent>
         </Tooltip>
-      ) : (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button size="sm" onClick={() => void collect.send(pill.playlistId)}>
-              <Send />
-              <span className="max-w-56 truncate">{pill.label}</span>
+      )}
+      {unsent && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="outline" className="text-warning">
+              <AlertTriangle />
+              {unsent.label}
             </Button>
-          </TooltipTrigger>
-          <TooltipContent>{heldTooltip(unsentOf(pill.playlistId)?.playlist.name ?? "", unsentOf(pill.playlistId)?.count ?? 0)}</TooltipContent>
-        </Tooltip>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-72 p-0">
+            <div className="px-3 pt-3 pb-2">
+              <p className="text-headline">Not sent to players</p>
+              <p className="text-subheadline text-muted-foreground">
+                Players don't have these clips yet. If sending fails again, check the game's sync and its video file.
+              </p>
+            </div>
+            <div className="px-1 pb-1">
+              {unsent.playlists.map((pl) => (
+                <div key={pl.id} className="flex h-9 items-center gap-2 rounded-md px-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate">{pl.name}</span>
+                  <span className="shrink-0 text-xs nums text-muted-foreground">{pl.count}</span>
+                  <Button size="xs" variant="outline" onClick={() => void collect.send(pl.id)}>
+                    Send again
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
       )}
     </>
   );
 }
 
-/** Waiting: a clock. Sending: a spinner. Not sent: the send arrow. */
-function PhaseIcon({ phase }: { phase: ShipPillPhase }) {
-  if (phase === "sending") return <Loader2 className="animate-spin" />;
-  if (phase === "waiting") return <Clock />;
-  return <Send />;
-}
-
-function heldTooltip(name: string, n: number): string {
-  return `Players have ${name}. ${n === 1 ? "1 clip isn't" : `${n} clips aren't`} sent yet: this cuts and uploads ${n === 1 ? "it" : "them"} from here.`;
+/**
+ * A send in progress, as quiet as a progress glyph gets: a 12 px ring that
+ * fills as clips go up, spinning (when motion is allowed) until the first
+ * one has.
+ */
+function SendRing({ done, total }: { done: number; total: number }) {
+  const r = 4.5;
+  const length = 2 * Math.PI * r;
+  const share = total > 0 ? done / total : 0;
+  const arc = share > 0 ? Math.max(0.08, share) * length : 0.25 * length;
+  return (
+    <svg viewBox="0 0 12 12" className={cn("size-3 shrink-0", share === 0 && "motion-safe:animate-spin")} aria-hidden="true">
+      <circle cx="6" cy="6" r={r} fill="none" stroke="currentColor" strokeOpacity={0.25} strokeWidth={1.6} />
+      <circle
+        cx="6"
+        cy="6"
+        r={r}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeDasharray={`${arc} ${length}`}
+        transform="rotate(-90 6 6)"
+        className="transition-[stroke-dasharray] duration-300 ease-out"
+      />
+    </svg>
+  );
 }
 
 function PlaylistOption({ playlist, selected, onChoose }: { playlist: Playlist; selected: boolean; onChoose: () => void }) {

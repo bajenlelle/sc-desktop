@@ -441,20 +441,23 @@ on the selection when that row is in it.
   (`unsendableClips` in `packages/shared/lib/held-clips.ts`). The files a
   send put up reach every copy on screen (`onUploaded`): another game
   view's too, so a tab switch mid-send never cuts them twice.
-- **The control says where the clips stand**, in place of a Send button
-  (`packages/shared/lib/ship-pill.ts`), counting per shared playlist the
-  clips players don't have yet (`heldForPlayers` in
+- **Quiet unless the coach is needed** (`packages/shared/lib/ship-pill.ts`,
+  the Apple-design rule that status takes little room and only warnings and
+  errors ask for attention). Clips waiting for the quiet spell show nothing:
+  the first add to a shared playlist says once "Players get new clips
+  automatically." A send in progress is a 12 px ring on the "Adding to"
+  count, filling as clips go up, its words in a tooltip ("Sending 2 of 3
+  clips to players"); for another playlist (after a switch) the same ring
+  stands beside the control, its tooltip naming that playlist. A send that
+  works says nothing (`quiet` in `shipPlaylistClips`). Clips that didn't go,
+  or were left from an earlier visit (the app closed, a failure), show "n
+  not sent" in the warning color; its popover lists the playlists, each with
+  "Send again". They are never sent by themselves: a missing video would
+  otherwise fail again on every visit. They are counted per shared playlist
+  from the clips players don't have yet (`heldForPlayers` in
   `packages/shared/lib/playlist-sharing.ts`: the target's, and any shared
-  playlist holding one of this game's clips without a file): "3 clips
-  waiting" (a press sends now), "Sending 2 of 3", or "Send 3 clips" for
-  clips that didn't go or were left from an earlier visit (the app closed,
-  a failure). Those are never sent by themselves: a missing video would
-  otherwise fail again on every visit. A playlist other than the target is
-  named ("3 clips waiting in A"), so it is never read as the one beside
-  "Adding to". Several playlists: one button with the total opens a menu of
-  them. On the page the control carries the progress and a toast says "Sent
-  n clips to {playlist}"; a send still running after the game was left
-  carries its progress in a toast wherever the coach went.
+  playlist holding one of this game's clips without a file). A failure is
+  said in a toast wherever the coach is.
 - **The editor waits for it**: a ship the editor arms for a playlist the
   game view is sending waits until that send ends, and the files it put up
   are patched into the editor's copy (`onUploaded`), so nothing is cut
