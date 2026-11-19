@@ -17,7 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useTheme } from "next-themes";
-import { isBrowserShortcut, menuIdForChord } from "@scoutable/shared/lib/menu-shortcuts";
+import { GO_PAGES, goKeyOrder, isBrowserShortcut, menuIdForChord, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
 import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { interactiveUpdateCheck } from "@/lib/updates";
@@ -25,6 +25,7 @@ import { IS_MACOS } from "@/lib/platform";
 import { menuAppearanceFor } from "@scoutable/shared/lib/appearance";
 import { toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar-store";
 import { toggleBrowser, useBrowserCollapsed } from "@/lib/playlist-browser-store";
+import { toggleQuickSearch } from "@/lib/quick-search-store";
 
 const ZOOM_KEY = "scoutable_zoom";
 const ZOOM_MIN = 0.5;
@@ -38,7 +39,7 @@ const ZOOM_STEP = 0.1;
 const HAS_NATIVE_MENU = IS_MACOS;
 
 /** Items only coaches/admins can use (mirrors the sidebar's gating). */
-const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-library"];
+const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-reports", "go-library", "search"];
 
 /** Mirror of each item's native enablement, consulted by the keyboard fallback. */
 const enabledIds = new Map<string, boolean>();
@@ -53,6 +54,49 @@ function setEnabled(id: string, enabled: boolean) {
   invoke("menu_set_enabled", { id, enabled }).catch(() => {});
 }
 
+// Until the game page has two tabs there is no tab for ⌘W (Ctrl+W) to close.
+enabledIds.set("close-tab", false);
+/** What the native menu was last told about the tabs; undefined until this page has told it anything. */
+let gameTabsShownSent: boolean | undefined;
+
+/**
+ * Whether there is a tab to close: the game page has two tabs or more (components/game/game-tab-bar.tsx; with
+ * one game its tab is there, but there is no other game to go to). While there is, the File menu has Close Tab
+ * on ⌘W and Close Window on ⇧⌘W, as Safari does; otherwise ⌘W closes the window (src-tauri/src/menu.rs swaps
+ * the two). Where there is no menu bar the same flag gates Ctrl+W.
+ */
+export function setCloseTabInMenu(shown: boolean) {
+  // The first call after the page loads always goes through: the native menu outlives a reload of the webview,
+  // and may still be as the page before it left it. The native side ignores a call that changes nothing.
+  if (gameTabsShownSent === shown) return;
+  gameTabsShownSent = shown;
+  enabledIds.set("close-tab", shown);
+  invoke("menu_game_tabs", { shown }).catch(() => {});
+}
+
+// Until a tab has been closed there is none to reopen.
+enabledIds.set("reopen-game-tab", false);
+
+/** Whether there is a closed game tab for Reopen Closed Tab (⇧⌘T, Ctrl+Shift+T) to bring back. */
+export function setReopenGameTabEnabled(enabled: boolean) {
+  if (enabledIds.get("reopen-game-tab") === enabled) return;
+  setEnabled("reopen-game-tab", enabled);
+}
+
+/** Which page each number key opens now (`goKeyOrder`): ⌘ or Ctrl with n is the nth row the sidebar shows. */
+let goKeys: readonly GoPage[] = GO_PAGES;
+/** What the native menu was last told; undefined until this page has told it anything (it outlives a reload). */
+let goKeysSent: string | undefined;
+
+/** The sidebar shows these rows now: the keyboard fallback reads the order, and the native menu moves its keys. */
+function setGoKeys(order: readonly GoPage[]) {
+  goKeys = order;
+  const sent = order.join(",");
+  if (goKeysSent === sent) return;
+  goKeysSent = sent;
+  invoke("menu_set_go_keys", { order }).catch(() => {});
+}
+
 /** A Show/Hide item says what it will do, so its title follows the panel. */
 function setText(id: string, text: string) {
   invoke("menu_set_text", { id, text }).catch(() => {});
@@ -61,7 +105,7 @@ function setText(id: string, text: string) {
 export function MenuHandler() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { user, activeOrgRole, activeOrgIsPersonal, activeOrgCanManage } = useAuth();
+  const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal, activeOrgCanManage, profileLoading } = useAuth();
   const { theme, setTheme } = useTheme();
   const zoomRef = useRef(storedZoom());
 
@@ -91,6 +135,10 @@ export function MenuHandler() {
         case "settings":
           navigate("/settings");
           break;
+        // The search over the space: ⌘K, Ctrl+K or Go > Search…. The chord also closes it.
+        case "search":
+          toggleQuickSearch("shortcut");
+          break;
         case "add-game":
           navigate("/upload");
           break;
@@ -99,6 +147,9 @@ export function MenuHandler() {
           break;
         case "go-playlists":
           navigate("/playlists");
+          break;
+        case "go-reports":
+          navigate("/reports");
           break;
         case "go-my-playlists":
           navigate("/my-playlists");
@@ -124,6 +175,21 @@ export function MenuHandler() {
           break;
         case "fullscreen-player":
           window.dispatchEvent(new CustomEvent("player-fullscreen-toggle"));
+          break;
+        case "game-tab-prev":
+          window.dispatchEvent(new CustomEvent("menu-game-tab", { detail: -1 }));
+          break;
+        case "game-tab-next":
+          window.dispatchEvent(new CustomEvent("menu-game-tab", { detail: 1 }));
+          break;
+        case "close-tab":
+          window.dispatchEvent(new CustomEvent("menu-close-game-tab"));
+          break;
+        case "new-game-tab":
+          window.dispatchEvent(new CustomEvent("menu-new-game-tab"));
+          break;
+        case "reopen-game-tab":
+          window.dispatchEvent(new CustomEvent("menu-reopen-game-tab"));
           break;
         case "send-feedback":
           window.dispatchEvent(new CustomEvent("menu-send-feedback"));
@@ -168,11 +234,13 @@ export function MenuHandler() {
         e.preventDefault();
         return;
       }
-      const id = menuIdForChord(e);
+      const id = menuIdForChord(e, goKeys);
       // Unknown ids are enabled, like a fresh native item; export-playlist is
       // gated by the playlists page's own listener instead.
       if (!id || enabledIds.get(id) === false) return;
       e.preventDefault();
+      // A held chord opens the search once: its repeats would close it and open it again.
+      if (e.repeat && id === "search") return;
       runMenuAction(id);
     }
 
@@ -205,10 +273,23 @@ export function MenuHandler() {
     setEnabled("sign-out", !!user);
   }, [user, isCoachOrAdmin, activeOrgIsPersonal, activeOrgCanManage]);
 
+  // The number keys follow the sidebar: ⌘n (Ctrl+n) opens its nth row. Told once the space and the role
+  // are known, so the keys don't pass through a sidebar nobody sees on the way.
   useEffect(() => {
+    if (!user || profileLoading || !activeOrgId) return;
+    setGoKeys(goKeyOrder({ staff: isCoachOrAdmin, personal: activeOrgIsPersonal }));
+  }, [user, profileLoading, activeOrgId, isCoachOrAdmin, activeOrgIsPersonal]);
+
+  useEffect(() => {
+    const onGame = /^\/matches\/[^/]+$/.test(pathname);
     setEnabled("toggle-playlist-browser", pathname === "/playlists");
-    // Both players: the editor and the watch view of a shared playlist.
-    setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists");
+    // Every player: the editor, the watch view of a shared playlist, and the game view.
+    setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists" || onGame);
+    // The game page's tabs (components/game/game-tab-bar.tsx listens for "menu-game-tab").
+    setEnabled("game-tab-prev", onGame);
+    setEnabled("game-tab-next", onGame);
+    // New Tab opens the game page's picker; there is nowhere to open it from elsewhere.
+    setEnabled("new-game-tab", onGame);
     // Export is enabled by pages/playlists.tsx while a playlist is open;
     // everywhere else it must be off. On the page itself the mirror must not
     // keep a stale "off" — the page decides, through its own listener.

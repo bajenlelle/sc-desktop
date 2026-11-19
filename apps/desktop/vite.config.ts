@@ -92,7 +92,9 @@ export default defineConfig(async ({ mode }) => {
       hmr: host
         ? { protocol: "ws", host, port: 1421 }
         : undefined,
-      watch: { ignored: ["**/src-tauri/**"] },
+      // headless/out: a headless run's state file, screenshots and traces. Watched, each write
+      // reloaded the page of a `tauri dev` running from the same checkout.
+      watch: { ignored: ["**/src-tauri/**", "**/headless/out/**"] },
       ...(headless && { fs: { allow: [searchForWorkspaceRoot(__dirname), HEADLESS_FIXTURES] } }),
     },
     resolve: {

@@ -15,3 +15,4 @@ export const saveReportDraft = (playlistId: string, draft: ReportDraft) => db.sa
 export const deleteReportDraft = (playlistId: string) => db.deleteReportDraft(c(), playlistId);
 export const listReportDraftPlaylistIds = () => db.listReportDraftPlaylistIds(c());
 export const listReportDrafts = () => db.listReportDrafts(c());
+export const listReportDraftTitles = () => db.listReportDraftTitles(c());

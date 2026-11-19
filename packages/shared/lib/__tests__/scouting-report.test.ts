@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildScoutingReport, clampReportTitle, clipKeyFromUrl, reportContentKey, reportJumpItems, reportOutline, type BuildReportInput, type ReportClip } from "../scouting-report";
+import { buildScoutingReport, clampReportTitle, clipKeyFromUrl, parseScoutingReport, reportContentKey, reportJumpItems, reportOutline, type BuildReportInput, type ReportClip } from "../scouting-report";
 import type { DrawingShape } from "../clip-drawing";
 import { LEFT_OUT, addSections, emptyDraft, moveClip, setIntro, setNote, setOpponent, setStats, setTitle, type ReportDraft } from "../report-draft";
 import type { SeasonStatsCard, StatsCardPlayer } from "../stats-card";
@@ -369,5 +369,26 @@ describe("reportJumpItems", () => {
 
   it("is empty for a report with no sections", () => {
     expect(reportJumpItems([])).toEqual([]);
+  });
+});
+
+describe("player photos in the report", () => {
+  const KEY = "players/genius/1/c11717f1afeaf08cf4d0ce32405d92e6-S1.jpg";
+
+  it("carries a player's photo key into the snapshot and back through the parser", () => {
+    const photos = new Map([["1", KEY], ["2", "https://evil.example/x.jpg"]]);
+    const { report } = buildScoutingReport(input(twoPlayers(), [clip("m1", 3), clip("m1", 1)], { photos }));
+    expect(report.sections[0].player).toEqual({ id: "1", name: "Alva Berg", number: "7", teamName: "Bajen Basket", photoKey: KEY });
+    // Not one of ours → left out.
+    expect(report.sections[1].player).not.toHaveProperty("photoKey");
+    const parsed = parseScoutingReport(JSON.parse(JSON.stringify(report)));
+    expect(parsed?.sections[0].player?.photoKey).toBe(KEY);
+    expect(parsed?.sections[1].player).not.toHaveProperty("photoKey");
+  });
+
+  it("leaves reports without photos as they were", () => {
+    const { report, contentKey } = buildScoutingReport(input(twoPlayers(), [clip("m1", 1)]));
+    expect(report.sections[0].player).not.toHaveProperty("photoKey");
+    expect(buildScoutingReport(input(twoPlayers(), [clip("m1", 1)], { photos: new Map() })).contentKey).toBe(contentKey);
   });
 });

@@ -72,12 +72,24 @@ function SheetContent({
               className="fixed inset-0 z-50 bg-black/35"
             />
           </DialogPrimitive.Overlay>
+          {/* With the overlay title bar nothing is draggable unless it says so,
+              so a sheet would pin the window. The strip stays childless (Tauri
+              starts the drag only when the target itself has the attribute) and
+              pointer-events-auto, because a modal dialog sets pointer-events:
+              none on the body. */}
+          <div
+            data-tauri-drag-region
+            aria-hidden
+            className="pointer-events-auto fixed inset-x-0 top-0 z-50 h-[var(--titlebar-inset)]"
+          />
           <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center px-4 pt-[calc(var(--titlebar-inset)+0.75rem)] pb-4">
             <DialogPrimitive.Content
               forceMount
               asChild
               onInteractOutside={(e) => {
                 if (pointerInside.current) e.preventDefault()
+                const t = e.detail.originalEvent.target
+                if (t instanceof Element && t.closest("[data-tauri-drag-region]")) e.preventDefault()
                 onInteractOutside?.(e)
               }}
               {...props}

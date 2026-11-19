@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { Sentry } from "@/lib/sentry";
 import { clipAndShip } from "@/lib/clip-and-ship";
+import { shipScheduler } from "@/lib/background-ship";
 import { isLocalPath } from "@/lib/stream";
 import { probeVideoPath } from "@/lib/video-probe";
 import { createClient } from "@/lib/supabase/client";
@@ -111,6 +112,10 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
   const signal = runs.start(match.id);
   const toastId = `sync-clips-${match.id}`;
   try {
+    // A game view send still cutting with the old sync finishes first, so the clips it puts up are among those
+    // re-cut here; sends still waiting read the game when they run, and so cut with the new sync.
+    await shipScheduler.idle();
+    if (signal.aborted) return;
     const result = await followSyncChange(createClient(), match, before, signal, {
       canCut: canCutHere,
       recut: (group, done, total) => recutGroup(match, after, group, done, total, signal, toastId),

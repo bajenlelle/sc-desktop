@@ -50,6 +50,7 @@ import { ReportDocument, clipDomSelector, sectionDomId, type SectionStatsContext
 import { ReportOutline, type MoveVia, type OutlineClipInfo, type OutlineSectionInfo } from "./report-outline";
 import { ReportPlayerPicker, type PickerConfirm } from "./report-player-picker";
 import { usePlayerStats, type StatsPerson } from "./use-player-stats";
+import { usePlayerPhotos } from "./use-player-photos";
 import { useReportDraft } from "./use-report-draft";
 
 export interface ReportViewProps {
@@ -143,6 +144,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const { boxScores, statsMatchIdOf, readPlayerStats, ensureBoxScores } = usePlayerStats({ statsClips, matchLookup, leagues });
 
   const taken = useMemo(() => new Set(draft?.sections.map((s) => s.player.id) ?? []), [draft?.sections]);
+  const photos = usePlayerPhotos(useMemo(() => [...taken], [taken]));
   const roster = useMemo(() => playerRoster({ items, eventByKey, matches: matchLookup, boxScores, taken }), [items, eventByKey, matchLookup, boxScores, taken]);
   const rosterById = useMemo(() => new Map(roster.map((p) => [p.playerId, p])), [roster]);
 
@@ -526,8 +528,9 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       title: effectiveTitle,
       opponent: effectiveOpponent,
       labelsByKey: props.labelNamesByClip,
+      photos,
     });
-  }, [draft, shareOpen, liveReport, items, eventByKey, matchLookup, effectiveTitle, effectiveOpponent, props.labelNamesByClip]);
+  }, [draft, shareOpen, liveReport, items, eventByKey, matchLookup, effectiveTitle, effectiveOpponent, props.labelNamesByClip, photos]);
   // The last one stays for the share sheet's closing animation.
   const lastBuilt = useRef(built);
   if (built) lastBuilt.current = built;
@@ -655,6 +658,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 statsLoading={statsLoading}
                 statsFailed={statsFailed}
                 statsContextOf={statsContextOf}
+                photos={photos}
                 onTitle={(t) => apply((d) => setTitle(d, t))}
                 onOpponent={(o) => apply((d) => setOpponent(d, o))}
                 onIntro={(i) => apply((d) => setIntro(d, i))}

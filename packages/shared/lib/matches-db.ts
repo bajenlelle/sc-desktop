@@ -12,6 +12,8 @@ import { applyOrgScope, clearLegacyShippedClipsForMatch, type OrgScopeOpts } fro
 import { reportDbError } from "./report";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 import { normalizeSyncPoint } from "./period-sync";
+import { normalizeGameMarks } from "./game-marks";
+import type { SearchGameRow } from "./quick-search";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -34,6 +36,10 @@ interface MatchRow {
   org_id: string | null;
   is_demo?: boolean;
   source_game_id?: string | null;
+  /** Absent on a database the game_marks migration hasn't reached. */
+  game_marks?: unknown;
+  /** Absent on a database the archive migration hasn't reached. */
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -108,6 +114,8 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     orgId: row.org_id ?? undefined,
     isDemo: row.is_demo ?? false,
     sourceGameId: row.source_game_id ?? undefined,
+    gameMarks: row.game_marks ? normalizeGameMarks(row.game_marks) : undefined,
+    archivedAt: row.archived_at ?? undefined,
     events: events.map(rowToEvent),
   };
 }
@@ -361,7 +369,13 @@ export async function listMatches(
  */
 const EVENTS_CACHE_MS = 60 * 60_000;
 const eventsCache = new Map<string, { at: number; events: PlayByPlayEvent[] }>();
-const eventsInflight = new Map<string, Promise<PlayByPlayEvent[] | undefined>>();
+/**
+ * A game's read in flight, shared by every caller asking for it meanwhile:
+ * its plays, "absent" when the read came back without it (RLS, or deleted),
+ * "failed" when the read itself failed.
+ */
+type GameRead = PlayByPlayEvent[] | "absent" | "failed";
+const eventsInflight = new Map<string, Promise<GameRead>>();
 
 /** The plays a caller needs, by game: event ids per match id. */
 export type RequiredPlays = ReadonlyMap<string, ReadonlySet<number>>;
@@ -390,17 +404,33 @@ export function invalidateMatchEvents(matchIds?: readonly string[]): void {
 /**
  * The play-by-play of these games, from the cache where it can. `required`
  * names the plays the caller will look up; a cached (or in-flight) list
- * missing any of them is read again rather than served.
+ * missing any of them is read again rather than served. A failed read
+ * leaves its games out (listEventsForMatchesChecked names them).
  */
 export async function listEventsForMatches(
   supabase: SupabaseClient,
   matchIds: string[],
   opts?: { required?: RequiredPlays },
 ): Promise<Record<string, PlayByPlayEvent[]>> {
-  if (matchIds.length === 0) return {};
+  return (await listEventsForMatchesChecked(supabase, matchIds, opts)).byMatch;
+}
+
+/**
+ * listEventsForMatches, also naming the games whose read failed (the query
+ * errored, for this caller or for the read it shared). A game the reader may
+ * not see, or that is gone, is absent from both: it was read, and has no
+ * plays to show. A failed game is never cached: the next call reads it again.
+ */
+export async function listEventsForMatchesChecked(
+  supabase: SupabaseClient,
+  matchIds: string[],
+  opts?: { required?: RequiredPlays },
+): Promise<{ byMatch: Record<string, PlayByPlayEvent[]>; failed: string[] }> {
+  if (matchIds.length === 0) return { byMatch: {}, failed: [] };
   const uid = await currentUserId(supabase);
   const required = opts?.required;
   const byMatch: Record<string, PlayByPlayEvent[]> = {};
+  const failed = new Set<string>();
 
   /** One read for these games; registers itself so concurrent callers share it. */
   const readGames = (ids: string[]): Promise<void> => {
@@ -418,7 +448,7 @@ export async function listEventsForMatches(
     })();
     for (const id of ids) {
       const key = `${uid}:${id}`;
-      const one = read.then((fetched) => fetched?.[id]);
+      const one: Promise<GameRead> = read.then((fetched) => (fetched ? fetched[id] ?? "absent" : "failed"));
       if (uid) {
         eventsInflight.set(key, one);
         void one.finally(() => {
@@ -427,7 +457,10 @@ export async function listEventsForMatches(
       }
     }
     return read.then((fetched) => {
-      if (!fetched) return;
+      if (!fetched) {
+        for (const id of ids) failed.add(id);
+        return;
+      }
       for (const [id, events] of Object.entries(fetched)) {
         byMatch[id] = events;
         // A game RLS didn't return isn't cached: the next call asks again.
@@ -451,9 +484,11 @@ export async function listEventsForMatches(
     const pending = uid ? eventsInflight.get(key) : undefined;
     if (pending) {
       waits.push(
-        pending.then((events) => {
-          if (events && coversPlays(events, required?.get(id))) byMatch[id] = events;
-          else if (events) again.push(id);
+        pending.then((got) => {
+          if (got === "failed") failed.add(id);
+          else if (got === "absent") return;
+          else if (coversPlays(got, required?.get(id))) byMatch[id] = got;
+          else again.push(id);
         }),
       );
     } else need.push(id);
@@ -461,7 +496,7 @@ export async function listEventsForMatches(
   if (need.length > 0) waits.push(readGames(need));
   await Promise.all(waits);
   if (again.length > 0) await readGames(again);
-  return byMatch;
+  return { byMatch, failed: [...failed] };
 }
 
 // ---------------------------------------------------------------------------
@@ -568,6 +603,31 @@ export async function deleteMatch(supabase: SupabaseClient, matchId: string): Pr
   await supabase.from("play_by_play_events").delete().eq("match_id", matchId);
   const { error } = await supabase.from("matches").delete().eq("id", matchId);
   if (error) throw new Error(`Failed to delete match: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Archive a match (hidden from the desktop's Library, Home and Add clips)
+// ---------------------------------------------------------------------------
+
+/** Archives the game (`archived: true`) or brings it back; returns the `archived_at` the database stored. */
+export async function setMatchArchived(
+  supabase: SupabaseClient,
+  matchId: string,
+  archived: boolean,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("matches")
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq("id", matchId)
+    .select("archived_at");
+  if (error) throw new Error(`Failed to change the game's archive state: ${error.message}`);
+  // Zero rows means RLS filtered the update away (not this user's game, or a
+  // stale id): without this check the game would look archived until the next
+  // load, as with updateVideoUrl.
+  if (!data || data.length === 0) {
+    throw new Error("The game wasn't changed — it may belong to another account.");
+  }
+  return (data[0] as { archived_at: string | null }).archived_at;
 }
 
 // ---------------------------------------------------------------------------
@@ -683,6 +743,48 @@ export async function listMatchesLight(
     if (opts?.withEventCount) match.eventCount = row.play_by_play_events?.[0]?.count ?? 0;
     return match;
   });
+}
+
+const MATCH_INDEX_COLUMNS = "id, title, game_date, home_team, away_team, created_at";
+
+/**
+ * The caller's games in the space as the search reads them
+ * (lib/quick-search.ts): the games the Library lists, with their titles,
+ * teams and dates, and none of the rosters, game marks or plays a full row
+ * carries. Throws when the read fails.
+ */
+export async function listMatchIndex(supabase: SupabaseClient, orgId?: string): Promise<SearchGameRow[]> {
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
+  const read = (columns: string) => {
+    const query = supabase.from("matches").select(columns).eq("user_id", uid);
+    return orgId ? query.eq("org_id", orgId) : query;
+  };
+  let { data, error } = await read(`${MATCH_INDEX_COLUMNS}, archived_at`);
+  // A database the archive migration (20261112100000) hasn't reached still lists its games, none of them archived.
+  if (error?.code === "42703") ({ data, error } = await read(MATCH_INDEX_COLUMNS));
+  if (error) {
+    reportDbError("listMatchIndex", error);
+    throw new Error(`Failed to load games: ${error.message}`);
+  }
+  type Row = {
+    id: string;
+    title: string;
+    game_date: string | null;
+    home_team: { name?: string } | null;
+    away_team: { name?: string } | null;
+    created_at: string | null;
+    archived_at?: string | null;
+  };
+  return ((data ?? []) as unknown as Row[]).map((r) => ({
+    id: r.id,
+    title: r.title,
+    date: r.game_date || null,
+    homeTeam: r.home_team?.name ?? "",
+    awayTeam: r.away_team?.name ?? "",
+    archivedAt: r.archived_at ?? null,
+    createdAt: r.created_at ?? null,
+  }));
 }
 
 /**

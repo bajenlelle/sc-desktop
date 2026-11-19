@@ -144,12 +144,32 @@ export function importedMatch(input: ImportInput): StoredMatch {
 }
 
 /**
+ * The coach picked an archived game again, so it belongs in the library. A
+ * write of its own, not part of saveMatch's upsert: on a database the archive
+ * migration hasn't reached it fails (and is reported) while the import goes
+ * through. Never throws.
+ */
+async function unarchiveOnReimport(sb: SupabaseClient, matchId: string, report?: (error: unknown) => void): Promise<void> {
+  let failure: Error | null = null;
+  try {
+    const { error } = await sb.from("matches").update({ archived_at: null }).eq("id", matchId).not("archived_at", "is", null);
+    if (error) failure = new Error(`Failed to unarchive re-imported game: ${error.message}`);
+  } catch (e) {
+    failure = e instanceof Error ? e : new Error(String(e));
+  }
+  if (!failure) return;
+  if (report) report(failure);
+  else reportDbError("unarchiveOnReimport", { message: failure.message });
+}
+
+/**
  * Saves the match; a re-import refreshes its plays in place (the league may
  * have corrected them; clips keep working, keyed on match and event). A
  * re-import of a synced game may have moved the sync: uploads that can't say
  * where they were cut stop being served (best effort, reported through
  * `opts.report` or reportDbError), and `followSync` tells the host to let
- * the rest follow (afterSyncChange).
+ * the rest follow (afterSyncChange). A re-import brings an archived game back
+ * to the library.
  */
 export async function importGame(
   sb: SupabaseClient,
@@ -158,6 +178,7 @@ export async function importGame(
   opts?: { report?: (error: unknown) => void },
 ): Promise<{ followSync: boolean }> {
   await saveMatch(sb, match, { refreshEvents: !!existing });
+  if (existing) await unarchiveOnReimport(sb, match.id, opts?.report);
   const followSync = !!(existing?.syncPoint && match.syncPoint);
   if (followSync) {
     void clearLegacyShippedClipsForMatch(sb, match.id).catch((e) => {

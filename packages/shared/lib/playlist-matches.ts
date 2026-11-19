@@ -4,7 +4,7 @@
  * separately-fetched events into light match shells, and club-badged team
  * maps for the aggregated player feed.
  */
-import { isClipItem, type Playlist, type PlayByPlayEvent, type StoredMatch } from '../types/match';
+import { isClipItem, type Playlist, type PlaylistItem, type PlayByPlayEvent, type StoredMatch } from '../types/match';
 import type { OrgTeam } from '../types/org';
 
 /**
@@ -71,6 +71,73 @@ export function collectClipMatchIds(playlists: Playlist[]): string[] {
  */
 export function missingClipMatchIds(playlists: Playlist[], knownIds: ReadonlySet<string>): string[] {
   return collectClipMatchIds(playlists).filter((id) => !knownIds.has(id));
+}
+
+/** Whether a playlist's clips can all be shown: their games' plays are read, still to come, or failed. */
+export type PlaysState = 'ready' | 'loading' | 'failed';
+
+/**
+ * Whether every game the playlist's clips are on has been read: "failed"
+ * when a read failed, "loading" while one is still to come. No playlist, or
+ * one without clips, is ready. A game in `read` counts as read even if an
+ * earlier read of it failed.
+ */
+export function playlistPlaysState(
+  items: readonly PlaylistItem[] | null,
+  read: ReadonlySet<string>,
+  failed: ReadonlySet<string>,
+): PlaysState {
+  let loading = false;
+  for (const item of items ?? []) {
+    if (!isClipItem(item) || read.has(item.matchId)) continue;
+    if (failed.has(item.matchId)) return 'failed';
+    loading = true;
+  }
+  return loading ? 'loading' : 'ready';
+}
+
+/**
+ * Which of the games asked for count as read after a read of their plays. A
+ * game whose plays came back counts only once its game is in memory too
+ * (`rows`): the plays read reads the game's row itself, so a game with plays
+ * but no row means the row's own read failed, and the game failed. A game
+ * whose read failed, failed. A game neither read nor failed (the reader may
+ * not see it, or it is gone) counts as read: it has no plays to show. Each
+ * game is named once, in the order asked.
+ */
+export function settlePlaysRead(
+  asked: readonly string[],
+  got: { byMatch: Readonly<Record<string, readonly PlayByPlayEvent[]>>; failed: readonly string[] },
+  rows: ReadonlySet<string>,
+): { read: string[]; failed: string[] } {
+  const failedIds = new Set(got.failed);
+  const read: string[] = [];
+  const failed: string[] = [];
+  for (const id of new Set(asked)) {
+    if (failedIds.has(id) || (got.byMatch[id] && !rows.has(id))) failed.push(id);
+    else read.push(id);
+  }
+  return { read, failed };
+}
+
+/**
+ * Of these playlists (by id), the ones whose clips' games are all read: an
+ * upload held until their plays were in memory can go on. The first playlist
+ * with an id wins, so pass the open one first (it is the freshest copy). An
+ * id with no playlist here is left out.
+ */
+export function playlistsWithPlaysRead(
+  ids: Iterable<string>,
+  playlists: readonly (Playlist | null | undefined)[],
+  read: ReadonlySet<string>,
+): string[] {
+  const none = new Set<string>();
+  const ready: string[] = [];
+  for (const id of ids) {
+    const pl = playlists.find((p) => p?.id === id);
+    if (pl && playlistPlaysState(pl.items, read, none) === 'ready') ready.push(id);
+  }
+  return ready;
 }
 
 /**

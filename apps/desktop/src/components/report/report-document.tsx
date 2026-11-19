@@ -24,6 +24,7 @@ import { cardContent, type StatsCardSpec } from "@scoutable/shared/lib/stats-car
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
 import type { PlayByPlayEvent, PlaylistClipItem, StoredMatch } from "@/types/match";
+import { PlayerPhoto } from "./player-photo";
 import { ReportClipPlayer } from "./report-clip-player";
 
 /** One clip as the document shows it: the item, and the play it is. */
@@ -64,6 +65,8 @@ export interface ReportDocumentProps {
   statsLoading: ReadonlySet<string>;
   statsFailed: ReadonlySet<string>;
   statsContextOf: (section: DraftSection) => SectionStatsContext;
+  /** Roster photo keys by player id (use-player-photos). */
+  photos: ReadonlyMap<string, string>;
   /** Clips the coach left out of the report (the side panel lists them). */
   leftOutCount: number;
   /** The side panel's selected clips: a tile's menu acts on all of them. */
@@ -549,11 +552,18 @@ function PlayerSection({ view, targets, props }: { view: ViewSection; targets: {
     <section id={sectionDomId(section.id)} data-section-id={section.id} aria-labelledby={`${sectionDomId(section.id)}-h`} className="group/section flex flex-col gap-5 border-t border-separator pt-8">
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
-          {player.number && (
-            <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-full text-callout font-semibold text-foreground ring-1 ring-foreground/30 nums">
-              {player.number}
-            </span>
-          )}
+          <PlayerPhoto
+            photoKey={props.photos.get(player.id)}
+            px={56}
+            fallback={
+              player.number && (
+                <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-full text-callout font-semibold text-foreground ring-1 ring-foreground/30 nums">
+                  {player.number}
+                </span>
+              )
+            }
+            badge={player.number}
+          />
           <div className="min-w-0 flex-1">
             <h2 id={`${sectionDomId(section.id)}-h`} className="truncate text-title-2 text-foreground">
               {player.name}

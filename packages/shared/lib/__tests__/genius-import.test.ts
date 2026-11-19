@@ -127,18 +127,28 @@ describe("loadGeniusGame", () => {
 });
 
 describe("importGame", () => {
-  /** A client that accepts any query and records which tables were written how. */
-  function recordingClient(failing: string | null = null) {
+  /**
+   * A client that accepts any query and records which tables were written how;
+   * `chains` keeps every query's ops and its eq/not filters with their args.
+   */
+  function recordingClient(failing: string | null = null, failingOp?: string) {
     const calls: Array<{ table: string; op: string; args: unknown[] }> = [];
+    const chains: Array<{ table: string; ops: string[]; filters: Array<{ op: string; args: unknown[] }> }> = [];
     const chain = (table: string) => {
+      const ops: string[] = [];
+      const filters: Array<{ op: string; args: unknown[] }> = [];
+      chains.push({ table, ops, filters });
+      const fails = () => table === failing && (failingOp === undefined || ops.includes(failingOp));
       const b: Record<string, unknown> = {
         then(res: (x: { data: null; error: { message: string } | null }) => unknown, rej?: (e: unknown) => unknown) {
-          return Promise.resolve({ data: null, error: table === failing ? { message: "db down" } : null }).then(res, rej);
+          return Promise.resolve({ data: null, error: fails() ? { message: "db down" } : null }).then(res, rej);
         },
       };
       for (const op of ["upsert", "insert", "update", "delete", "select", "eq", "not", "in", "order"]) {
         b[op] = (...args: unknown[]) => {
+          ops.push(op);
           if (["upsert", "insert", "update", "delete", "select"].includes(op)) calls.push({ table, op, args });
+          if (op === "eq" || op === "not") filters.push({ op, args });
           return b;
         };
       }
@@ -148,7 +158,7 @@ describe("importGame", () => {
       auth: { getUser: async () => ({ data: { user: { id: "me" } }, error: null }) },
       from: (table: string) => chain(table),
     } as unknown as SupabaseClient;
-    return { client, calls };
+    return { client, calls, chains };
   }
   const event: PlayByPlayEvent = { eventId: 1, type: "2pt", subType: "jumpshot", period: 1, gameClockTime: "09:00", realWorldTime: T, isSuccessful: 1, qualifiers: [] };
   const match = (syncPoint?: SyncPoint): StoredMatch => ({
@@ -187,5 +197,26 @@ describe("importGame", () => {
     expect(await importGame(client, match(sync), {})).toEqual({ followSync: false });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls.map((c) => c.table)).not.toContain("playlist_clips");
+  });
+
+  it("a re-import brings an archived game back to the library", async () => {
+    const { client, calls, chains } = recordingClient();
+    await importGame(client, match(sync), {});
+    expect(calls).toContainEqual({ table: "matches", op: "update", args: [{ archived_at: null }] });
+    // Only this game, and only if archived: without the filters a re-import
+    // would bring back every archived game of the coach.
+    const unarchive = chains.filter((c) => c.table === "matches" && c.ops.includes("update"));
+    expect(unarchive).toHaveLength(1);
+    expect(unarchive[0].filters).toEqual([
+      { op: "eq", args: ["id", "m1"] },
+      { op: "not", args: ["archived_at", "is", null] },
+    ]);
+  });
+
+  it("an un-archive that fails doesn't fail the re-import", async () => {
+    const { client } = recordingClient("matches", "update");
+    const reported: unknown[] = [];
+    expect(await importGame(client, match(sync), {}, { report: (e) => reported.push(e) })).toEqual({ followSync: false });
+    expect(reported).toHaveLength(1);
   });
 });

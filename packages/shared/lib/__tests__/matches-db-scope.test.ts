@@ -19,6 +19,7 @@ interface MatchRow {
   org_id: string | null;
   is_demo?: boolean;
   source_game_id?: string | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -133,5 +134,14 @@ describe("listMatchesLight org scoping", () => {
   it("degrades to [] when the query fails", async () => {
     const { client } = mockMatchClient({ error: { message: "boom" } });
     await expect(listMatchesLight(client, "org-1")).resolves.toEqual([]);
+  });
+});
+
+describe("listMatchesLight archived games", () => {
+  it("reads archived_at into archivedAt, and leaves it absent for a game in the library", async () => {
+    const { client } = mockMatchClient({ rows: [matchRow({ id: "a", archived_at: "2026-11-01T10:00:00+00:00" }), matchRow({ id: "b", archived_at: null })] });
+    const [a, b] = await listMatchesLight(client, "org-1");
+    expect(a.archivedAt).toBe("2026-11-01T10:00:00+00:00");
+    expect(b.archivedAt).toBeUndefined();
   });
 });

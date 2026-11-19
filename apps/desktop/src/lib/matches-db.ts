@@ -5,6 +5,7 @@
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@scoutable/shared/lib/matches-db";
 import * as gi from "@scoutable/shared/lib/genius-import";
+import * as gmf from "@scoutable/shared/lib/game-marks-fill";
 import { Sentry } from "@/lib/sentry";
 import type { StoredMatch, SyncPoint } from "@/types/match";
 
@@ -27,8 +28,13 @@ export const findMatchBySourceGame = (sourceGameId: string, orgId?: string) =>
 export const findImportedSourceGames = (sourceGameIds: string[], orgId?: string) =>
   db.findImportedSourceGames(c(), sourceGameIds, orgId);
 export const getMatch = (id: string) => db.getMatch(c(), id);
+// A game's timeouts and period bounds, read from the league feed the first time
+// the game is opened. Not announced: nothing but the open game view draws them.
+export const fillGameMarks = (match: Parameters<typeof gmf.fillGameMarks>[1], competitionId: number | null) =>
+  gmf.fillGameMarks(c(), match, competitionId);
 export const listMatches = (orgId?: string, opts?: { ownOnly?: boolean }) => db.listMatches(c(), orgId, opts);
 export const listEventsForMatches = (matchIds: string[], opts?: { required?: db.RequiredPlays }) => db.listEventsForMatches(c(), matchIds, opts);
+export const listEventsForMatchesChecked = (matchIds: string[], opts?: { required?: db.RequiredPlays }) => db.listEventsForMatchesChecked(c(), matchIds, opts);
 // Announced so open pages (playlists' matchLookup, Library badges) pick up
 // the new sync point without a remount. Returns the shared-clip invalidation
 // count so callers can tell the coach a re-upload is due.
@@ -61,6 +67,13 @@ export const deleteMatch = async (matchId: string) => {
   await db.deleteMatch(c(), matchId);
   window.dispatchEvent(new CustomEvent("matches-changed"));
 };
+// Announced so open pages (Library, Home, Add clips) move the game in or out of
+// their lists. Returns the stored archived_at (null = back in the library).
+export const setMatchArchived = async (matchId: string, archived: boolean) => {
+  const archivedAt = await db.setMatchArchived(c(), matchId, archived);
+  window.dispatchEvent(new CustomEvent("matches-changed"));
+  return archivedAt;
+};
 export const listFolders = (orgId?: string, opts?: { includeUnscoped?: boolean }) => db.listFolders(c(), orgId, opts);
 export const createFolder = (name: string, parentId?: string, orgId?: string) => db.createFolder(c(), name, parentId, orgId);
 export const updateFolder = (id: string, patch: { name?: string; sortOrder?: number; parentId?: string | null }) => db.updateFolder(c(), id, patch);
@@ -68,6 +81,7 @@ export const deleteFolder = (id: string) => db.deleteFolder(c(), id);
 export const listMatchesLight = (orgId?: string, opts?: { ownOnly?: boolean; includeUnscoped?: boolean; withEventCount?: boolean }) =>
   db.listMatchesLight(c(), orgId, opts);
 export const listMatchesByIds = (ids: readonly string[]) => db.listMatchesByIds(c(), ids);
+export const listMatchIndex = (orgId?: string) => db.listMatchIndex(c(), orgId);
 export const countMatchesThisMonth = () => db.countMatchesThisMonth(c());
 export const countOwnImports = () => db.countOwnImports(c());
 export const countClubMatchesThisMonth = (ntLeagueIds: string[], orgId?: string) => db.countClubMatchesThisMonth(c(), ntLeagueIds, orgId);

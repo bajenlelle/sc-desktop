@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, MoreHorizontal, Plus, Search, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Check, Keyboard, MoreHorizontal, Plus, Search, X } from "lucide-react";
+import { toast } from "sonner";
 import {
   Popover,
   PopoverContent,
@@ -13,9 +14,27 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Kbd } from "@/components/ui/kbd";
+import { trackEvent } from "@/lib/analytics";
 import { LABEL_COLORS, labelDotClasses, labelSwatchClasses } from "@/lib/label-colors";
+import { LABEL_KEY_TOAST, labelKeyText } from "@/lib/label-keys";
+import { getRecentLabelIds, rememberLabelUsed } from "@/lib/recent-labels";
+import { labelKeySlots, withLabelKey } from "@scoutable/shared/lib/label-keys";
+import { labelPickerOrder } from "@scoutable/shared/lib/label-order";
+import { clamp } from "@scoutable/shared/lib/motion-math";
 import type { Label, LabelColor } from "@scoutable/shared/types/labels";
 import { cn } from "@/lib/utils";
+
+/** The "Create …" row's place among the rows the arrows move through. */
+const CREATE = "__create__";
+
+/** One row of the list. A recent label is listed twice: its copy under "Recent", and where it always is. */
+interface PickerRow {
+  key: string;
+  label: Label;
+  recent: boolean;
+}
+const recentKey = (id: string) => `recent:${id}`;
 
 export type LabelTriState = "all" | "some" | "none";
 
@@ -32,10 +51,15 @@ interface LabelPickerPopoverProps {
   onRename: (id: string, name: string) => Promise<void>;
   onRecolor: (id: string, color: LabelColor) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  /** Gives a label its key (1–9), or takes it away (null). Without it the keys are shown but can't be set here. */
+  onSetKey?: (id: string, slot: number | null) => Promise<void> | void;
   /** Optional: shown when there are zero labels in the active org. */
   onSeedDefaults?: () => Promise<void>;
   align?: "start" | "center" | "end";
   side?: "top" | "right" | "bottom" | "left";
+  /** Set by a surface that opens the picker itself (the game view's G key); it opens on its trigger otherwise. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function triState(
@@ -92,6 +116,20 @@ function ColorSwatchGrid({
   );
 }
 
+/**
+ * Puts labels on a clip (or on several, in bulk). Built for doing it over and
+ * over: the labels used last are repeated at the top, over the whole list in
+ * its usual order, and the one used last is where Enter starts, so "the same
+ * label again" is open, Enter. Typing narrows the
+ * list and Enter takes the best match; the arrows move through it. Enter is
+ * "this one, done" and closes the picker; a click leaves it open for a second
+ * label. A new label is only made from the "Create" row, which Enter reaches
+ * by itself when nothing matches.
+ *
+ * It is also where a label gets its key (packages/shared/lib/label-keys.ts):
+ * the key is written on the label's row, and on its own row that is the
+ * control that sets it, from a list of the nine keys and who has each.
+ */
 export function LabelPickerPopover({
   trigger,
   labels,
@@ -102,24 +140,56 @@ export function LabelPickerPopover({
   onRename,
   onRecolor,
   onDelete,
+  onSetKey,
   onSeedDefaults,
   align = "end",
   side = "bottom",
+  open: openProp,
+  onOpenChange,
 }: LabelPickerPopoverProps) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = (next: boolean) => {
+    setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   const [query, setQuery] = useState("");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  /** The label whose list of keys is open. */
+  const [keyFor, setKeyFor] = useState<string | null>(null);
   const [createColor, setCreateColor] = useState<LabelColor>("violet");
   const inputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  /** What had the keyboard when the picker opened: it gets it back. */
+  const openerRef = useRef<Element | null>(null);
+  /** The row the arrows or the pointer chose; null while Enter still starts where the order says. */
+  const [moved, setMoved] = useState<string | null>(null);
+  const movedByKey = useRef(false);
+  // Read once per opening: the order holds while the picker is open, so no row moves under the pointer.
+  const recentAtOpen = useMemo(() => (open ? getRecentLabelIds() : []), [open]);
+
+  // The labels put on during this opening, in order. They count as used when the picker closes, so one
+  // that was clicked and taken off again doesn't become what Enter starts at.
+  const putOn = useRef<string[]>([]);
+  const rememberPutOn = () => {
+    for (const id of putOn.current) rememberLabelUsed(id);
+    putOn.current = [];
+  };
 
   useEffect(() => {
     if (!open) {
+      rememberPutOn();
       setQuery("");
       setRenameId(null);
+      setKeyFor(null);
+      setMoved(null);
     }
   }, [open]);
+  // A picker that is taken away while open (a row's) closes without the effect above.
+  useEffect(() => rememberPutOn, []);
 
   useEffect(() => {
     if (renameId && renameInputRef.current) {
@@ -131,10 +201,14 @@ export function LabelPickerPopover({
   const trimmedQuery = query.trim();
   const queryLower = trimmedQuery.toLowerCase();
 
-  const filtered = useMemo(() => {
-    if (!trimmedQuery) return labels;
-    return labels.filter((l) => l.name.toLowerCase().includes(queryLower));
-  }, [labels, trimmedQuery, queryLower]);
+  const order = useMemo(() => labelPickerOrder(labels, recentAtOpen, trimmedQuery), [labels, recentAtOpen, trimmedQuery]);
+  const rows = useMemo<PickerRow[]>(
+    () => [
+      ...order.recent.map((label) => ({ key: recentKey(label.id), label, recent: true })),
+      ...order.all.map((label) => ({ key: label.id, label, recent: false })),
+    ],
+    [order],
+  );
 
   const exactMatch = useMemo(
     () => labels.some((l) => l.name.toLowerCase() === queryLower),
@@ -144,19 +218,85 @@ export function LabelPickerPopover({
   const showCreateRow = trimmedQuery.length > 0 && !exactMatch;
   const showEmptyState = labels.length === 0 && !trimmedQuery;
 
-  async function handleCreate() {
+  // What Enter acts on: the row that was moved to, else the label used last (the best match while
+  // searching), else "Create" when nothing matches.
+  const ids = useMemo(() => [...rows.map((r) => r.key), ...(showCreateRow ? [CREATE] : [])], [rows, showCreateRow]);
+  // The label used last has its copy at the very top when there is a Recent group.
+  const firstKey = order.first === null ? null : order.recent.length > 0 ? recentKey(order.first) : order.first;
+  const active = moved && ids.includes(moved) ? moved : (firstKey ?? (showCreateRow ? CREATE : null));
+  const optionId = (key: string) => `${listId}-${key}`;
+
+  useEffect(() => {
+    if (!movedByKey.current) return;
+    movedByKey.current = false;
+    listRef.current?.querySelector<HTMLElement>("[data-active]")?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+
+  function toggle(row: PickerRow, by: "key" | "pointer") {
+    const { label } = row;
+    const state = triState(label.id, assignedAllIds, assignedSomeIds);
+    putOn.current = putOn.current.filter((id) => id !== label.id);
+    if (state !== "all") {
+      putOn.current.push(label.id);
+      trackEvent("label_picked", { by, position: rows.indexOf(row), recent: row.recent, searched: trimmedQuery !== "", created: false });
+    }
+    void onToggle(label.id, state);
+    // Enter is "this one, done". A click leaves the picker open for a second label.
+    if (by === "key") setOpen(false);
+  }
+
+  async function handleCreate(by: "key" | "pointer") {
     if (!trimmedQuery || exactMatch) return;
     const fresh = await onCreate(trimmedQuery, createColor);
     setQuery("");
+    setMoved(null);
     // Auto-assign to the active clip(s).
     await onToggle(fresh.id, "none");
+    if (by === "key") rememberLabelUsed(fresh.id);
+    else putOn.current.push(fresh.id);
+    trackEvent("label_picked", { by, position: rows.length, recent: false, searched: true, created: true });
     // Cycle the create color to the next palette entry so consecutive
     // user-created labels look distinct.
     const idx = LABEL_COLORS.indexOf(createColor);
     setCreateColor(LABEL_COLORS[(idx + 1) % LABEL_COLORS.length]);
+    if (by === "key") setOpen(false);
+  }
+
+  function onSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (ids.length === 0) return;
+      const at = active ? ids.indexOf(active) : -1;
+      movedByKey.current = true;
+      setMoved(ids[clamp(at + (e.key === "ArrowDown" ? 1 : -1), 0, ids.length - 1)]);
+      return;
+    }
+    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      if (active === CREATE) void handleCreate("key");
+      else {
+        const row = rows.find((r) => r.key === active);
+        if (row) toggle(row, "key");
+      }
+    }
   }
 
   const [deleteTarget, setDeleteTarget] = useState<Label | null>(null);
+
+  // The nine keys and who has each: what the list of keys shows, so a key is never taken unseen.
+  const keySlots = useMemo(() => labelKeySlots(labels), [labels]);
+
+  function chooseKey(label: Label, slot: number | null) {
+    setKeyFor(null);
+    if (!onSetKey || label.hotkey === slot) return;
+    const { displaced } = withLabelKey(labels, label.id, slot);
+    trackEvent("label_key_set", { slot: slot ?? 0, replaced: displaced !== null });
+    void onSetKey(label.id, slot);
+    // A key that moved changed a second label: say which.
+    if (slot !== null && displaced) {
+      toast(`${labelKeyText(slot)} is ${label.name} now`, { id: LABEL_KEY_TOAST, description: `${displaced.name} has no key.` });
+    }
+  }
 
   async function handleRenameSubmit() {
     if (!renameId) return;
@@ -172,6 +312,187 @@ export function LabelPickerPopover({
     setRenameId(null);
   }
 
+  const renderRow = (row: PickerRow) => {
+    const { label } = row;
+    const state = triState(label.id, assignedAllIds, assignedSomeIds);
+    // A label is renamed in its own place, not in its copy.
+    const isRenaming = renameId === label.id && !row.recent;
+    // A copy under "Recent" is for picking; the colour, the name and deleting are on the label's own row.
+    const manage = !isRenaming && !row.recent;
+    return (
+      <div
+        key={row.key}
+        role="presentation"
+        data-active={active === row.key || undefined}
+        // One highlight for the pointer and the arrows, as in a menu. A move, not an enter: a list
+        // that scrolls under a resting pointer doesn't take the highlight from the keys.
+        onPointerMove={() => {
+          if (moved !== row.key) setMoved(row.key);
+        }}
+        className="group flex items-center gap-2 px-2 py-1.5 data-[active]:bg-fill-2"
+      >
+        <button
+          type="button"
+          id={optionId(row.key)}
+          role="option"
+          aria-selected={state === "all"}
+          aria-keyshortcuts={label.hotkey === null ? undefined : `Alt+${label.hotkey}`}
+          onClick={() => toggle(row, "pointer")}
+          className="flex flex-1 items-center gap-2 text-left"
+          disabled={isRenaming}
+        >
+          <StateIndicator state={state} />
+          <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", labelDotClasses[label.color])} />
+          {isRenaming ? (
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={() => void handleRenameSubmit()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleRenameSubmit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setRenameId(null);
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 bg-transparent text-sm outline-none ring-1 ring-primary rounded px-1"
+            />
+          ) : (
+            <span className="flex-1 truncate text-sm">{label.name}</span>
+          )}
+        </button>
+
+        {/* The label's key. On a copy, and where keys can't be set, it is only written; a copy has no
+            controls after it, so it keeps their room and the keys of both groups stand in one line. */}
+        {label.hotkey !== null && !(manage && onSetKey) && (
+          <>
+            <Kbd className="h-4 min-w-4 shrink-0 text-caption">{labelKeyText(label.hotkey)}</Kbd>
+            {row.recent && <span className="w-14 shrink-0" aria-hidden />}
+          </>
+        )}
+
+        {/* On the label's own row the key is the control that sets it: the nine keys and who has each. */}
+        {manage && onSetKey && (
+          <Popover open={keyFor === label.id} onOpenChange={(o) => setKeyFor(o ? label.id : null)}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "flex h-6 min-w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-fill-2 hover:text-foreground data-[state=open]:opacity-100",
+                  label.hotkey === null && "opacity-0 group-hover:opacity-100",
+                )}
+                aria-label={label.hotkey === null ? `Give ${label.name} a key` : `${label.name} has the key ${labelKeyText(label.hotkey)}. Change it`}
+              >
+                {label.hotkey === null ? <Keyboard className="h-3.5 w-3.5" /> : <Kbd className="h-4 min-w-4 text-caption">{labelKeyText(label.hotkey)}</Kbd>}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="right"
+              align="start"
+              className="w-56 p-1"
+              onCloseAutoFocus={(e) => {
+                // Back to the search field: the arrows and Enter keep working on the list.
+                e.preventDefault();
+                inputRef.current?.focus();
+              }}
+            >
+              <p className="px-2 pt-1 pb-1 text-caption text-muted-foreground">Key for {label.name}</p>
+              <div role="radiogroup" aria-label={`Key for ${label.name}`}>
+                {keySlots.map(({ slot, label: holder }) => {
+                  const own = holder?.id === label.id;
+                  return (
+                    <button
+                      key={slot}
+                      type="button"
+                      role="radio"
+                      aria-checked={own}
+                      onClick={() => chooseKey(label, slot)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm outline-none hover:bg-fill-2 focus-visible:bg-fill-2"
+                    >
+                      <Kbd className="h-4 min-w-7 shrink-0 text-caption">{labelKeyText(slot)}</Kbd>
+                      {holder && <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", labelDotClasses[holder.color])} />}
+                      <span className={cn("min-w-0 flex-1 truncate", !own && "text-muted-foreground")}>{holder?.name}</span>
+                      {own && <Check className="h-3.5 w-3.5 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+              {label.hotkey !== null && (
+                <>
+                  <div className="mx-1 my-1 h-px bg-separator" />
+                  <button
+                    type="button"
+                    onClick={() => chooseKey(label, null)}
+                    className="flex w-full items-center rounded px-2 py-1 text-left text-sm outline-none hover:bg-fill-2 focus-visible:bg-fill-2"
+                  >
+                    Remove key
+                  </button>
+                </>
+              )}
+              <p className="px-2 pt-1.5 pb-1 text-caption text-muted-foreground">Press a label's key to put it on the clip on screen, or take it off.</p>
+            </PopoverContent>
+          </Popover>
+        )}
+
+        {manage && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="h-6 w-6 rounded p-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
+                aria-label="Change color"
+              >
+                <span className={cn("h-3 w-3 rounded-full", labelSwatchClasses[label.color])} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="right" align="start" className="w-auto p-1">
+              <ColorSwatchGrid
+                selected={label.color}
+                onPick={(c) => void onRecolor(label.id, c)}
+              />
+            </PopoverContent>
+          </Popover>
+        )}
+
+        {manage && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="h-6 w-6 rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
+                aria-label="Label actions"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="start">
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setRenameValue(label.name);
+                  setRenameId(label.id);
+                }}
+              >
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => setDeleteTarget(label)}
+                className="text-destructive focus:bg-destructive focus:text-white"
+              >
+                Delete…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
     {/* Modal, so its list scrolls inside the Add clips sheet (see components/ui/popover.tsx). */}
@@ -184,7 +505,16 @@ export function LabelPickerPopover({
         onOpenAutoFocus={(e) => {
           // Let our input claim focus instead of the first focusable child.
           e.preventDefault();
+          openerRef.current = document.activeElement;
           inputRef.current?.focus();
+        }}
+        onCloseAutoFocus={(e) => {
+          // Focus goes back to where it was, not to the trigger: opened by a key or a click (which
+          // focuses nothing on macOS), the trigger would otherwise wear a focus ring at the next key.
+          e.preventDefault();
+          const opener = openerRef.current;
+          openerRef.current = null;
+          if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) opener.focus();
         }}
       >
 
@@ -194,21 +524,34 @@ export function LabelPickerPopover({
           <input
             ref={inputRef}
             type="text"
+            role="combobox"
+            aria-expanded
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={active ? optionId(active) : undefined}
+            // macOS's correction bubble takes the arrows and Enter for itself, and "pi" is not a word to fix.
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            autoComplete="off"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              // A new search starts at its best match, at the top of the list.
+              setMoved(null);
+              listRef.current?.scrollTo({ top: 0 });
+            }}
             placeholder="Search or create…"
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && showCreateRow) {
-                e.preventDefault();
-                void handleCreate();
-              }
-            }}
+            onKeyDown={onSearchKeyDown}
           />
           {query && (
             <button
               type="button"
-              onClick={() => setQuery("")}
+              onClick={() => {
+                setQuery("");
+                setMoved(null);
+              }}
               className="text-muted-foreground hover:text-foreground"
               aria-label="Clear search"
             >
@@ -217,8 +560,9 @@ export function LabelPickerPopover({
           )}
         </div>
 
-        {/* List */}
-        <div className="max-h-72 overflow-y-auto py-1">
+        {/* List: the labels used last, then the rest in the vocabulary's order; "Create" stays in view under it. */}
+        <div id={listId} role="listbox" aria-label="Labels" aria-multiselectable>
+        <div ref={listRef} role="presentation" className="max-h-72 overflow-y-auto py-1">
           {showEmptyState && onSeedDefaults && (
             <div className="px-3 py-4 text-center text-sm text-muted-foreground">
               <p className="mb-2">No labels yet in your vocabulary.</p>
@@ -232,113 +576,46 @@ export function LabelPickerPopover({
             </div>
           )}
 
-          {filtered.length === 0 && trimmedQuery && (
+          {rows.length === 0 && trimmedQuery && (
             <div className="px-3 py-2 text-xs text-muted-foreground">
               No matches. Press Enter to create.
             </div>
           )}
 
-          {filtered.map((label) => {
-            const state = triState(label.id, assignedAllIds, assignedSomeIds);
-            const isRenaming = renameId === label.id;
-            return (
-              <div
-                key={label.id}
-                className="group flex items-center gap-2 px-2 py-1.5 hover:bg-fill-1"
-              >
-                <button
-                  type="button"
-                  onClick={() => void onToggle(label.id, state)}
-                  className="flex flex-1 items-center gap-2 text-left"
-                  disabled={isRenaming}
-                >
-                  <StateIndicator state={state} />
-                  <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", labelDotClasses[label.color])} />
-                  {isRenaming ? (
-                    <input
-                      ref={renameInputRef}
-                      type="text"
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onBlur={() => void handleRenameSubmit()}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void handleRenameSubmit();
-                        } else if (e.key === "Escape") {
-                          e.preventDefault();
-                          setRenameId(null);
-                        }
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex-1 bg-transparent text-sm outline-none ring-1 ring-primary rounded px-1"
-                    />
-                  ) : (
-                    <span className="flex-1 truncate text-sm">{label.name}</span>
-                  )}
-                </button>
-
-                {!isRenaming && (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        className="h-6 w-6 rounded p-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
-                        aria-label="Change color"
-                      >
-                        <span className={cn("h-3 w-3 rounded-full", labelSwatchClasses[label.color])} />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent side="right" align="start" className="w-auto p-1">
-                      <ColorSwatchGrid
-                        selected={label.color}
-                        onPick={(c) => void onRecolor(label.id, c)}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                )}
-
-                {!isRenaming && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        className="h-6 w-6 rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
-                        aria-label="Label actions"
-                      >
-                        <MoreHorizontal className="h-3.5 w-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent side="right" align="start">
-                      <DropdownMenuItem
-                        onSelect={(e) => {
-                          e.preventDefault();
-                          setRenameValue(label.name);
-                          setRenameId(label.id);
-                        }}
-                      >
-                        Rename
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => setDeleteTarget(label)}
-                        className="text-destructive focus:bg-destructive focus:text-white"
-                      >
-                        Delete…
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            );
-          })}
+          {/* Recent on top, all labels below in their usual places: copies, as a font menu lists recent fonts. */}
+          {order.recent.length > 0 && (
+            <p role="presentation" className="px-3 pt-1 pb-0.5 text-caption text-muted-foreground">
+              Recent
+            </p>
+          )}
+          {rows.filter((r) => r.recent).map(renderRow)}
+          {order.recent.length > 0 && (
+            <>
+              <div role="presentation" className="mx-2 my-1 h-px bg-separator" />
+              <p role="presentation" className="px-3 pt-1 pb-0.5 text-caption text-muted-foreground">
+                All labels
+              </p>
+            </>
+          )}
+          {rows.filter((r) => !r.recent).map(renderRow)}
         </div>
 
         {/* Create row */}
         {showCreateRow && (
-          <div className="border-t flex items-center gap-2 px-2 py-1.5 hover:bg-fill-1">
+          <div
+            role="presentation"
+            data-active={active === CREATE || undefined}
+            onPointerMove={() => {
+              if (moved !== CREATE) setMoved(CREATE);
+            }}
+            className="border-t flex items-center gap-2 px-2 py-1.5 data-[active]:bg-fill-2"
+          >
             <button
               type="button"
-              onClick={() => void handleCreate()}
+              id={optionId(CREATE)}
+              role="option"
+              aria-selected={false}
+              onClick={() => void handleCreate("pointer")}
               className="flex flex-1 items-center gap-2 text-left"
             >
               <span className="flex h-4 w-4 items-center justify-center text-primary">
@@ -368,6 +645,7 @@ export function LabelPickerPopover({
             </Popover>
           </div>
         )}
+        </div>
       </PopoverContent>
     </Popover>
 

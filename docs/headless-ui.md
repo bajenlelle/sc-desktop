@@ -38,6 +38,11 @@ npm run headless -- smoke --project webkit         # one browser
   the start of every run, so copy a screenshot out before the next run if a
   report needs it later.
 
+A `tauri dev` running from the same worktree watches these files too: it
+reloads its page when a run writes `state-<port>.json` at its start, and
+again for each trace a run writes. With someone in that app, pass
+`--trace off` (one reload at the run's start is left).
+
 ## `.env.headless`
 
 `apps/desktop/.env.headless`, never committed (`.env.*` is ignored). Copy
@@ -91,6 +96,18 @@ protocol. A path to any worktree's `…/headless/fixtures/<file>` resolves to
 this server's own fixtures, so worktrees that point a staging game at "their"
 fixture don't break each other.
 
+## The window's drag regions
+
+In the real app a press on an element that carries `data-tauri-drag-region`
+(the title strip, the game page's tab bar, a toolbar's empty part) is taken by
+Tauri's own script to start a native window drag: the page gets the
+pointerdown and nothing after it, no mouseup and no click. Without Tauri a
+headless page gets the whole click, so anything that waits for the click
+looks fine here and is broken there (a Radix popover closes on the click
+after a press outside it, and stayed open). `emulateWindowDragRegions(page)`
+in `helpers.ts` reproduces it: call it before the first navigation
+(`specs/L-light-dismiss.spec.ts`).
+
 ## What it can't reach
 
 These stay in the Manual check of a task: native export and everything
@@ -100,7 +117,29 @@ protocol itself, real window drag and full screen, vibrancy, WKWebView's
 paused-frame purge, deep links, the updater. Requests the app sends through
 plugin-http go through the browser here, so a cross-origin one (Genius'
 hosted stats pages, R2 uploads, the web app's API) can fail on CORS where the
-app succeeds. PostHog runs as in a dev build (staging's environment tag).
+app succeeds. PostHog loads as in a dev build (staging's environment tag) and
+asks for its flags, but no event was ever seen leaving an automated browser:
+a spec cannot read analytics off the network.
+
+## Analytics
+
+To assert on what the app reports, a spec replaces the app's one analytics
+module at its edge before the first navigation and reads the calls from the
+page: `recordAnalytics(page)` in `headless/helpers.ts` routes
+`src/lib/analytics.ts` to a module whose `trackEvent` keeps each call on
+`window.__tracked`. The stand-in must export what the real module exports; a
+new export there breaks the page loudly, which is the reminder to add it.
+
+## Games the test account doesn't have
+
+A spec that needs a game the account has none of (a timeout on the game with
+footage, two team colours that are close, a play with no team side, long team
+names) changes what the page is told, not the account:
+`patchGameReads(page, …)` in `headless/helpers.ts` rewrites the answers to the
+page's own reads of `matches` and `play_by_play_events` in the browser, before
+the game is opened. `giveSampleGameATimeout(page)` uses it to put one timeout
+on the sample game. Nothing is written to staging, and the game view never
+saves marks for the sample game.
 
 ## Adding a spec
 
@@ -123,6 +162,44 @@ the task's report. The harness itself is typechecked with
 The smoke spec (`specs/smoke.spec.ts`) is the harness's own proof: Library
 lists games, the first game's Game view draws its play list and timeline, a
 playlist's Add clips lists events. It reads only. It needs the test account
-to have at least one game and one playlist. No spec links a staging game to
-the test video yet: the first task that needs footage adds a helper that
-links it and restores the game's own video afterwards.
+to have at least one game and one playlist.
+
+## The Add clips list
+
+The Add clips list is windowed: only the rows near the view are in the DOM, so
+a spec never counts rows. It reads the list with `readSheetRows(sheet)` (every
+row by key, read by scrolling the list through) and reaches one row with
+`sheetRow(sheet, key)`, both in `headless/helpers.ts`. A spec that needs the
+page's reads of plays to fail or wait uses `failPlaysReads(page)` or
+`delayPlaysReads(page, ms)`: each answers or holds back only the page's reads
+of `matches` that embed `play_by_play_events`, until the function it returns is
+called.
+
+## Footage
+
+A staging game's video is on another computer, so a spec that needs playback
+links the game to the test video for the length of the test:
+`linkStageGameToFixture(page, matchId, track)` in `headless/helpers.ts` clicks
+the player's real Locate file… (the dialog mock picks this worktree's
+`headless/fixtures/game.mp4`). Before the click it reads the game's own
+`video_url`, writes it to a journal, `<system
+temp>/scoutable-headless-video-link-<port>.json`, and hands the link to
+`track`, so `afterEach` can call `restoreGameVideo` even when a later wait
+fails. The journal stays out of `apps/desktop`: Playwright empties `out/` when
+a run starts, and Vite reloads the open page when a watched file is removed,
+which cancels the app's requests mid-test. `restoreGameVideo` puts the old
+value back only while the game still points at this worktree's test video (it
+throws if someone else changed it) and then removes the journal;
+`restoreJournalledVideoLink` in `beforeEach` restores what a crashed run left;
+run it, and any `deletePlaylistsNamed` sweep, through `inScratchPage(page,
+…)`, a second page that is closed before the test's own page opens, so that
+page never shows a swept row or a stale link. A game that already points at
+any `…/headless/fixtures/` path is refused. The test video is two minutes
+long: pick plays that sit inside it (`specs/B-task4-this-clip-bar.spec.ts`
+picks them from the game's sync point). Both WebKit and Chrome play it through
+`/@fs`.
+
+A spec that only needs footage to move through, and writes nothing, can open
+the sample game instead (the Library row marked "Sample game"): its video
+plays from the network in both browsers, about twenty minutes of it, with no
+link to make or restore (`specs/H-game-player.spec.ts`).

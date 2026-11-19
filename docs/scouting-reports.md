@@ -162,6 +162,16 @@ players open from a link, and that "Save as PDF" prints.
     (true) is what a new report carries, and the page doesn't read it (see the
     page, below).
 
+## Player photos (`packages/shared/lib/player-photos.ts`, `supabase/migrations/20261119100000_genius_players.sql`)
+
+A player's section shows their roster photo with the number as a badge on it; without a photo it shows the number circle as before. The player picker shows a small photo on each row.
+
+- **Source.** The `genius` function's roster sync reads `GET /competitions/{c}/teams/{t}/persons` (one call per team, about 15 per league-season) and fills `league_players` (one row per Genius person) and `league_player_teams` (who played for which team in which season). It runs for every league's current season in the weekly season audit, and on demand through the platform-admin action `{ action: "sync_rosters", competitionId? }`. That action is also the backfill: repeat it until `photosPending` is 0, because a run copies at most 150 photos (about 100 s at most). On staging, about 400 photos in one call hit the edge runtime's `WORKER_RESOURCE_LIMIT` (HTTP 546). The first full backfill (5 leagues, 1,358 players, 1,082 photos) took four calls of about 50 s each. SBF leaves height, weight and default numbers empty (0 or `""`), so those columns are mostly null today.
+- **Storage.** Photos are copied into the media bucket at `players/genius/<personId>/<hash>-{T1,S1,M1,L1}.jpg` (75/200/400/600 px). `photo_key` holds the S1 key, and the other sizes swap the suffix. The hash is Genius's image hash, so a new photo gets a new key and a published report's links never change underneath it.
+- **Access.** Signed-in users can read the names, number and `photo_key` columns. Birth date, height, weight and nationality are stored for later features and only the service role can read them.
+- **Reports.** The desktop looks photos up by player id (the Genius personId, the same id the draft holds) with `use-player-photos`. Publishing writes `photoKey` into each `ReportPlayer` of the snapshot, so the public page needs no lookup. Reports published before this, and players without a photo, show the number.
+- **Profixio.** Profixio players are not covered: their ids share Genius's numeric namespace, so a `source` on report players must come first.
+
 ## The Reports page (`apps/desktop/src/pages/reports.tsx`)
 
 - A sidebar item after Playlists: every report the coach has in the active

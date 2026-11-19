@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
 import { Link, useLocation } from "react-router-dom";
-import { BookOpen, FileText, Film, Home, ListVideo, Plus, Share2 } from "lucide-react";
+import { BookOpen, FileText, Film, Home, ListVideo, Plus, Search, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { UpdateCard } from "@/components/UpdateChecker";
 import { useAuth } from "@/lib/auth-context";
 import { useImportQuota } from "@/lib/use-import-quota";
@@ -9,7 +10,9 @@ import { IS_MACOS } from "@/lib/platform";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { useSidebarCollapsed } from "@/lib/sidebar-store";
 import { toggleBrowser } from "@/lib/playlist-browser-store";
+import { openQuickSearch } from "@/lib/quick-search-store";
 import { cn } from "@/lib/utils";
+import { sidebarPages, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
 import { SpaceSwitcher } from "./space-switcher";
 import { UserMenu } from "./user-menu";
 
@@ -76,6 +79,38 @@ export function Sidebar() {
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const ready = !!user && !profileLoading;
 
+  const row = (page: GoPage) => {
+    switch (page) {
+      case "go-home":
+        return <NavItem key={page} to="/" icon={Home} label="Home" active={pathname === "/"} />;
+      case "go-playlists":
+        return (
+          <NavItem
+            key={page}
+            to="/playlists"
+            icon={ListVideo}
+            label="Playlists"
+            active={pathname.startsWith("/playlists") && !pathname.startsWith("/my-playlists")}
+            onClickWhileActive={toggleBrowser}
+          />
+        );
+      case "go-reports":
+        return <NavItem key={page} to="/reports" icon={FileText} label="Reports" active={pathname.startsWith("/reports")} />;
+      case "go-my-playlists":
+        return (
+          <NavItem
+            key={page}
+            to="/my-playlists"
+            icon={isCoachOrAdmin ? Share2 : BookOpen}
+            label={isCoachOrAdmin ? "Shared playlists" : "My playlists"}
+            active={pathname.startsWith("/my-playlists")}
+          />
+        );
+      case "go-library":
+        return <NavItem key={page} to="/matches" icon={Film} label="Library" active={pathname.startsWith("/matches")} />;
+    }
+  };
+
   return (
     <motion.aside
       initial={false}
@@ -103,34 +138,29 @@ export function Sidebar() {
           />
         )}
 
+        {/* The search over the space, where Notion and Mail keep theirs: above the list it searches across.
+            A button, not a destination: it opens the panel (components/search/quick-search.tsx). */}
+        {ready && isCoachOrAdmin && (
+          <div className="mt-3 px-2">
+            <button
+              type="button"
+              onClick={() => openQuickSearch("sidebar")}
+              aria-label="Search"
+              aria-keyshortcuts={IS_MACOS ? "Meta+K" : "Control+K"}
+              className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+            >
+              <Search className="size-4 shrink-0 text-primary" />
+              <span className="truncate">Search</span>
+              <Kbd aria-hidden className="ml-auto">{IS_MACOS ? "\u2318K" : "Ctrl K"}</Kbd>
+            </button>
+          </div>
+        )}
+
+        {/* The rows come from one list (`sidebarPages`), the one the Go menu's number keys follow:
+            ⌘n, or Ctrl+n, opens the nth row shown here. */}
         {ready && (
-          <nav aria-label="Main" className="mt-3 flex flex-col gap-0.5 px-2">
-            {isCoachOrAdmin && (
-              <NavItem to="/" icon={Home} label="Home" active={pathname === "/"} />
-            )}
-            {isCoachOrAdmin && (
-              <NavItem
-                to="/playlists"
-                icon={ListVideo}
-                label="Playlists"
-                active={pathname.startsWith("/playlists") && !pathname.startsWith("/my-playlists")}
-                onClickWhileActive={toggleBrowser}
-              />
-            )}
-            {isCoachOrAdmin && (
-              <NavItem to="/reports" icon={FileText} label="Reports" active={pathname.startsWith("/reports")} />
-            )}
-            {!activeOrgIsPersonal && (
-              <NavItem
-                to="/my-playlists"
-                icon={isCoachOrAdmin ? Share2 : BookOpen}
-                label={isCoachOrAdmin ? "Shared playlists" : "My playlists"}
-                active={pathname.startsWith("/my-playlists")}
-              />
-            )}
-            {isCoachOrAdmin && (
-              <NavItem to="/matches" icon={Film} label="Library" active={pathname.startsWith("/matches")} />
-            )}
+          <nav aria-label="Main" className={cn("flex flex-col gap-0.5 px-2", isCoachOrAdmin ? "mt-0.5" : "mt-3")}>
+            {sidebarPages({ staff: isCoachOrAdmin, personal: activeOrgIsPersonal }).map(row)}
           </nav>
         )}
 

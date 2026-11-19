@@ -68,7 +68,7 @@ export type AnalyticsEvent =
   | "sync_tip_dismissed" // how (got_it | fix_sync)
   // Playlist production (desktop)
   | "playlist_created"
-  | "clip_added_to_playlist"
+  | "clip_added_to_playlist" // playlist_id, match_id; from the game view also surface (game_view), via (row | now_bar | bulk | menu | selection), moment, to_target (it went to the "Adding to" playlist)
   | "clip_trimmed" // desktop trim handles (props: playlist_id, in_changed, out_changed, length_seconds)
   | "playlist_filtered"
   | "clips_grouped"
@@ -98,7 +98,27 @@ export type AnalyticsEvent =
   | "scouting_report_footer_clicked" // fired by the public page's "Made with Scoutable"
   | "folder_created"
   | "label_created"
-  | "label_applied"
+  | "filter_preset_saved" // surface (add_clips | game_view), groups (how many groups it holds)
+  | "filter_preset_applied" // surface
+  | "label_applied" // bulk; surface (game_view) where it isn't the editor
+  | "label_picked" // by (key | pointer | repeat: the game view's "same label again" | hotkey: the label's own key, position then its key), position (row in the picker), recent (from its Recent group), searched, created: a label put on from the label picker or by a key
+  | "label_key_set" // slot (1–9, 0 when taken away), replaced (the key was another label's): a label given its key
+  // Game view (desktop /matches/:id: the whole game, its plays and its timeline; docs/game-view.md)
+  | "game_view_opened" // plays, synced, video (ok | missing | unreadable | none | remote), score (plays | feed | none), timeouts, entry (library | details | link | tab | library_tab: a game marked Open in the Library | picker: the tab bar's + | search: the search over the space), restored (came back with filters or a quarter zoom), is_demo
+  | "game_view_seeked" // via (row | timeline | key | marker | quarter | transport | now_bar | scrubber: the player's own bar | timeline_drag | wheel: a sideways swipe), kind (play | time | timeout | period | run), period; a drag or a swipe is one event, sent when it ends
+  | "game_view_filtered" // team, moment, groups (the filter sheet's active groups), search, on_court, visible
+  | "game_view_closed" // seconds_played, clips_added, labels_applied
+  | "game_tab_switched" // via (tab | key | menu | picker: the + chose a game that had a tab), tabs (how many are open)
+  | "game_tab_closed" // via (button | middle_click | menu: Close Tab, ⌘W or Ctrl+W | key: Delete on the tab | tab_menu: the tab's own menu | close_others: every other tab, one event), tabs (how many are left)
+  // Search over a space (desktop ⌘K or Ctrl+K; docs/search.md). What was typed is never sent.
+  | "search_opened" // via (shortcut: ⌘K, Ctrl+K or Go > Search… | sidebar)
+  | "search_result_opened" // kind (playlist | report | game), from (recent | newest: nothing opened here yet | results), position (row from the top, 0 first), query_length
+  | "game_tab_reopened" // tabs (how many are open): Reopen Closed Tab, or the Reopen of the made-room notice
+  | "game_tabs_reordered" // tabs: a tab was dragged to another place
+  | "collect_target_set" // source (existing | new), shared, via (toolbar | row | now_bar | bulk | menu | selection)
+  | "collect_undone" // via (toast | row), clips
+  | "collect_sent" // clips, target (it was the "Adding to" playlist), in_place (true: cut and uploaded from the game view; absent: opened the editor to upload what was held)
+  | "game_marks_filled" // outcome (filled | unsaved | failed | skipped), timeouts, error
   // Distribution & virality
   | "video_exported"
   | "playlist_shipped"
@@ -133,6 +153,7 @@ export type AnalyticsEvent =
   // Clip browser
   | "clip_leaders_used" // player picked from the Leaders popover (props: metric)
   | "clip_browser_opened" // the Add clips sheet opened; start (remembered | most_clips | newest), games_in_playlist
+  | "clip_browser_games_set" // games (how many), via (pick | toggle | latest | team)
   // Device registry & gate
   | "device_identity_migrated" // legacy random-uuid row collapsed into a hardware id
   | "device_gate_hit" // touch returned blocked (flag on)

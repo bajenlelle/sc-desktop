@@ -28,7 +28,8 @@ playlists, and share them with teams; players watch on web/mobile.
   `report-issue`, `genius` — the Genius Sports proxy/cache; holds
   `GENIUS_API_KEY`, all match imports go through it; it also keeps the
   league team catalogue (`league_teams`, behind each user's "Your team") current
-  after fixture refreshes and in the weekly season audit; `tipoff-detect` — reads
+  after fixture refreshes and in the weekly season audit, and the league players with
+  their photos (`league_players`, photos copied to R2; `docs/scouting-reports.md`); `tipoff-detect` — reads
   scoreboard clocks from video stills with Claude for the automatic tip-off
   suggestion; `ANTHROPIC_API_KEY`, kill switch `app_config.tipoff_detect_enabled`).
   Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`
@@ -91,7 +92,24 @@ playlists, and share them with teams; players watch on web/mobile.
   them per game (`ensureLabelsFor`) and the clip browser reads and writes
   through it. `playlist_id` on the table is a dead column from the old
   playlist-scoped labels, kept until `20261030100000_unify_clip_labels`
-  has a follow-up that drops it.
+  has a follow-up that drops it. One picker everywhere
+  (`LabelPickerPopover`): the labels used last come first and Enter starts at
+  the last one (`packages/shared/lib/label-order.ts`; remembered per device).
+  A label can have a key, 1 to 9 (`labels.hotkey`, set through
+  `set_label_hotkey` so one key has one label): Option or Alt with the digit
+  toggles it on the clip on screen in the game view, the editor and Add clips
+  (`packages/shared/lib/label-keys.ts`, `docs/game-view.md`).
+- **Game marks**: a game's timeouts and period bounds live in
+  `matches.game_marks` (`packages/shared/lib/game-marks.ts`), not in
+  `play_by_play_events`, where every released app lists each row as a clip.
+  They are read from the league feed when a coach opens the game view
+  (`fillGameMarks`, through the `genius` function's cache: no import
+  allowance), never as a sweep over a library, and the game view is the only
+  writer. Everything that reads them works without them.
+- **Archived games**: matches.archived_at hides a game from the desktop's
+  Library (behind the Archived group's Show button), Home's recent imports and
+  Add clips, and nothing else. Playlists, shares, the editor's matchLookup, web
+  and mobile keep every archived game; a re-import brings it back.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.
@@ -116,10 +134,12 @@ playlists, and share them with teams; players watch on web/mobile.
 
 ## CI / Releases
 
-- `check.yml` runs the five checks above on PRs into main/staging/develop.
+- `check.yml` runs the checks above, plus a desktop build and a typecheck of
+  `scripts/nightly-tipoff`, on PRs into main/staging/develop.
 - Desktop release: `npm version <bump> --workspace apps/desktop` (syncs
   tauri.conf.json + Cargo.toml/lock), commit "X.Y.Z", annotated tag
-  `vX.Y.Z`, `git push --follow-tags` → release.yml builds, notarizes, and
+  `vX.Y.Z`, push the branch and the tag by name (not
+  `--follow-tags`) → release.yml builds, notarizes, and
   publishes to `bajenlelle/scoutable-releases`; desktop apps self-update.
 - Windows code signing (Azure Artifact Signing) turns on in release.yml and
   build.yml once the secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
@@ -136,6 +156,10 @@ playlists, and share them with teams; players watch on web/mobile.
 ## Docs
 
 - `docs/scouting-reports.md`: the scouting report: its draft, the desktop view and the public page.
+- `docs/game-view.md`: the desktop game page: the whole game on one timeline, what it
+  reads from the stats, game marks, and collecting plays into a playlist.
+- `docs/search.md`: the desktop's search over a space (⌘K): what it finds, how it
+  orders it, what it reads and when.
 - `docs/maintenance.md`: the bug pipeline, and every secret: where it lives
   and what reads it.
 - `docs/desktop-design-audit.md`, `docs/web-design-audit.md`: the redesign

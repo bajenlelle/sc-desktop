@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { CalendarIcon, Check, ChevronLeft, ChevronsUpDown, Film, ListPlus, Loader2, MinusCircle, Plus, VideoOff } from "lucide-react";
@@ -209,7 +209,12 @@ function RosterGroup({
   );
 }
 
-export function MatchDetailPage() {
+/**
+ * The game's settings: title, date, colours, video, sync, rosters. The route
+ * (pages/game.tsx) shows it as the game page's Details view and hands it the
+ * Game | Details switch for its toolbar.
+ */
+export function MatchDetailPage({ viewSwitch, underTabs }: { viewSwitch?: ReactNode; underTabs?: boolean } = {}) {
   const { id } = useParams<{ id: string }>();
   const matchId = id!;
   const navigate = useNavigate();
@@ -386,6 +391,7 @@ export function MatchDetailPage() {
     return (
       <Page>
         <Toolbar
+          underTabs={underTabs}
           title="Game"
           leading={
             <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/matches")}>
@@ -535,15 +541,19 @@ export function MatchDetailPage() {
   return (
     <Page>
       <Toolbar
+        underTabs={underTabs}
         title={title || storedMatch.title}
         subtitle={[`${storedMatch.homeTeam.name} – ${storedMatch.awayTeam.name}`, date ? formatDate(parseISO(date)) : null]
           .filter(Boolean)
           .join(" · ")}
         leading={
-          <Button variant="ghost" size="sm" className="-ml-1 shrink-0 text-muted-foreground" onClick={() => navigate("/matches")}>
-            <ChevronLeft />
-            Library
-          </Button>
+          <>
+            <Button variant="ghost" size="sm" className="-ml-1 shrink-0 text-muted-foreground" onClick={() => navigate("/matches")}>
+              <ChevronLeft />
+              Library
+            </Button>
+            {viewSwitch}
+          </>
         }
         actions={
           <AnimatePresence>
@@ -562,7 +572,7 @@ export function MatchDetailPage() {
             <Button
               key="build"
               size="sm"
-              onClick={() => navigate("/playlists", { state: { createNew: true, addClipsFrom: matchId, highlight: "add-clips" } })}
+              onClick={() => navigate("/playlists", { state: { createNew: true, addClipsFrom: matchId, highlight: "add-clips", from: { matchId, title: title || storedMatch.title } } })}
             >
               <ListPlus />
               Build a playlist

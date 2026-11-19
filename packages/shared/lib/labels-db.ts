@@ -11,6 +11,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isLabelKey } from "./label-keys";
 import { reportDbError } from "./report";
 import type {
   ClipKey,
@@ -30,7 +31,11 @@ interface LabelRow {
   name: string;
   color: string;
   created_at: string;
+  /** Absent from a read that didn't ask for it, or from a database the hotkey migration hasn't reached. */
+  hotkey?: number | null;
 }
+
+const LABEL_COLUMNS = "id, user_id, org_id, name, color, created_at";
 
 interface ClipLabelAssignmentRow {
   user_id: string;
@@ -49,6 +54,7 @@ function rowToLabel(r: LabelRow): Label {
     name: r.name,
     color: r.color as LabelColor,
     createdAt: r.created_at,
+    hotkey: isLabelKey(r.hotkey) ? r.hotkey : null,
   };
 }
 
@@ -71,13 +77,13 @@ export async function listLabels(
   supabase: SupabaseClient,
   orgId: string,
 ): Promise<Label[]> {
-  const { data, error } = await supabase
-    .from("labels")
-    .select("id, user_id, org_id, name, color, created_at")
-    .eq("org_id", orgId)
-    .order("name", { ascending: true });
+  const read = (columns: string) =>
+    supabase.from("labels").select(columns).eq("org_id", orgId).order("name", { ascending: true });
+  let { data, error } = await read(`${LABEL_COLUMNS}, hotkey`);
+  // A database the hotkey migration (20261111110000) hasn't reached still lists its labels, without keys.
+  if (error?.code === "42703") ({ data, error } = await read(LABEL_COLUMNS));
   if (error) { reportDbError("listLabels", error); return []; }
-  return ((data ?? []) as LabelRow[]).map(rowToLabel);
+  return ((data ?? []) as unknown as LabelRow[]).map(rowToLabel);
 }
 
 export async function createLabel(
@@ -97,7 +103,7 @@ export async function createLabel(
       name: name.trim(),
       color,
     })
-    .select("id, user_id, org_id, name, color, created_at")
+    .select(LABEL_COLUMNS)
     .single();
   if (error || !data) throw new Error(`Failed to create label: ${error?.message}`);
   return rowToLabel(data as LabelRow);
@@ -122,6 +128,19 @@ export async function deleteLabel(
 ): Promise<void> {
   const { error } = await supabase.from("labels").delete().eq("id", id);
   if (error) throw new Error(`Failed to delete label: ${error.message}`);
+}
+
+/**
+ * Gives a label its key (1–9), or takes it away (null). The label of the same
+ * vocabulary that had the key loses it in the same step (set_label_hotkey).
+ */
+export async function setLabelHotkey(
+  supabase: SupabaseClient,
+  id: string,
+  hotkey: number | null,
+): Promise<void> {
+  const { error } = await supabase.rpc("set_label_hotkey", { p_label_id: id, p_hotkey: hotkey });
+  if (error) throw new Error(`Failed to set the label's key: ${error.message}`);
 }
 
 /**

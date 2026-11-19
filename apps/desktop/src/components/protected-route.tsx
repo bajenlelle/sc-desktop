@@ -3,21 +3,20 @@ import { useAuth } from "@/lib/auth-context";
 import { Loader2 } from "lucide-react";
 import { DeviceGateScreen } from "@/components/device-gate-screen";
 import { WorkspaceUnavailableScreen } from "@/components/workspace-unavailable-screen";
-import { resolveGateState } from "@scoutable/shared/lib/orgs";
+import { resolveGateState, type GateState } from "@scoutable/shared/lib/orgs";
 
 const PLAYER_BLOCKED_PATHS = ["/matches", "/upload", "/playlists"];
 
-export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const {
-    user, loading, profile, profileLoading, myOrgs, orgsLoaded,
-    activeOrgIsPersonal, activeOrgRole, deviceBlocked,
-  } = useAuth();
-  const { pathname } = useLocation();
-
-  // Decision lives in packages/shared so the invariant it protects — a
-  // signed-in user is never blocked for belonging to no club — is unit
-  // tested rather than re-derived here.
-  const gate = resolveGateState({
+/**
+ * What stands between the window and its pages: the app itself, or a wait, the sign-in, a refused device, an
+ * account that couldn't be read. The decision lives in packages/shared so the invariant it protects (a signed-in
+ * user is never blocked for belonging to no club) is unit tested rather than re-derived here. Chrome the window's
+ * layout draws around a page (the game page's tab bar) asks the same question: it belongs to the page, not to
+ * the screen shown in its place.
+ */
+export function useRouteGate(): GateState {
+  const { user, loading, profile, profileLoading, myOrgs, orgsLoaded, deviceBlocked } = useAuth();
+  return resolveGateState({
     hasUser: !!user,
     sessionLoading: loading,
     profileLoading,
@@ -26,6 +25,12 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     orgCount: myOrgs.length,
     deviceBlocked,
   });
+}
+
+export function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { activeOrgIsPersonal, activeOrgRole } = useAuth();
+  const { pathname } = useLocation();
+  const gate = useRouteGate();
 
   if (gate === "loading") {
     return (

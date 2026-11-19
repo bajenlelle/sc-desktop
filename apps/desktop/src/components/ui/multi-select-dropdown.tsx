@@ -1,9 +1,11 @@
+import { Fragment } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -16,6 +18,14 @@ import { cn } from "@/lib/utils";
  * keyboard-navigable (arrows, type-ahead, Escape) and animate from their
  * trigger. Same props as the hand-rolled originals.
  */
+
+/**
+ * The highlighted row of a pop-up one picks values from takes the app's
+ * neutral fill, as a hovered row does, and a darker one while pressed. The
+ * menu primitive's accent would read here as one more chosen option, beside
+ * the ticked ones; it stays the highlight of menus of actions.
+ */
+const CHOICE = "focus:bg-fill-2 focus:text-foreground active:bg-fill-3";
 export function TriggerButton({
   label,
   active,
@@ -63,7 +73,7 @@ export function SingleSelectDropdown({
       <DropdownMenuContent align="start" className="max-h-72 min-w-(--radix-dropdown-menu-trigger-width) overflow-y-auto">
         {value && !required && (
           <>
-            <DropdownMenuItem onSelect={() => onChange(null)} className="text-muted-foreground">
+            <DropdownMenuItem onSelect={() => onChange(null)} className={cn("text-muted-foreground", CHOICE)}>
               Clear
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -71,7 +81,7 @@ export function SingleSelectDropdown({
         )}
         <DropdownMenuRadioGroup value={value ?? ""} onValueChange={(v) => onChange(v)}>
           {options.map((o) => (
-            <DropdownMenuRadioItem key={o.value} value={o.value}>
+            <DropdownMenuRadioItem key={o.value} value={o.value} className={CHOICE}>
               {o.label}
             </DropdownMenuRadioItem>
           ))}
@@ -81,22 +91,40 @@ export function SingleSelectDropdown({
   );
 }
 
+export interface MultiSelectOption {
+  value: string;
+  label: string;
+  /** What type-ahead matches on when it is not the label ("Pedro" for "#4 Pedro"). */
+  textValue?: string;
+}
+
+export interface MultiSelectGroup {
+  label: string;
+  options: readonly MultiSelectOption[];
+}
+
+/** Either a flat list or labelled groups, never both. */
+type MultiSelectChoices =
+  | { options: readonly MultiSelectOption[]; groups?: never }
+  | { groups: readonly MultiSelectGroup[]; options?: never };
+
 export function MultiSelectDropdown({
   options,
+  groups,
   selected,
   onChange,
   placeholder,
-}: {
-  options: { value: string; label: string }[];
-  selected: Set<string>;
+}: MultiSelectChoices & {
+  selected: ReadonlySet<string>;
   onChange: (next: Set<string>) => void;
   placeholder: string;
 }) {
+  const everyOption = groups ? groups.flatMap((g) => g.options) : (options ?? []);
   const label =
     selected.size === 0
       ? placeholder
       : selected.size === 1
-        ? (options.find((o) => selected.has(o.value))?.label ?? placeholder)
+        ? (everyOption.find((o) => selected.has(o.value))?.label ?? placeholder)
         : `${selected.size} selected`;
 
   function toggle(value: string) {
@@ -104,6 +132,23 @@ export function MultiSelectDropdown({
     if (next.has(value)) next.delete(value);
     else next.add(value);
     onChange(next);
+  }
+
+  // One value can sit in two groups, so a grouped item's key carries its group.
+  function item(o: MultiSelectOption, key: string) {
+    return (
+      <DropdownMenuCheckboxItem
+        key={key}
+        checked={selected.has(o.value)}
+        textValue={o.textValue ?? o.label}
+        // Keep the menu open while ticking several options.
+        onSelect={(e) => e.preventDefault()}
+        onCheckedChange={() => toggle(o.value)}
+        className={CHOICE}
+      >
+        {o.label}
+      </DropdownMenuCheckboxItem>
+    );
   }
 
   return (
@@ -119,7 +164,7 @@ export function MultiSelectDropdown({
                 e.preventDefault();
                 onChange(new Set());
               }}
-              className="text-muted-foreground"
+              className={cn("text-muted-foreground", CHOICE)}
             >
               <Check className="invisible" />
               Clear all
@@ -127,17 +172,15 @@ export function MultiSelectDropdown({
             <DropdownMenuSeparator />
           </>
         )}
-        {options.map((o) => (
-          <DropdownMenuCheckboxItem
-            key={o.value}
-            checked={selected.has(o.value)}
-            // Keep the menu open while ticking several options.
-            onSelect={(e) => e.preventDefault()}
-            onCheckedChange={() => toggle(o.value)}
-          >
-            {o.label}
-          </DropdownMenuCheckboxItem>
-        ))}
+        {groups
+          ? groups.map((g, i) => (
+              <Fragment key={g.label}>
+                {i > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuLabel>{g.label}</DropdownMenuLabel>
+                {g.options.map((o) => item(o, `${g.label}:${o.value}`))}
+              </Fragment>
+            ))
+          : (options ?? []).map((o) => item(o, o.value))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

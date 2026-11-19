@@ -26,6 +26,7 @@ import type { ExportSegment } from "@/lib/export";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { isExportCancelled } from "@scoutable/shared/lib/export-progress";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
+import { fetchPlayerPhotos } from "@scoutable/shared/lib/player-photos";
 import { reportPosterDrawing } from "@scoutable/shared/lib/report-clip-source";
 import { deriveReportLayout, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { buildScoutingReport, clampReportTitle, type MissingClip } from "@scoutable/shared/lib/scouting-report";
@@ -120,6 +121,8 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
   const title = clampReportTitle(args.title);
   let items = args.playlist.items;
   let shipped = 0;
+  // Player photos go into the snapshot, so the public page needs no lookup. A failed read publishes without them.
+  const photos = await fetchPlayerPhotos(createClient(), args.draft.sections.map((s) => s.player.id));
 
   const build = (posters?: ReadonlyMap<string, string>) =>
     buildScoutingReport({
@@ -131,6 +134,7 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
       opponent: args.opponent,
       posters,
       labelsByKey: args.labelsByKey,
+      photos,
     });
 
   // The clips the page shows: not the ones the coach left out of the report.

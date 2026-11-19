@@ -3,7 +3,8 @@
 //! Built once at startup (before the webview loads, so there is no flash of
 //! Tauri's default menu and it survives webview reloads). Custom items emit a
 //! single "menu" event with their id; src/components/menu-handler.tsx maps ids
-//! to actions. Keep the id list below in sync with MENU_IDS there.
+//! to actions. Keep the id list below in sync with MENU_IDS there. The one
+//! exception is Close Window, which this file closes itself.
 //!
 //! macOS only: Windows would render this as an in-window menu bar, which the
 //! app has never had — the commands compile everywhere but no-op off macOS.
@@ -15,16 +16,91 @@ use std::collections::HashMap;
 use tauri::{
     menu::{
         AboutMetadata, CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem,
-        MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+        MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder,
     },
     AppHandle, Emitter, Manager, Wry,
 };
+
+/// The File menu's Close Window: closed natively (see `on_menu_event`).
+#[cfg(target_os = "macos")]
+const CLOSE_WINDOW: &str = "close-window";
+/// The File menu's Close Tab, in the menu only while the game page has two tabs
+/// or more: with one game its tab is there, but there is no tab to close to.
+#[cfg(target_os = "macos")]
+const CLOSE_TAB: &str = "close-tab";
+/// Where Close Tab goes in the File menu: right above Close Window, after
+/// New Playlist, Add Game, a separator, Export Playlist, a separator, New Tab
+/// and Reopen Closed Tab.
+#[cfg(target_os = "macos")]
+const CLOSE_TAB_POSITION: usize = 7;
+
+/// The items on ⌘W close what is in front, so they are for the main window
+/// only while it is the window in front (see `on_menu_event`).
+#[cfg(target_os = "macos")]
+fn closes_what_is_in_front(id: &str) -> bool {
+    id == CLOSE_WINDOW || id == CLOSE_TAB
+}
+
+/// The sidebar's pages in the Go menu, in the sidebar's order. Their number
+/// keys follow the rows the sidebar shows (`menu_set_go_keys`).
+#[cfg(target_os = "macos")]
+const GO_PAGES: [&str; 5] = ["go-home", "go-playlists", "go-reports", "go-my-playlists", "go-library"];
+
+/// The key each page gets when the keys go to the pages in `order`: ⌘1 to
+/// the first, ⌘2 to the second, and so on. None unless `order` is every page
+/// exactly once: a key would be lost or shared.
+#[cfg(target_os = "macos")]
+fn go_accelerators(order: &[String]) -> Option<Vec<(&'static str, String)>> {
+    if order.len() != GO_PAGES.len() {
+        return None;
+    }
+    let mut keys: Vec<(&'static str, String)> = Vec::with_capacity(GO_PAGES.len());
+    for (i, id) in order.iter().enumerate() {
+        let page = GO_PAGES.iter().copied().find(|p| *p == id.as_str())?;
+        if keys.iter().any(|(p, _)| *p == page) {
+            return None;
+        }
+        keys.push((page, format!("CmdOrCtrl+{}", i + 1)));
+    }
+    Some(keys)
+}
+
+/// What choosing a menu item does.
+#[cfg(target_os = "macos")]
+#[derive(Debug, PartialEq)]
+enum MenuAct {
+    /// Not for the main window right now.
+    Nothing,
+    /// Closed here: it has to work where nothing in the webview listens.
+    CloseWindow,
+    /// Sent to the page as a "menu" event.
+    ToPage,
+}
+
+/// `main_in_front`: the main window is the one in front. With the About
+/// panel or a file dialog in front, ⌘W is not for the window behind it (which
+/// would quit the app, or close a game's tab out of sight).
+#[cfg(target_os = "macos")]
+fn menu_act(id: &str, main_in_front: bool) -> MenuAct {
+    if closes_what_is_in_front(id) {
+        if !main_in_front {
+            return MenuAct::Nothing;
+        }
+        if id == CLOSE_WINDOW {
+            return MenuAct::CloseWindow;
+        }
+    }
+    MenuAct::ToPage
+}
 
 /// Handles to every item the frontend can mutate after startup.
 #[cfg(target_os = "macos")]
 pub struct MenuHandles {
     items: HashMap<&'static str, MenuItem<Wry>>,
     appearance: HashMap<&'static str, CheckMenuItem<Wry>>,
+    /// The File menu, and whether Close Tab is in it now (`menu_game_tabs`).
+    file: Submenu<Wry>,
+    close_tab_shown: std::sync::atomic::AtomicBool,
 }
 
 #[cfg(target_os = "macos")]
@@ -72,13 +148,33 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let new_playlist = item("new-playlist", "New Playlist", Some("CmdOrCtrl+N"))?;
     let add_game = item("add-game", "Add Game…", Some("CmdOrCtrl+O"))?;
     let export_playlist = item("export-playlist", "Export Playlist…", Some("CmdOrCtrl+E"))?;
+    // Close Tab and Close Window, as Safari has them. While the game page shows
+    // its tabs, ⌘W closes the tab and ⇧⌘W the window; otherwise there is no
+    // Close Tab and ⌘W closes the window (`menu_game_tabs`). Close Window is a
+    // custom item because a predefined item's accelerator can't be changed.
+    // Close Tab is made here, with ⌘W, and put in the menu only while there
+    // are tabs: an item's accelerator can be changed but not taken away
+    // (muda's `set_accelerator(None)` leaves the key in place on macOS), and
+    // two items in a menu must never share ⌘W.
+    item(CLOSE_TAB, "Close Tab", Some("CmdOrCtrl+W"))?;
+    let close_window = item(CLOSE_WINDOW, "Close Window", Some("CmdOrCtrl+W"))?;
+    // The game page's tabs, as a browser has them: New Tab opens its game
+    // picker (on only on the game page), Reopen Closed Tab brings back the
+    // tab closed last (on while there is one). Both start off; the webview
+    // turns them on (`menu_set_enabled`).
+    let new_game_tab = item("new-game-tab", "New Tab", Some("CmdOrCtrl+T"))?;
+    new_game_tab.set_enabled(false)?;
+    let reopen_game_tab = item("reopen-game-tab", "Reopen Closed Tab", Some("CmdOrCtrl+Shift+T"))?;
+    reopen_game_tab.set_enabled(false)?;
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&new_playlist)
         .item(&add_game)
         .separator()
         .item(&export_playlist)
         .separator()
-        .item(&PredefinedMenuItem::close_window(app, None)?)
+        .item(&new_game_tab)
+        .item(&reopen_game_tab)
+        .item(&close_window)
         .build()?;
 
     // -- Edit — predefined items are mandatory: without them ⌘C/⌘V/⌘Z stop
@@ -132,14 +228,24 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
 
     // -- Go ------------------------------------------------------------------
+    // The sidebar's pages in the sidebar's order (GO_PAGES). ⌘n opens the nth row the sidebar shows:
+    // the keys here are for a sidebar that shows every row, and the page moves them when it shows
+    // other rows (`menu_set_go_keys`, packages/shared/lib/menu-shortcuts.ts goKeyOrder). Organization
+    // is not in the sidebar and keeps ⌘6, after the rows.
     let go_home = item("go-home", "Home", Some("CmdOrCtrl+1"))?;
     let go_playlists = item("go-playlists", "Playlists", Some("CmdOrCtrl+2"))?;
-    let go_my_playlists = item("go-my-playlists", "Shared Playlists", Some("CmdOrCtrl+3"))?;
-    let go_library = item("go-library", "Library", Some("CmdOrCtrl+4"))?;
-    let go_organization = item("go-organization", "Organization", Some("CmdOrCtrl+5"))?;
+    let go_reports = item("go-reports", "Reports", Some("CmdOrCtrl+3"))?;
+    let go_my_playlists = item("go-my-playlists", "Shared Playlists", Some("CmdOrCtrl+4"))?;
+    let go_library = item("go-library", "Library", Some("CmdOrCtrl+5"))?;
+    let go_organization = item("go-organization", "Organization", Some("CmdOrCtrl+6"))?;
+    // The search over the space: the page opens its panel, and the same chord closes it (docs/search.md).
+    let search = item("search", "Search…", Some("CmdOrCtrl+K"))?;
     let go_menu = SubmenuBuilder::new(app, "Go")
+        .item(&search)
+        .separator()
         .item(&go_home)
         .item(&go_playlists)
+        .item(&go_reports)
         .item(&go_my_playlists)
         .item(&go_library)
         .separator()
@@ -147,9 +253,15 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
 
     // -- Window ------------------------------------------------------------
+    // The game page's tabs, as Safari's Show Next/Previous Tab; on only there.
+    let game_tab_prev = item("game-tab-prev", "Show Previous Game Tab", Some("CmdOrCtrl+Shift+["))?;
+    let game_tab_next = item("game-tab-next", "Show Next Game Tab", Some("CmdOrCtrl+Shift+]"))?;
     let window_menu = SubmenuBuilder::new(app, "Window")
         .item(&PredefinedMenuItem::minimize(app, None)?)
         .item(&PredefinedMenuItem::maximize(app, Some("Zoom"))?)
+        .separator()
+        .item(&game_tab_prev)
+        .item(&game_tab_next)
         .build()?;
     window_menu.set_as_windows_menu_for_nsapp()?;
 
@@ -174,17 +286,38 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
     app.set_menu(menu)?;
 
-    app.manage(MenuHandles { items, appearance });
+    app.manage(MenuHandles {
+        items,
+        appearance,
+        file: file_menu,
+        close_tab_shown: std::sync::atomic::AtomicBool::new(false),
+    });
     Ok(())
 }
 
 /// Custom items reach the webview as a single "menu" event carrying the id;
-/// predefined items are handled natively and never arrive here.
+/// predefined items are handled natively and never arrive here. Close Window
+/// is closed here: it has to work on every screen, also where nothing in the
+/// webview listens (sign-in, the crash screen).
 #[cfg(target_os = "macos")]
 pub fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id().0.as_str();
-    if let Err(e) = app.emit_to("main", "menu", id) {
-        eprintln!("[menu] failed to emit menu event {id}: {e}");
+    let window = app.get_webview_window("main");
+    let main_in_front = window
+        .as_ref()
+        .is_some_and(|w| w.is_focused().unwrap_or(true));
+    match menu_act(id, main_in_front) {
+        MenuAct::Nothing => {}
+        MenuAct::CloseWindow => {
+            if let Some(Err(e)) = window.map(|w| w.close()) {
+                eprintln!("[menu] failed to close the window: {e}");
+            }
+        }
+        MenuAct::ToPage => {
+            if let Err(e) = app.emit_to("main", "menu", id) {
+                eprintln!("[menu] failed to emit menu event {id}: {e}");
+            }
+        }
     }
 }
 
@@ -205,6 +338,73 @@ pub fn menu_set_enabled(app: tauri::AppHandle, id: String, enabled: bool) {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, id, enabled);
+    }
+}
+
+/// The sidebar shows other rows (another space, another role), and the number
+/// keys follow them: ⌘n opens the nth row. `order` is the pages in the order
+/// of their keys, the rows shown first and the pages not shown after them
+/// (packages/shared/lib/menu-shortcuts.ts `goKeyOrder`).
+#[tauri::command]
+pub fn menu_set_go_keys(app: tauri::AppHandle, order: Vec<String>) {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(handles) = app.try_state::<MenuHandles>() else {
+            return;
+        };
+        let Some(keys) = go_accelerators(&order) else {
+            return;
+        };
+        // An item's key can be moved but not taken away, and two items must
+        // never share one: every page first steps aside to a key nothing
+        // uses, then takes its new one.
+        for (i, (id, _)) in keys.iter().enumerate() {
+            if let Some(item) = handles.items.get(id) {
+                let _ = item.set_accelerator(Some(format!("Cmd+Ctrl+Alt+Shift+{}", i + 1)));
+            }
+        }
+        for (id, key) in &keys {
+            if let Some(item) = handles.items.get(id) {
+                let _ = item.set_accelerator(Some(key.as_str()));
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, order);
+    }
+}
+
+/// The game page's tab bar came or went. While it is there the File menu has
+/// Close Tab on ⌘W and Close Window on ⇧⌘W, as in Safari; without it there is
+/// no Close Tab and ⌘W closes the window, as everywhere else in the app.
+#[tauri::command]
+pub fn menu_game_tabs(app: tauri::AppHandle, shown: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        use std::sync::atomic::Ordering;
+        let Some(handles) = app.try_state::<MenuHandles>() else {
+            return;
+        };
+        if handles.close_tab_shown.swap(shown, Ordering::SeqCst) == shown {
+            return;
+        }
+        let (Some(tab), Some(window)) = (handles.items.get(CLOSE_TAB), handles.items.get(CLOSE_WINDOW)) else {
+            return;
+        };
+        // Never both on ⌘W: Close Window gives it up before Close Tab comes
+        // in, and takes it back once Close Tab is out.
+        if shown {
+            let _ = window.set_accelerator(Some("CmdOrCtrl+Shift+W"));
+            let _ = handles.file.insert(tab, CLOSE_TAB_POSITION);
+        } else {
+            let _ = handles.file.remove(tab);
+            let _ = window.set_accelerator(Some("CmdOrCtrl+W"));
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, shown);
     }
 }
 
@@ -241,5 +441,46 @@ pub fn menu_sync_theme(app: tauri::AppHandle, theme: String) {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, theme);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn close_tab_and_close_window_are_for_the_window_in_front() {
+        // Behind the About panel or a file dialog, ⌘W is not for the main window.
+        assert_eq!(menu_act(CLOSE_TAB, false), MenuAct::Nothing);
+        assert_eq!(menu_act(CLOSE_WINDOW, false), MenuAct::Nothing);
+        // In front, Close Window closes it here and Close Tab goes to the page.
+        assert_eq!(menu_act(CLOSE_WINDOW, true), MenuAct::CloseWindow);
+        assert_eq!(menu_act(CLOSE_TAB, true), MenuAct::ToPage);
+        // The rest act on the main window whatever is in front of it, as in Safari.
+        assert_eq!(menu_act("new-game-tab", false), MenuAct::ToPage);
+        assert_eq!(menu_act("reopen-game-tab", false), MenuAct::ToPage);
+        assert_eq!(menu_act("new-game-tab", true), MenuAct::ToPage);
+        assert_eq!(menu_act("search", false), MenuAct::ToPage);
+    }
+
+    #[test]
+    fn the_number_keys_go_to_the_pages_in_the_order_given() {
+        let order = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // A personal space: the Library is the fourth row, and Shared Playlists, not shown, takes the key after the rows.
+        let keys = go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library", "go-my-playlists"])).unwrap();
+        assert_eq!(
+            keys,
+            vec![
+                ("go-home", "CmdOrCtrl+1".to_string()),
+                ("go-playlists", "CmdOrCtrl+2".to_string()),
+                ("go-reports", "CmdOrCtrl+3".to_string()),
+                ("go-library", "CmdOrCtrl+4".to_string()),
+                ("go-my-playlists", "CmdOrCtrl+5".to_string()),
+            ]
+        );
+        // Anything but each page once is refused: a key would be lost or shared.
+        assert!(go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library"])).is_none());
+        assert!(go_accelerators(&order(&["go-home", "go-home", "go-reports", "go-library", "go-my-playlists"])).is_none());
+        assert!(go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library", "settings"])).is_none());
     }
 }

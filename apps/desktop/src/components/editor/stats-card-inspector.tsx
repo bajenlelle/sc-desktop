@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   MAX_STAT_COLUMNS,
+  STATS_CARD_NOTE_MAX,
   autoDetails,
   availableColumns,
   formatCardDate,
@@ -18,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { PopUpButton } from "@/components/ui/pop-up-button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Stepper } from "@/components/ui/stepper";
+import { Textarea } from "@/components/ui/textarea";
 import { leagueSeasonsOf, loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, type GameStats } from "@/lib/stats-card-data";
 import { cn } from "@/lib/utils";
 import type { StoredMatch } from "@/types/match";
@@ -85,13 +87,13 @@ export function StatsCardInspector({
 
   const [stats, setStats] = useState<GameStats | null>(null);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<{ text: string; retry?: () => void } | null>(null);
+  const [status, setStatus] = useState<{ text: string; retry?: () => void } | null>(null);
   // Hand-picked columns survive a change of player or game; defaults don't.
   const [columnsTouched, setColumnsTouched] = useState(false);
 
   useEffect(() => {
     setColumnsTouched(false);
-    setNote(null);
+    setStatus(null);
   }, [cardId]);
 
   useEffect(() => {
@@ -115,7 +117,7 @@ export function StatsCardInspector({
 
   async function run(work: () => Promise<void>) {
     setBusy(true);
-    setNote(null);
+    setStatus(null);
     try {
       await work();
     } finally {
@@ -128,16 +130,16 @@ export function StatsCardInspector({
     return loadSeasonPlayer(seasonPick.competitionId, person.id)
       .then((line) => {
         if (line) onChange(makeSeasonCard(seasonPick, person, line, keep));
-        else setNote({ text: `${person.name} isn't listed in ${seasonPick.label}` });
+        else setStatus({ text: `${person.name} isn't listed in ${seasonPick.label}` });
       })
-      .catch(() => setNote({ text: "Season averages aren't available right now", retry: () => void seasonCard(person, keep, seasonPick) }));
+      .catch(() => setStatus({ text: "Season averages aren't available right now", retry: () => void seasonCard(person, keep, seasonPick) }));
   }
 
   function choosePlayer(id: string) {
     const option = stats?.players.find((p) => p.player.id === id);
     if (!option || !contextMatch || !stats) return;
-    // A new player starts with their own heading, details and defaults.
-    const keep = { columns: keepColumns };
+    // A new player starts with their own heading, details and defaults; the note stays.
+    const keep = { columns: keepColumns, note: spec.note };
     if (spec.scope === "game") {
       onChange(makeGameCard(contextMatch, stats, option, season?.competitionId ?? null, keep));
     } else {
@@ -148,7 +150,7 @@ export function StatsCardInspector({
   function chooseScope(scope: "game" | "season") {
     if (scope === spec.scope || !contextMatch) return;
     // Columns differ between a game and a season, so the new line's defaults apply.
-    const keep = { heading: spec.heading, details: spec.details };
+    const keep = { heading: spec.heading, details: spec.details, note: spec.note };
     if (scope === "season") {
       void run(() => seasonCard(spec.player, keep));
       return;
@@ -157,7 +159,7 @@ export function StatsCardInspector({
       const gameStats = stats ?? (await loadGameStats(contextMatch, leagues));
       const option = gameStats?.players.find((p) => p.player.id === personId);
       if (gameStats && option) onChange(makeGameCard(contextMatch, gameStats, option, season?.competitionId ?? null, keep));
-      else setNote({ text: `No stats for ${spec.player.name} in that game` });
+      else setStatus({ text: `No stats for ${spec.player.name} in that game` });
     });
   }
 
@@ -168,12 +170,13 @@ export function StatsCardInspector({
       const gameStats = await loadGameStats(match, leagues);
       const option = gameStats?.players.find((p) => p.player.id === personId);
       if (!gameStats || !option) {
-        setNote({ text: `No stats for ${spec.player.name} in that game` });
+        setStatus({ text: `No stats for ${spec.player.name} in that game` });
         return;
       }
       onChange(makeGameCard(match, gameStats, option, seasonOf(match, leagues)?.competitionId ?? null, {
         heading: spec.heading,
         details: spec.details,
+        note: spec.note,
         columns: keepColumns,
       }));
     });
@@ -183,7 +186,7 @@ export function StatsCardInspector({
     if (spec.scope !== "season" || Number(competitionId) === spec.season.competitionId) return;
     const pick = seasons.find((s) => s.competitionId === Number(competitionId));
     if (!pick) return;
-    void run(() => seasonCard(spec.player, { heading: spec.heading, details: spec.details, columns: keepColumns }, pick));
+    void run(() => seasonCard(spec.player, { heading: spec.heading, details: spec.details, note: spec.note, columns: keepColumns }, pick));
   }
 
   function updateSeason() {
@@ -197,7 +200,7 @@ export function StatsCardInspector({
           onChange({ ...current, line: line.line, asOf: new Date().toISOString(), columns: normalizeColumns(current.columns, { scope: "season", line: line.line }) });
           toast.success(changed ? "Season stats updated" : "Season stats are up to date");
         })
-        .catch(() => setNote({ text: "Season averages aren't available right now", retry: updateSeason })),
+        .catch(() => setStatus({ text: "Season averages aren't available right now", retry: updateSeason })),
     );
   }
 
@@ -236,6 +239,7 @@ export function StatsCardInspector({
       : [{ value: personId, label: spec.player.name }];
 
   const available = availableColumns(spec);
+  const noteLeft = STATS_CARD_NOTE_MAX - (spec.note?.length ?? 0);
   const field =
     "h-7 min-w-0 flex-1 rounded-md bg-card px-2 text-sm text-foreground ring-1 ring-separator outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-selection";
 
@@ -325,6 +329,7 @@ export function StatsCardInspector({
       </div>
 
       {!embedded && (
+      <>
       <div className="flex flex-wrap items-center gap-2">
         <input
           aria-label="Heading"
@@ -341,6 +346,34 @@ export function StatsCardInspector({
           onChange={(e) => onChange({ ...spec, details: e.target.value || null })}
         />
       </div>
+      <div className="flex flex-col gap-1">
+        <Textarea
+          aria-label="Note"
+          rows={2}
+          maxLength={STATS_CARD_NOTE_MAX}
+          placeholder="Add a note to the card"
+          value={spec.note ?? ""}
+          // Return starts a new line; at most one empty line between paragraphs. A third
+          // Return in a row is stopped here, rather than rewritten in onChange, so the
+          // cursor stays where it is; onChange only collapses pastes. The whole note is
+          // trimmed when it is saved, not while it is typed.
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            const { value, selectionStart, selectionEnd } = e.currentTarget;
+            const before = value.slice(0, selectionStart).match(/\n*$/)![0].length;
+            const after = value.slice(selectionEnd).match(/^\n*/)![0].length;
+            if (before + after >= 2) e.preventDefault();
+          }}
+          onChange={(e) => onChange({ ...spec, note: e.target.value.replace(/\n{3,}/g, "\n\n") || null })}
+          className="min-h-0 px-2 py-1"
+        />
+        {noteLeft <= 20 && (
+          <span aria-live="polite" className="text-caption text-muted-foreground nums">
+            {`${noteLeft} ${noteLeft === 1 ? "character" : "characters"} left`}
+          </span>
+        )}
+      </div>
+      </>
       )}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -357,11 +390,11 @@ export function StatsCardInspector({
         )}
       </div>
 
-      {note && (
+      {status && (
         <p className="flex items-center gap-2 text-callout text-muted-foreground">
-          {note.text}
-          {note.retry && (
-            <Button variant="ghost" size="xs" onClick={note.retry}>
+          {status.text}
+          {status.retry && (
+            <Button variant="ghost" size="xs" onClick={status.retry}>
               Try again
             </Button>
           )}

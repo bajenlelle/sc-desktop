@@ -15,6 +15,8 @@ const content = (cells: number, heading = "Alva Berg"): CardContent => ({
   })),
 });
 
+const NOTE = "Great closeouts all game and smart help from the weak side, keep talking on every switch and box out early";
+
 function inFrame(aspect: "16:9" | "9:16", runs: ReturnType<typeof layoutStatsCard>) {
   const { width } = CARD_SIZE[aspect];
   for (const r of runs) {
@@ -98,6 +100,76 @@ describe("layoutStatsCard", () => {
     expect(runs).toHaveLength(3);
     const mid = (runs[0].y - runs[0].px * 0.72 + runs[2].y) / 2;
     expect(Math.abs(mid - 330)).toBeLessThan(2);
+  });
+
+  it("wraps a note under the cells, inside the band", () => {
+    for (const [aspect, bottom, max] of [["16:9", 600, 28], ["9:16", 1140, 38]] as const) {
+      const runs = layoutStatsCard({ ...content(6), note: NOTE }, aspect, measure);
+      const note = runs.slice(3 + 12);
+      expect(note.length).toBeGreaterThanOrEqual(2);
+      expect(note.length).toBeLessThanOrEqual(3);
+      expect(note.every((r) => r.weight === "regular" && r.px <= max)).toBe(true);
+      expect(Math.min(...note.map((r) => r.y))).toBeGreaterThan(Math.max(...runs.slice(0, 15).map((r) => r.y)));
+      expect(Math.max(...runs.map((r) => r.y))).toBeLessThan(bottom);
+      inFrame(aspect, runs);
+    }
+  });
+
+  it("shrinks a long note to three lines and ends it with an ellipsis", () => {
+    const runs = layoutStatsCard({ ...content(6), note: `${NOTE} ${NOTE} ${NOTE}` }, "9:16", measure);
+    const note = runs.slice(3 + 12);
+    expect(note).toHaveLength(3);
+    expect(note[2].text.endsWith("…")).toBe(true);
+    expect(note[0].px).toBeGreaterThanOrEqual(30);
+    inFrame("9:16", runs);
+  });
+
+  it("cuts a word wider than the card", () => {
+    const runs = layoutStatsCard({ ...content(3), note: "x".repeat(140) }, "16:9", measure);
+    inFrame("16:9", runs);
+  });
+
+  it("keeps a note's own line breaks: two lines on two baselines, in both aspects", () => {
+    for (const aspect of ["16:9", "9:16"] as const) {
+      const runs = layoutStatsCard({ ...content(6), note: "Box out early\nTalk on every switch" }, aspect, measure);
+      const note = runs.slice(3 + 12);
+      expect(note.map((r) => r.text)).toEqual(["Box out early", "Talk on every switch"]);
+      expect(note[1].y).toBeGreaterThan(note[0].y);
+      expect(note[0].px).toBe(note[1].px);
+      inFrame(aspect, runs);
+    }
+  });
+
+  it("wraps each line of a note on its own", () => {
+    const runs = layoutStatsCard({ ...content(6), note: `${NOTE}\nBox out early` }, "16:9", measure);
+    const note = runs.slice(3 + 12);
+    const px = note[0].px;
+    expect(note.map((r) => r.text)).toEqual([...wrapWords(NOTE, (l) => measure(l, px, "regular"), 1280 - 2 * 96), "Box out early"]);
+    expect(note).toHaveLength(3);
+  });
+
+  it("keeps one empty line between two paragraphs, as a gap and not a run", () => {
+    const runs = layoutStatsCard({ ...content(6), note: "Box out early\n\n\nTalk on every switch" }, "16:9", measure);
+    const note = runs.slice(3 + 12);
+    expect(note.map((r) => r.text)).toEqual(["Box out early", "Talk on every switch"]);
+    expect(note[1].y - note[0].y).toBe(2 * Math.round(note[0].px * 1.3));
+  });
+
+  it("never ends a cut note on a bare ellipsis line", () => {
+    const runs = layoutStatsCard({ ...content(6), note: `${NOTE}\n\nBox out early` }, "16:9", measure);
+    const note = runs.slice(3 + 12);
+    expect(note).toHaveLength(2);
+    expect(note[1].text.endsWith("…")).toBe(true);
+    expect(note[1].text.length).toBeGreaterThan(1);
+  });
+
+  it("shows the first lines and an ellipsis when a note has more line breaks than fit", () => {
+    for (const aspect of ["16:9", "9:16"] as const) {
+      const runs = layoutStatsCard({ ...content(6), note: "One\nTwo\nThree\nFour\nFive" }, aspect, measure);
+      const note = runs.slice(3 + 12);
+      expect(note.map((r) => r.text)).toEqual(["One", "Two", "Three…"]);
+      inFrame(aspect, runs);
+    }
   });
 });
 

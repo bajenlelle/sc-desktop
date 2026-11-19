@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, ChevronDown, Play, Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
 import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels";
@@ -8,23 +8,45 @@ import {
   formatGameClock,
   isBookkeepingEvent,
   playerName,
+  sortPlaysChronologically,
 } from "@scoutable/shared/lib/events";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
+import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
-import { orderForAdd, startGame } from "@scoutable/shared/lib/add-clips-games";
+import { orderForAdd, playerTeam, startGames } from "@scoutable/shared/lib/add-clips-games";
+import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
+import {
+  EMPTY_CLIP_FILTERS,
+  EVENT_TYPE_OPTIONS,
+  SHOT_TYPE_OPTIONS,
+  SITUATION_OPTIONS,
+  applyClipFiltersByKey,
+  keepKnownChoices,
+  playerKey,
+  playersByTeam,
+  teamsOf,
+  type ClipFilters,
+} from "@scoutable/shared/lib/clip-filters";
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
 import { isClipItem } from "@/types/match";
+import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
+import { listEventsForMatchesChecked } from "@/lib/matches-db";
 import { getAddClipsScope, setAddClipsScope } from "@/lib/prefs";
+import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey } from "@/lib/label-keys";
+import { rememberLabelUsed } from "@/lib/recent-labels";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
+import { useFilterPresets } from "@/lib/use-filter-presets";
+import { useListWindow } from "@/lib/use-list-window";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
+import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import { LeadersPopover } from "@/components/leaders-popover";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -35,7 +57,7 @@ import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EventTypeChips } from "./event-type-chips";
-import { GamePicker } from "./game-picker";
+import { GamePicker, type GamePickVia } from "./game-picker";
 import { PlayerStage } from "./player-stage";
 import { usePersistentVideo } from "./use-persistent-video";
 
@@ -43,116 +65,76 @@ import { usePersistentVideo } from "./use-persistent-video";
 // Filter vocabulary
 // ---------------------------------------------------------------------------
 
-const EVENT_TYPE_OPTIONS = [
-  { value: "2pt-made", label: "2PT made" },
-  { value: "2pt-miss", label: "2PT miss" },
-  { value: "3pt-made", label: "3PT made" },
-  { value: "3pt-miss", label: "3PT miss" },
-  { value: "freethrow-made", label: "FT made" },
-  { value: "freethrow-miss", label: "FT miss" },
-  { value: "rebound-off", label: "Off. rebound" },
-  { value: "rebound-def", label: "Def. rebound" },
-  { value: "turnover", label: "Turnover" },
-  { value: "steal", label: "Steal" },
-  { value: "assist", label: "Assist" },
-  { value: "foul", label: "Foul" },
-  { value: "foulon", label: "Foul drawn" },
-  { value: "block", label: "Block" },
-];
-
-const SHOT_TYPE_OPTIONS = [
-  { value: "subtype:layup", label: "Layup" },
-  { value: "subtype:floater", label: "Floater" },
-  { value: "subtype:jumpshot", label: "Jump shot" },
-  { value: "subtype:dunk", label: "Dunk / alley-oop" },
-  { value: "subtype:tipin", label: "Tip-in" },
-];
-
-const SITUATION_OPTIONS = [
-  { value: "qual:fastbreak", label: "Fast break" },
-  { value: "qual:pointsinthepaint", label: "In the paint" },
-  { value: "qual:2ndchance", label: "2nd chance" },
-  { value: "qual:fromturnover", label: "From turnover" },
-  { value: "qual:shooting", label: "Shooting foul" },
-  { value: "subtype:charge", label: "Charge" },
-  { value: "subtype:technical", label: "Technical foul" },
-  { value: "subtype:badpass", label: "Bad pass" },
-  { value: "subtype:ballhandling", label: "Ball handling" },
-  { value: "subtype:travel", label: "Travel" },
-  { value: "subtype:24sec", label: "Shot clock" },
-];
-
-function matchesSingleType(e: PlayByPlayEvent, filter: string): boolean {
-  if (filter === "rebound-off") return e.type === "rebound" && e.subType === "offensive";
-  if (filter === "rebound-def") return e.type === "rebound" && e.subType === "defensive";
-  if (filter === "rebound-inbound") return e.type === "rebound" && e.subType === "offensivedeadball";
-  const [type, outcome] = filter.split("-");
-  if (e.type !== type) return false;
-  if (outcome === "made") return e.isSuccessful === 1;
-  if (outcome === "miss") return e.isSuccessful === 0;
-  return true;
-}
-
-function matchesShotType(e: PlayByPlayEvent, f: string): boolean {
-  const sub = e.subType ?? "";
-  switch (f) {
-    case "subtype:layup":    return ["layup", "drivinglayup", "reverselayup"].includes(sub);
-    case "subtype:floater":  return sub === "floatingjumpshot";
-    case "subtype:jumpshot": return ["jumpshot", "pullupjumpshot", "turnaroundjumpshot", "fadeaway", "stepbackjumpshot", "hookshot"].includes(sub);
-    case "subtype:dunk":     return ["dunk", "alleyoop", "alleyoopdunk"].includes(sub);
-    case "subtype:tipin":    return ["tipinlayup", "tipindunk"].includes(sub);
-    default: return false;
-  }
-}
-
-function matchesSituation(e: PlayByPlayEvent, f: string): boolean {
-  switch (f) {
-    case "qual:fastbreak":        return e.qualifiers.includes("fastbreak");
-    case "qual:pointsinthepaint": return e.qualifiers.includes("pointsinthepaint");
-    case "qual:2ndchance":        return e.qualifiers.includes("2ndchance");
-    case "qual:fromturnover":     return e.qualifiers.includes("fromturnover");
-    case "qual:shooting":         return e.type === "foul" && e.qualifiers.includes("shooting");
-    case "subtype:charge":        return e.type === "foul" && e.subType === "offensive";
-    case "subtype:technical":     return e.type === "foul" && ["technical", "benchTechnical", "coachTechnical"].includes(e.subType ?? "");
-    case "subtype:badpass":       return e.type === "turnover" && e.subType === "badpass";
-    case "subtype:ballhandling":  return e.type === "turnover" && e.subType === "ballhandling";
-    case "subtype:travel":        return e.type === "turnover" && e.subType === "travel";
-    case "subtype:24sec":         return e.type === "turnover" && e.subType === "24sec";
-    default: return false;
-  }
-}
+// No Timeout chip: timeouts live in game marks, not in the play-by-play, so it would match nothing.
+const BROWSER_TYPE_OPTIONS = EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeout");
 
 // ---------------------------------------------------------------------------
 // A row in the browser
 // ---------------------------------------------------------------------------
 
-function BrowserRow({
+/** Every row is this tall, so the list can draw only the rows near the view (lib/use-list-window.ts). */
+const BROWSER_ROW_HEIGHT = 45;
+
+/** A clip with no labels: one array for every such row, so the row's memo holds. */
+const NO_LABELS: Label[] = [];
+
+/** The plays of these games a coach can watch: dead-ball possession markers stay out of the sheet. */
+function watchablePlays(gameIds: readonly string[], plays: ReadonlyMap<string, PlayByPlayEvent[]>): PlayByPlayEvent[] {
+  return gameIds.flatMap((id) => plays.get(id) ?? []).filter((e) => !isBookkeepingEvent(e));
+}
+
+/** The set with `add` in and `drop` out; the same set when that changes nothing, so the update renders nothing. */
+function withGames(set: ReadonlySet<string>, add: readonly string[], drop: readonly string[]): ReadonlySet<string> {
+  if (add.every((id) => set.has(id)) && drop.every((id) => !set.has(id))) return set;
+  const next = new Set(set);
+  for (const id of drop) next.delete(id);
+  for (const id of add) next.add(id);
+  return next;
+}
+
+/**
+ * Memoised: a tick or a press re-renders only the rows whose props changed. Every
+ * callback it gets keeps its identity across the panel's renders.
+ */
+const BrowserRow = memo(function BrowserRow({
   rowKey,
+  index,
   event,
+  matchId,
   matchTitle,
   showGame,
   isSelected,
   alreadyIn,
   isActive,
   assignedLabels,
-  onToggle,
-  onClick,
+  canLabel,
   labelPicker,
+  onToggle,
+  onPress,
+  onLabel,
 }: {
   /** `matchId:eventId`: event ids repeat across games. */
   rowKey: string;
+  /** The row's place in the whole list (only rows near the view are drawn). */
+  index: number;
   event: PlayByPlayEvent;
+  matchId: string;
   matchTitle: string;
   showGame: boolean;
   isSelected: boolean;
   alreadyIn: boolean;
   isActive: boolean;
   assignedLabels: Label[];
+  /** Whether rows can be labelled at all (a space is active). */
+  canLabel: boolean;
+  /** The label picker, on the one row being labelled; null draws the plain Tag button. */
+  labelPicker: React.ReactNode | null;
   /** The checkbox: a tick, or with Shift the range from the anchor. */
-  onToggle: (e: React.MouseEvent) => void;
+  onToggle: (rowKey: string, e: React.MouseEvent) => void;
   /** The row: plain plays it, ⌘ ticks it, Shift ticks the range. */
-  onClick: (e: React.MouseEvent) => void;
-  labelPicker?: React.ReactNode;
+  onPress: (event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) => void;
+  /** The Tag button: opens the label picker on this row. */
+  onLabel: (rowKey: string) => void;
 }) {
   const colors = eventColors(event);
   const visible = assignedLabels.slice(0, 2);
@@ -161,10 +143,15 @@ function BrowserRow({
     <div
       role="row"
       data-row-key={rowKey}
+      aria-rowindex={index + 1}
       aria-selected={isSelected}
-      onClick={onClick}
+      aria-current={isActive ? "true" : undefined}
+      onClick={(e) => onPress(event, matchId, e)}
       className={cn(
-        "group relative flex min-h-10 cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100 [&:not(:first-child)]:shadow-[inset_0_1px_0_var(--separator)]",
+        // One height for every row, whatever it holds: the list is windowed by it (BROWSER_ROW_HEIGHT).
+        "group relative box-border flex h-[45px] cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100",
+        // The separator goes by place in the list: the first row drawn isn't always the list's first.
+        index > 0 && "shadow-[inset_0_1px_0_var(--separator)]",
         isActive
           ? "bg-primary/12"
           : isSelected
@@ -187,7 +174,7 @@ function BrowserRow({
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
               e.stopPropagation();
-              onToggle(e);
+              onToggle(rowKey, e);
             }}
             aria-label="Select"
             className="size-3.5 rounded accent-primary"
@@ -232,11 +219,23 @@ function BrowserRow({
       </div>
       <div className="flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
         {isActive && <Play className="mr-1 size-3.5 fill-current text-primary" />}
-        {labelPicker}
+        {/* A plain button until it is pressed: the picker itself is mounted on one row at a time. */}
+        {canLabel &&
+          (labelPicker ?? (
+            <button
+              type="button"
+              className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100 data-[state=open]:text-primary"
+              title="Labels"
+              aria-label="Labels"
+              onClick={() => onLabel(rowKey)}
+            >
+              <Tag className="size-3.5" />
+            </button>
+          ))}
       </div>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // The panel
@@ -253,6 +252,8 @@ export interface ClipBrowserLabelHandlers {
   onRename: (id: string, name: string) => Promise<void>;
   onRecolor: (id: string, color: LabelColor) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  /** Gives a label its key (1–9), or takes it away (null). */
+  onSetKey: (id: string, slot: number | null) => Promise<void>;
   onSeedDefaults: () => Promise<void>;
 }
 
@@ -263,10 +264,16 @@ export interface ClipBrowserLabelHandlers {
  *
  * A coach adds in rounds (one player, then the next, from the same game), so
  * Add keeps the sheet open, and the sheet starts where the last round left
- * this playlist: that game and team (lib/prefs.ts), else the game the
+ * this playlist: those games and team (lib/prefs.ts), else the game the
  * playlist has most clips from, else the latest game (lib/add-clips-games.ts).
+ * Several games are searched together (up to 10), and a player is one
+ * person across them: the Player filter holds playerKey()s, not names.
+ *
+ * The sheet reads the plays of the games it shows itself (lib/matches-db.ts,
+ * whose cache the page shares), so a change of games renders the sheet, not
+ * the page behind it, and lands in one update.
  */
-export function ClipBrowserPanel({
+export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   matches,
   matchLookup,
   playlist,
@@ -275,11 +282,11 @@ export function ClipBrowserPanel({
   labels,
   labelAssignments,
   labelHandlers,
-  onNeedEvents,
   onNeedLabels,
   videoStatusByMatch,
   preferredMatchId = null,
 }: {
+  /** The games to offer: read for their ids, titles, dates, teams and video, never their plays (the sheet reads those). */
   matches: StoredMatch[];
   matchLookup: Map<string, StoredMatch>;
   playlist: Playlist;
@@ -291,9 +298,7 @@ export function ClipBrowserPanel({
   /** The page's per-clip label sets, keyed `${matchId}:${eventId}`. */
   labelAssignments: Map<string, Set<string>>;
   labelHandlers: ClipBrowserLabelHandlers;
-  /** Ask the page to load play-by-play for these matches if it hasn't yet. */
-  onNeedEvents: (matchIds: string[]) => Promise<void>;
-  /** The same for the labels on their clips. */
+  /** Ask the page to load the labels on these games' clips if it hasn't yet. */
   onNeedLabels: (matchIds: string[]) => Promise<void>;
   /** Per-match video-file health from the page's probe (machine switches). */
   videoStatusByMatch: Map<string, VideoFileStatus>;
@@ -301,46 +306,81 @@ export function ClipBrowserPanel({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [start] = useState(() => {
     const scope = getAddClipsScope(playlist.id);
-    const s = startGame(matches, playlist.items, scope?.gameId ?? null, preferredMatchId);
+    const s = startGames(matches, playlist.items, scope?.gameIds ?? [], preferredMatchId);
     return { ...s, teams: s.source === "remembered" ? (scope?.teams ?? []) : [] };
   });
-  const [filterMatchId, setFilterMatchId] = useState<string | null>(start.id);
-  // Once per opening: where it started, and that start is now the playlist's last game.
+  const [gameIds, setGameIds] = useState<string[]>(start.ids);
+  // Once per opening: where it started, and that start is now the playlist's last games.
   useEffect(() => {
     trackEvent("clip_browser_opened", { start: start.source, games_in_playlist: new Set(playlist.items.filter(isClipItem).map((c) => c.matchId)).size });
-    if (start.id && start.source !== "remembered") setAddClipsScope(playlist.id, { gameId: start.id, teams: [] });
+    if (start.ids.length > 0 && start.source !== "remembered") setAddClipsScope(playlist.id, { gameIds: start.ids, teams: [] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [eventsLoading, setEventsLoading] = useState(false);
+  const [filters, setFilters] = useState<ClipFilters>(EMPTY_CLIP_FILTERS);
+  // One group's setter, for the dropdowns and chips.
+  const setGroup = (group: keyof ClipFilters) => (next: ReadonlySet<string>) => {
+    setFilters((f) => ({ ...f, [group]: next }));
+  };
 
-  // Keyed on the match ID SET, not the matches array: merging fetched events
-  // produces a new array, and depending on that would re-run this on arrival
-  // and flicker the loading state.
-  const matchIdsKey = matches.map((m) => m.id).join(",");
+  // The plays of every game the sheet has read, by game (kept when a game is unticked: ticking it again
+  // reads nothing), and the games whose read failed, until they are read again.
+  const [plays, setPlays] = useState<ReadonlyMap<string, PlayByPlayEvent[]>>(new Map());
+  const playsRef = useRef(plays);
+  const [failedGames, setFailedGames] = useState<ReadonlySet<string>>(new Set());
+  // Keyed on the chosen ids, not the matches array: the page's matches change for reasons of its own.
+  const gameIdsKey = gameIds.join(",");
+  // The chosen games as of the last change (handleGameChange), for a read that lands later.
+  const chosenKeyRef = useRef(gameIdsKey);
+  // The team remembered with the games comes back once their plays are in, if they still have it.
+  const pendingTeamsRef = useRef<string[] | null>(start.teams.length > 0 ? start.teams : null);
 
-  // The page only preloads events (and labels) for games a playlist
-  // references, so the browser pulls the game it is showing. Runs on open and
-  // on every game switch; the page ignores ids it already has or is fetching.
-  useEffect(() => {
-    // No filter means "all games" — the panel would render every event.
-    const ids = filterMatchId ? [filterMatchId] : matchIdsKey.split(",").filter(Boolean);
-    if (ids.length === 0) return;
-    let cancelled = false;
-    setEventsLoading(true);
-    void Promise.all([onNeedEvents(ids), onNeedLabels(ids)]).finally(() => {
-      if (!cancelled) setEventsLoading(false);
+  /**
+   * Reads the plays of `ask` (and the labels on the chosen games' clips) and lands them in one update:
+   * the plays, which games failed and, while the chosen games are still `chosen` and all of them are
+   * in, the team and players pruned to what those games have and the remembered team back. A chosen
+   * game that failed may have the chosen players: nothing is pruned until it is in.
+   */
+  const readPlays = useCallback((ask: string[], chosen: string[]) => {
+    const failAll = { byMatch: {} as Record<string, PlayByPlayEvent[]>, failed: ask };
+    void Promise.all([
+      listEventsForMatchesChecked(ask).catch(() => failAll),
+      onNeedLabels(chosen).catch(() => {}),
+    ]).then(([{ byMatch, failed }]) => {
+      const failedNow = new Set(failed);
+      const read = ask.filter((id) => !failedNow.has(id));
+      const held = new Map(playsRef.current);
+      // A game read with nothing for this reader (gone, or not theirs to see) has no plays to list.
+      for (const id of read) held.set(id, byMatch[id] ?? []);
+      playsRef.current = held;
+      setPlays(held);
+      // A game another read brought meanwhile stays in, whatever this one says.
+      setFailedGames((prev) => withGames(prev, failed.filter((id) => !held.has(id)), read));
+      // The games changed meanwhile: that change, or the read it started, prunes for them.
+      if (chosenKeyRef.current !== chosen.join(",") || !chosen.every((id) => held.has(id))) return;
+      const events = watchablePlays(chosen, held);
+      const remembered = pendingTeamsRef.current;
+      pendingTeamsRef.current = null;
+      const known = new Set(remembered ? teamsOf(events) : []);
+      const kept = remembered?.filter((t) => known.has(t)) ?? [];
+      setFilters((f) => {
+        const pruned = keepKnownChoices(f, events);
+        return kept.length > 0 ? { ...pruned, teams: new Set(kept) } : pruned;
+      });
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [filterMatchId, matchIdsKey, onNeedEvents, onNeedLabels]);
+  }, [onNeedLabels]);
 
-  const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
-  const [filterSubTypes, setFilterSubTypes] = useState<Set<string>>(new Set());
-  const [filterSituations, setFilterSituations] = useState<Set<string>>(new Set());
-  const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
-  const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
-  const [filterLabelIds, setFilterLabelIds] = useState<Set<string>>(new Set());
+  // On open and on every change of games: the chosen games whose plays the sheet doesn't hold are read
+  // (a failed one again). When it holds them all, the change pruned at once (handleGameChange).
+  useEffect(() => {
+    const ids = gameIdsKey.split(",").filter(Boolean);
+    if (ids.length === 0) return;
+    const missing = ids.filter((id) => !playsRef.current.has(id));
+    if (missing.length > 0) readPlays(missing, ids);
+    else void onNeedLabels(ids);
+  }, [gameIdsKey, readPlays, onNeedLabels]);
+  // A chosen game being read, neither in nor failed.
+  const eventsLoading = gameIds.some((id) => !plays.has(id) && !failedGames.has(id));
+
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
@@ -348,6 +388,8 @@ export function ClipBrowserPanel({
   const [isPlaying, setIsPlaying] = useState(false);
   const [queueIdx, setQueueIdx] = useState(0);
   const [speed, setSpeed] = useState(1);
+  // The row whose label picker is open (`matchId:eventId`): one picker for the list, on that row.
+  const [labelPickerFor, setLabelPickerFor] = useState<string | null>(null);
 
   // One <video> for the sheet's life; the stage hosts it.
   const video = usePersistentVideo();
@@ -370,68 +412,85 @@ export function ClipBrowserPanel({
     [playlist.items],
   );
 
+  const gameIdSet = useMemo(() => new Set(gameIds), [gameIds]);
+  // The chosen games in the page's order, each with the plays the sheet holds for it.
+  const chosenGames = useMemo(
+    () => matches.filter((m) => gameIdSet.has(m.id)).map((m) => ({ ...m, events: sortPlaysChronologically(plays.get(m.id) ?? []) })),
+    [matches, gameIdSet, plays],
+  );
   const allEvents = useMemo(() => {
-    const source = filterMatchId ? matches.filter((m) => m.id === filterMatchId) : matches;
-    return source.flatMap((m) =>
+    return chosenGames.flatMap((m) =>
       m.events
         // Dead-ball possession markers aren't watchable — keep them out of
         // the browser and everything derived from it (teams, players, counts).
         .filter((e) => !isBookkeepingEvent(e))
         .map((e) => ({ event: e, matchId: m.id, matchTitle: m.title })),
     );
-  }, [matches, filterMatchId]);
+  }, [chosenGames]);
 
   const teams = useMemo(
     () => Array.from(new Set(allEvents.map((x) => x.event.eventTeam?.teamName).filter(Boolean) as string[])),
     [allEvents],
   );
-  // The team remembered with the game comes back once the game's plays are in, if the game still has it.
-  const pendingTeamsRef = useRef<string[] | null>(start.teams.length > 0 ? start.teams : null);
-  useEffect(() => {
-    const wanted = pendingTeamsRef.current;
-    if (!wanted || teams.length === 0) return;
-    pendingTeamsRef.current = null;
-    const kept = wanted.filter((t) => teams.includes(t));
-    if (kept.length > 0) setFilterTeams(new Set(kept));
-  }, [teams]);
-  const players = useMemo(() => {
-    const source = filterTeams.size > 0
-      ? allEvents.filter(({ event }) => filterTeams.has(event.eventTeam?.teamName ?? ""))
+  const playerGroups = useMemo(() => {
+    const source = filters.teams.size > 0
+      ? allEvents.filter(({ event }) => filters.teams.has(event.eventTeam?.teamName ?? ""))
       : allEvents;
-    return Array.from(new Set(
-      source.map((x) => (x.event.player ? playerName(x.event) : null)).filter(Boolean) as string[],
-    ));
-  }, [allEvents, filterTeams]);
+    return playersByTeam(source.map((x) => x.event));
+  }, [allEvents, filters.teams]);
   // Same Game + Team narrowing as the players list, so the Leaders popover
   // never offers a player the Team filter would immediately hide.
   const leaderEvents = useMemo(() => {
-    const source = filterTeams.size > 0
-      ? allEvents.filter(({ event }) => filterTeams.has(event.eventTeam?.teamName ?? ""))
+    const source = filters.teams.size > 0
+      ? allEvents.filter(({ event }) => filters.teams.has(event.eventTeam?.teamName ?? ""))
       : allEvents;
     return source.map((x) => x.event);
-  }, [allEvents, filterTeams]);
+  }, [allEvents, filters.teams]);
 
-  const handleLeaderToggle = useCallback((name: string) => {
-    setFilterPlayers((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  }, []);
-
-  const filtered = useMemo(() => allEvents.filter(({ event, matchId }) => {
-    if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(event, f))) return false;
-    if (filterSubTypes.size > 0 && !Array.from(filterSubTypes).some((f) => matchesShotType(event, f))) return false;
-    if (filterSituations.size > 0 && !Array.from(filterSituations).some((f) => matchesSituation(event, f))) return false;
-    if (filterTeams.size > 0 && !filterTeams.has(event.eventTeam?.teamName ?? "")) return false;
-    if (filterPlayers.size > 0 && !filterPlayers.has(playerName(event))) return false;
-    if (filterLabelIds.size > 0) {
-      const assigned = labelAssignments.get(`${matchId}:${event.eventId}`);
-      if (!assigned || ![...filterLabelIds].some((id) => assigned.has(id))) return false;
+  // The Leaders popover speaks names; the Player filter holds keys. A name
+  // stands for every listed key with that name (two people can share one).
+  const keyNames = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const g of playerGroups) for (const pl of g.players) out.set(pl.key, pl.name);
+    return out;
+  }, [playerGroups]);
+  const leaderSelected = useMemo(() => {
+    const out = new Set<string>();
+    for (const key of filters.players) {
+      const name = keyNames.get(key);
+      if (name) out.add(name);
     }
-    return true;
-  }), [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers, filterLabelIds, labelAssignments]);
+    return out;
+  }, [filters.players, keyNames]);
+  const handleLeaderToggle = useCallback((name: string) => {
+    const keys = [...keyNames].filter(([, n]) => n === name).map(([key]) => key);
+    if (keys.length === 0) return;
+    setFilters((f) => {
+      const next = new Set(f.players);
+      const on = keys.some((k) => next.has(k));
+      for (const k of keys) {
+        if (on) next.delete(k);
+        else next.add(k);
+      }
+      return { ...f, players: next };
+    });
+  }, [keyNames]);
+
+  const filtered = useMemo(
+    () => applyClipFiltersByKey(allEvents, filters, (x) => labelAssignments.get(`${x.matchId}:${x.event.eventId}`)),
+    [allEvents, filters, labelAssignments],
+  );
+
+  // Each clip's labels, in the vocabulary's order: one array per clip, rebuilt only when the labels
+  // or what is put on the clips change (a row is memoised on it).
+  const labelsByKey = useMemo(() => {
+    const out = new Map<string, Label[]>();
+    for (const [key, ids] of labelAssignments) {
+      const on = labels.filter((l) => ids.has(l.id));
+      if (on.length > 0) out.set(key, on);
+    }
+    return out;
+  }, [labels, labelAssignments]);
 
   const selectedClipKeyPairs = useMemo<ClipKey[]>(() => {
     const out: ClipKey[] = [];
@@ -461,32 +520,90 @@ export function ClipBrowserPanel({
     return { bulkAssignedAll: all, bulkAssignedSome: some };
   }, [selectedClipKeyPairs, labelAssignments]);
 
-  function handleGameChange(newMatchId: string | null) {
+  // A change of games keeps the chosen team and players (a player id is the
+  // same in every game, so "#8, last 5 games" keeps #8) and prunes those the
+  // new games don't have once their plays are in: here when the sheet holds
+  // them all, else when their read lands (readPlays), in one update either way.
+  function handleGameChange(ids: string[], via: GamePickVia) {
     pendingTeamsRef.current = null;
-    setFilterMatchId(newMatchId);
-    setFilterTeams(new Set());
-    setFilterPlayers(new Set());
-    if (newMatchId) setAddClipsScope(playlist.id, { gameId: newMatchId, teams: [] });
+    const same = ids.join(",") === chosenKeyRef.current;
+    chosenKeyRef.current = ids.join(",");
+    setGameIds(ids);
+    setAddClipsScope(playlist.id, { gameIds: ids, teams: [...filters.teams] });
+    trackEvent("clip_browser_games_set", { games: ids.length, via });
+    // The same games again (a row press on the one chosen game, "Last 5 games" twice): no change of
+    // games, so nothing below reads them; it is a Try again for those whose read failed, else nothing.
+    if (same) {
+      retryFailed(ids);
+      return;
+    }
+    // A chosen game whose read failed is read again: loading until it lands, not failed.
+    setFailedGames((prev) => withGames(prev, [], ids));
+    const held = playsRef.current;
+    if (ids.every((id) => held.has(id))) {
+      const events = watchablePlays(ids, held);
+      setFilters((f) => keepKnownChoices(f, events));
+    }
+  }
+
+  // The chosen games whose read failed, named above the list.
+  const failedChosen = chosenGames.filter((m) => failedGames.has(m.id));
+  /** Reads again only those of the chosen games whose read failed: loading until it lands, not failed. */
+  function retryFailed(chosen: string[]) {
+    const ids = chosen.filter((id) => failedGames.has(id));
+    if (ids.length === 0) return;
+    setFailedGames((prev) => withGames(prev, [], ids));
+    readPlays(ids, chosen);
   }
 
   function handleTeamChange(newTeams: Set<string>) {
     pendingTeamsRef.current = null;
-    setFilterTeams(newTeams);
-    if (filterMatchId) setAddClipsScope(playlist.id, { gameId: filterMatchId, teams: [...newTeams] });
+    if (gameIds.length > 0) setAddClipsScope(playlist.id, { gameIds, teams: [...newTeams] });
     const source = newTeams.size > 0
       ? allEvents.filter(({ event }) => newTeams.has(event.eventTeam?.teamName ?? ""))
       : allEvents;
-    const validPlayers = new Set(
-      source.map((x) => (x.event.player ? playerName(x.event) : null)).filter(Boolean) as string[],
-    );
-    setFilterPlayers((prev) => new Set([...prev].filter((p) => validPlayers.has(p))));
+    const validPlayers = new Set(source.map((x) => playerKey(x.event)).filter((k): k is string => k !== null));
+    setFilters((f) => ({ ...f, teams: newTeams, players: new Set([...f.players].filter((p) => validPlayers.has(p))) }));
   }
+
+  // A preset holds plays, shot types, situations and labels, never games, teams or players: applying
+  // one leaves the chosen games, team and players as they are, so the same preset serves any player.
+  // Nothing in it depends on the games' plays, so it applies at once, loading or not; a label the space
+  // no longer has is left out, and the coach is told when that leaves none.
+  const presets = useFilterPresets(activeOrgId, "add_clips");
+  function applyPreset(p: FilterPreset) {
+    const labelIds = labels.map((l) => l.id);
+    setFilters((f) => applyPresetFilters(f, p.filters, labelIds));
+    presets.applied(p);
+    if (presetLabelsGone(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
+  }
+
+  // "Last 5 games of …" in the Game picker: the one chosen player's team, else the one chosen team.
+  const quickTeam = useMemo(() => {
+    if (filters.players.size === 1) return playerTeam(chosenGames, [...filters.players][0]);
+    if (filters.teams.size === 1) return [...filters.teams][0];
+    return null;
+  }, [chosenGames, filters.players, filters.teams]);
+
+  // Each play's place in the list, by `matchId:eventId`: no scan of every play to find one.
+  const indexByKey = useMemo(() => {
+    const out = new Map<string, number>();
+    filtered.forEach(({ event, matchId }, i) => out.set(`${matchId}:${event.eventId}`, i));
+    return out;
+  }, [filtered]);
+  // Five games are some 1,800 plays: only the rows near the view are drawn.
+  const { scrollRef: listScrollRef, range: listRange, reveal: revealRow } = useListWindow({
+    count: filtered.length,
+    rowHeight: BROWSER_ROW_HEIGHT,
+  });
 
   // Keep ref for the key handler (avoids stale closures)
   const filteredRef = useRef(filtered);
   filteredRef.current = filtered;
+  const indexByKeyRef = useRef(indexByKey);
+  indexByKeyRef.current = indexByKey;
 
-  const videoMatchId = activeEventKey ? activeEventKey.split(":")[0] : filterMatchId ?? null;
+  const videoMatchId = activeEventKey ? activeEventKey.split(":")[0] : gameIds[0] ?? null;
   const localVideoUrl = useMemo(() => {
     const match = videoMatchId ? matchLookup.get(videoMatchId) : null;
     if (!match?.videoUrl) return null;
@@ -635,7 +752,7 @@ export function ClipBrowserPanel({
 
   const handleRowClick = useCallback((event: PlayByPlayEvent, matchId: string) => {
     const items = filteredRef.current;
-    const idx = items.findIndex((x) => x.event.eventId === event.eventId && x.matchId === matchId);
+    const idx = indexByKeyRef.current.get(`${matchId}:${event.eventId}`) ?? -1;
     const queue = idx >= 0 ? items.slice(idx) : [{ event, matchId, matchTitle: "" }];
 
     queueRef.current = queue;
@@ -654,9 +771,15 @@ export function ClipBrowserPanel({
   const handleRowClickRef = useRef(handleRowClick);
   handleRowClickRef.current = handleRowClick;
 
+  /** The playing play's place in the list; -1 for none, or one the filters hide. */
+  const playingIndex = () => {
+    const key = activeEventKeyRef.current;
+    return key === null ? -1 : (indexByKeyRef.current.get(key) ?? -1);
+  };
+
   function handlePrev() {
     const items = filteredRef.current;
-    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
+    const cur = playingIndex();
     if (cur <= 0) return;
     const { event, matchId } = items[cur - 1];
     handleRowClickRef.current(event, matchId);
@@ -664,7 +787,7 @@ export function ClipBrowserPanel({
 
   function handleNext() {
     const items = filteredRef.current;
-    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
+    const cur = playingIndex();
     if (cur === -1 || cur >= items.length - 1) return;
     const { event, matchId } = items[cur + 1];
     handleRowClickRef.current(event, matchId);
@@ -676,7 +799,7 @@ export function ClipBrowserPanel({
     handleRowClick(items[0].event, items[0].matchId);
   }
 
-  const activeIdx = filtered.findIndex(({ event, matchId }) => `${matchId}:${event.eventId}` === activeEventKey);
+  const activeIdx = activeEventKey === null ? -1 : (indexByKey.get(activeEventKey) ?? -1);
   const activeEntry = activeIdx >= 0 ? filtered[activeIdx] : null;
   const canPrev = isPlaying && activeIdx > 0;
   const canNext = isPlaying && activeIdx >= 0 && activeIdx < filtered.length - 1;
@@ -692,8 +815,10 @@ export function ClipBrowserPanel({
   const clipWindowRef = useRef(clipWindow);
   clipWindowRef.current = clipWindow;
 
-  const allSelected =
-    filtered.length > 0 && filtered.every(({ event, matchId }) => selectedIds.has(`${matchId}:${event.eventId}`));
+  const allSelected = useMemo(
+    () => filtered.length > 0 && filtered.every(({ event, matchId }) => selectedIds.has(`${matchId}:${event.eventId}`)),
+    [filtered, selectedIds],
+  );
 
   function toggleSelectAll() {
     if (allSelected) setSelectedIds(new Set());
@@ -751,8 +876,23 @@ export function ClipBrowserPanel({
     setAnchor(key);
     handleRowClick(event, matchId);
   }
+  function handleRowToggle(key: string, e: React.MouseEvent) {
+    if (!existingSet.has(key)) applyClick(key, e.shiftKey, !e.shiftKey);
+  }
+  // What the rows are handed: made once, calling the latest handlers, so a row's memo holds.
+  const handleRowPressRef = useRef(handleRowPress);
+  handleRowPressRef.current = handleRowPress;
+  const handleRowToggleRef = useRef(handleRowToggle);
+  handleRowToggleRef.current = handleRowToggle;
+  const onRowPress = useCallback(
+    (event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) => handleRowPressRef.current(event, matchId, e),
+    [],
+  );
+  const onRowToggle = useCallback((key: string, e: React.MouseEvent) => handleRowToggleRef.current(key, e), []);
+  const onRowLabel = useCallback((key: string) => setLabelPickerFor(key), []);
   function playKey(key: string) {
-    const item = filteredRef.current.find(({ event, matchId }) => `${matchId}:${event.eventId}` === key);
+    const idx = indexByKeyRef.current.get(key);
+    const item = idx === undefined ? undefined : filteredRef.current[idx];
     if (item) handleRowClickRef.current(item.event, item.matchId);
   }
   /** ↑/↓, Home/End, ⌘↑/⌘↓: play the clip there. */
@@ -793,7 +933,11 @@ export function ClipBrowserPanel({
    * the next round: the ticks clear, the filters stay.
    */
   function handleAdd() {
-    const toAdd = orderForAdd([...selectedIds].filter((k) => !existingSet.has(k)), matches);
+    // Every game the sheet holds, not only the chosen ones: a tick stays across a change of games, and the
+    // button counts it.
+    const held = playsRef.current;
+    const games = matches.filter((m) => held.has(m.id)).map((m) => ({ ...m, events: held.get(m.id)! }));
+    const toAdd = orderForAdd([...selectedIds].filter((k) => !existingSet.has(k)), games);
     if (toAdd.length === 0) return;
     // The page says "5 clips added" with an Undo.
     onAddClips(toAdd);
@@ -803,7 +947,35 @@ export function ClipBrowserPanel({
   handleAddRef.current = handleAdd;
 
   const newCount = Array.from(selectedIds).filter((k) => !existingSet.has(k)).length;
-  const isMultiMatch = filterMatchId === null;
+  const isMultiMatch = gameIds.length > 1;
+
+  /**
+   * A label's own key (⌥1–⌥9): the label goes on the clip that is playing, or comes off it. The
+   * ticks are what will be added, not what is being labelled, so they are left to "Apply label".
+   */
+  const labelByKey = (slot: number) => {
+    if (!activeOrgId) return;
+    const label = labelForKey(labels, slot);
+    if (!label) {
+      toastNoLabelOnKey(slot);
+      return;
+    }
+    const key = activeEventKeyRef.current;
+    const idx = key ? indexByKeyRef.current.get(key) : undefined;
+    const playing = idx === undefined ? undefined : filteredRef.current[idx];
+    if (!key || !playing) return;
+    const { matchId, event } = playing;
+    const on = !(labelAssignments.get(key)?.has(label.id) ?? false);
+    void labelHandlers.onToggleClip(matchId, event.eventId, label.id, on ? "none" : "all");
+    if (on) {
+      rememberLabelUsed(label.id);
+      trackEvent("label_picked", { by: "hotkey", position: slot, recent: false, searched: false, created: false });
+    }
+    toast(labelKeyMessage(label.name, on), {
+      id: LABEL_KEY_TOAST,
+      action: { label: "Undo", onClick: () => void labelHandlers.onToggleClip(matchId, event.eventId, label.id, on ? "all" : "none") },
+    });
+  };
 
   // Keys belong to the sheet while it is open (one owner at a time), the
   // editor's where they make sense here: ↑/↓, Home/End and ⌘↑/⌘↓ walk the
@@ -812,6 +984,13 @@ export function ClipBrowserPanel({
   // playing clip, ⌘A ticks every shown clip, ⌘↩ adds.
   useKeyScope("clip-browser", true, panelRef);
   useHotkeys("clip-browser", (e) => {
+    const labelKey = labelKeySlot(e);
+    if (labelKey !== null) {
+      e.preventDefault();
+      // A held key would put the label on and take it off again.
+      if (!e.repeat) labelByKey(labelKey);
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       if (e.metaKey || e.ctrlKey) {
@@ -889,13 +1068,59 @@ export function ClipBrowserPanel({
     }
   });
 
-  // Keep the playing row in view
+  // Keep the playing row in view (it may not be drawn yet: the list scrolls to its place). Before
+  // paint, so a jump (End, Home, the next clip) never shows a frame of empty list. Not while a row
+  // is being labelled: that row must stay drawn. When the picker closes, the list moves only if
+  // another clip started meanwhile; otherwise it stays where the coach scrolled it.
+  const revealedKeyRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (activeEventKey === null) {
+      revealedKeyRef.current = null;
+      return;
+    }
+    if (labelPickerFor !== null || activeEventKey === revealedKeyRef.current) return;
+    revealedKeyRef.current = activeEventKey;
+    revealRow(indexByKeyRef.current.get(activeEventKey));
+  }, [activeEventKey, labelPickerFor, revealRow]);
+
+  // The labelled row has left the list (its label filtered it out, another game) or is no longer
+  // drawn: its picker went with it.
   useEffect(() => {
-    if (activeEventKey === null) return;
-    panelRef.current
-      ?.querySelector(`[data-row-key="${CSS.escape(activeEventKey)}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [activeEventKey]);
+    if (labelPickerFor === null) return;
+    const index = indexByKey.get(labelPickerFor);
+    if (index === undefined || index < listRange.start || index >= listRange.end) setLabelPickerFor(null);
+  }, [labelPickerFor, indexByKey, listRange.start, listRange.end]);
+
+  /** The label picker, open on the row being labelled. */
+  const rowLabelPicker = (key: string, matchId: string, eventId: number) => (
+    <LabelPickerPopover
+      open
+      onOpenChange={(open) => {
+        if (!open) setLabelPickerFor(null);
+      }}
+      align="end"
+      trigger={
+        <button
+          type="button"
+          className="flex size-6 items-center justify-center rounded-md bg-fill-2 text-foreground active:scale-95"
+          title="Labels"
+          aria-label="Labels"
+        >
+          <Tag className="size-3.5" />
+        </button>
+      }
+      labels={labels}
+      assignedAllIds={labelAssignments.get(key) ?? new Set<string>()}
+      onToggle={(labelId, state) => labelHandlers.onToggleClip(matchId, eventId, labelId, state)}
+      onCreate={labelHandlers.onCreate}
+      onRename={labelHandlers.onRename}
+      onRecolor={labelHandlers.onRecolor}
+      onDelete={labelHandlers.onDelete}
+      onSetKey={labelHandlers.onSetKey}
+      onSeedDefaults={labelHandlers.onSeedDefaults}
+    />
+  );
+  const canLabel = !!activeOrgId;
 
   const videoMissing =
     videoMatchId !== null &&
@@ -936,6 +1161,7 @@ export function ClipBrowserPanel({
               onRename={labelHandlers.onRename}
               onRecolor={labelHandlers.onRecolor}
               onDelete={labelHandlers.onDelete}
+              onSetKey={labelHandlers.onSetKey}
               onSeedDefaults={labelHandlers.onSeedDefaults}
             />
           )}
@@ -965,28 +1191,42 @@ export function ClipBrowserPanel({
       {/* Filters */}
       <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-5 pb-3">
         <div className="flex flex-wrap items-center gap-2">
-          <GamePicker matches={matches} items={playlist.items} value={filterMatchId} onChange={handleGameChange} />
-          <MultiSelectDropdown options={SHOT_TYPE_OPTIONS} selected={filterSubTypes} onChange={setFilterSubTypes} placeholder="Shot type" />
-          <MultiSelectDropdown options={SITUATION_OPTIONS} selected={filterSituations} onChange={setFilterSituations} placeholder="Situation" />
+          <GamePicker matches={matches} items={playlist.items} value={gameIds} onChange={handleGameChange} quickTeam={quickTeam} />
+          <MultiSelectDropdown options={SHOT_TYPE_OPTIONS} selected={filters.shotTypes} onChange={setGroup("shotTypes")} placeholder="Shot type" />
+          <MultiSelectDropdown options={SITUATION_OPTIONS} selected={filters.situations} onChange={setGroup("situations")} placeholder="Situation" />
           <MultiSelectDropdown
             options={teams.map((t) => ({ value: t, label: t }))}
-            selected={filterTeams}
+            selected={filters.teams}
             onChange={handleTeamChange}
             placeholder="Team"
           />
           <MultiSelectDropdown
-            options={players.map((p) => ({ value: p, label: p }))}
-            selected={filterPlayers}
-            onChange={setFilterPlayers}
+            groups={playerGroups.map((g) => ({
+              label: g.teamName || "Other players",
+              options: g.players.map((pl) => ({ value: pl.key, label: pl.number ? `#${pl.number} ${pl.name}` : pl.name, textValue: pl.name })),
+            }))}
+            selected={filters.players}
+            onChange={setGroup("players")}
             placeholder="Player"
           />
-          <LeadersPopover events={leaderEvents} selectedPlayers={filterPlayers} onTogglePlayer={handleLeaderToggle} />
+          <LeadersPopover events={leaderEvents} selectedPlayers={leaderSelected} onTogglePlayer={handleLeaderToggle} />
           {labels.length > 0 && (
             <MultiSelectDropdown
               options={labels.map((l) => ({ value: l.id, label: l.name }))}
-              selected={filterLabelIds}
-              onChange={setFilterLabelIds}
+              selected={filters.labels ?? EMPTY_CLIP_FILTERS.labels!}
+              onChange={setGroup("labels")}
               placeholder="Labels"
+            />
+          )}
+          {activeOrgId && (
+            <FilterPresetsMenu
+              modal
+              presets={presets.presets}
+              current={filters}
+              onApply={applyPreset}
+              onSave={(name) => presets.save(name, filters)}
+              onRename={presets.rename}
+              onDelete={presets.remove}
             />
           )}
           <div className="ml-auto">
@@ -1020,13 +1260,25 @@ export function ClipBrowserPanel({
             </Popover>
           </div>
         </div>
-        <EventTypeChips options={EVENT_TYPE_OPTIONS} selected={filterTypes} onChange={setFilterTypes} />
+        <EventTypeChips options={BROWSER_TYPE_OPTIONS} selected={filters.types} onChange={setGroup("types")} />
       </div>
 
       {/* Content: events | preview */}
       <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
         <ResizablePanel defaultSize="55" minSize="30">
           <div className="flex h-full flex-col">
+          {failedChosen.length > 0 && (
+            <div className="flex shrink-0 items-center gap-3 border-b border-separator py-2 pr-3 pl-4">
+              <div className="min-w-0 flex-1 text-callout text-muted-foreground">
+                {failedChosen.map((m) => (
+                  <p key={m.id}>Couldn&apos;t load plays for {m.title}.</p>
+                ))}
+              </div>
+              <Button size="sm" variant="outline" onClick={() => retryFailed(gameIds)}>
+                Try again
+              </Button>
+            </div>
+          )}
           <label className="flex h-8 shrink-0 cursor-default items-center gap-1.5 border-b border-separator pr-3 text-subheadline text-muted-foreground select-none">
             <span aria-hidden className="w-[3px]" />
             <span className="flex w-8 justify-center">
@@ -1043,13 +1295,13 @@ export function ClipBrowserPanel({
               {filtered.length} event{filtered.length !== 1 ? "s" : ""}
             </span>
           </label>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
             {filtered.length === 0 ? (
               eventsLoading ? (
                 // This game's play-by-play is still arriving — without this
                 // branch the filter-advice copy below would be plainly wrong.
                 <div className="py-12 text-center text-sm text-muted-foreground">Loading clips…</div>
-              ) : (
+              ) : failedChosen.length > 0 ? null : (
                 <div className="flex flex-col items-center gap-3 py-12 text-center">
                   <p className="text-sm text-muted-foreground">
                     {matches.length === 0
@@ -1067,45 +1319,34 @@ export function ClipBrowserPanel({
                 </div>
               )
             ) : (
-              <div role="grid" aria-label="Events">
-                {filtered.map(({ event, matchId, matchTitle }) => {
+              <div
+                role="grid"
+                aria-label="Events"
+                aria-rowcount={filtered.length}
+                // The rows not drawn, above and below: the list scrolls as if they were there.
+                style={{ paddingTop: listRange.padTop, paddingBottom: listRange.padBottom }}
+              >
+                {filtered.slice(listRange.start, listRange.end).map(({ event, matchId, matchTitle }, i) => {
+                  const index = listRange.start + i;
                   const key = `${matchId}:${event.eventId}`;
-                  const alreadyIn = existingSet.has(key);
-                  const assigned = activeOrgId ? labels.filter((l) => labelAssignments.get(key)?.has(l.id)) : [];
                   return (
                     <BrowserRow
                       key={key}
                       rowKey={key}
+                      index={index}
                       event={event}
+                      matchId={matchId}
                       matchTitle={matchTitle}
                       showGame={isMultiMatch}
                       isSelected={selectedIds.has(key)}
-                      alreadyIn={alreadyIn}
+                      alreadyIn={existingSet.has(key)}
                       isActive={activeEventKey === key}
-                      assignedLabels={assigned}
-                      onToggle={(e) => { if (!alreadyIn) applyClick(key, e.shiftKey, !e.shiftKey); }}
-                      onClick={(e) => handleRowPress(event, matchId, e)}
-                      labelPicker={activeOrgId ? (
-                        <LabelPickerPopover
-                          trigger={
-                            <button
-                              type="button"
-                              className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100 data-[state=open]:text-primary"
-                              title="Labels"
-                            >
-                              <Tag className="size-3.5" />
-                            </button>
-                          }
-                          labels={labels}
-                          assignedAllIds={labelAssignments.get(key) ?? new Set<string>()}
-                          onToggle={(labelId, state) => labelHandlers.onToggleClip(matchId, event.eventId, labelId, state)}
-                          onCreate={labelHandlers.onCreate}
-                          onRename={labelHandlers.onRename}
-                          onRecolor={labelHandlers.onRecolor}
-                          onDelete={labelHandlers.onDelete}
-                          onSeedDefaults={labelHandlers.onSeedDefaults}
-                        />
-                      ) : undefined}
+                      assignedLabels={canLabel ? (labelsByKey.get(key) ?? NO_LABELS) : NO_LABELS}
+                      canLabel={canLabel}
+                      labelPicker={canLabel && labelPickerFor === key ? rowLabelPicker(key, matchId, event.eventId) : null}
+                      onToggle={onRowToggle}
+                      onPress={onRowPress}
+                      onLabel={onRowLabel}
                     />
                   );
                 })}
@@ -1183,4 +1424,4 @@ export function ClipBrowserPanel({
       </ResizablePanelGroup>
     </div>
   );
-}
+});

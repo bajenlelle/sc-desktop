@@ -76,6 +76,11 @@ interface Geometry {
   /** Space between neighbouring stats, and the narrowest a stat may be. */
   cellGap: number;
   minCell: number;
+  /** The note under the cells: its size range, how many lines it may take, and its gap after the last label. */
+  note: number;
+  noteMin: number;
+  noteMaxLines: number;
+  gapCellsNote: number;
 }
 
 const GEOMETRY: Record<CardAspect, Geometry> = {
@@ -84,12 +89,14 @@ const GEOMETRY: Record<CardAspect, Geometry> = {
     heading: 60, headingMin: 36, details: 28, context: 24, value: 88, valueMin: 48, label: 22,
     gapHeadingDetails: 22, gapDetailsContext: 14, gapHeaderCells: 64, gapValueLabel: 22, gapRows: 0,
     cellGap: 64, minCell: 120,
+    note: 28, noteMin: 22, noteMaxLines: 3, gapCellsNote: 44,
   },
   "9:16": {
     top: 240, bottom: 1140, margin: 80,
     heading: 84, headingMin: 48, details: 38, context: 32, value: 130, valueMin: 64, label: 32,
     gapHeadingDetails: 26, gapDetailsContext: 18, gapHeaderCells: 96, gapValueLabel: 24, gapRows: 64,
     cellGap: 72, minCell: 180,
+    note: 38, noteMin: 30, noteMaxLines: 3, gapCellsNote: 64,
   },
 };
 
@@ -99,6 +106,43 @@ function cellRows(count: number, aspect: CardAspect): number[] {
   if (aspect === "16:9" || count <= 3) return [count];
   if (count === 4) return [2, 2];
   return [3, count - 3];
+}
+
+/**
+ * The note's size and lines: each of the coach's own lines wrapped at full
+ * size (an empty line between two paragraphs stays as one empty line), the
+ * whole shrunk by 2 until it fits its lines or reaches the minimum; still too
+ * long, the first lines show and the last ends with "…". A word wider than
+ * the card is cut with "…" too.
+ */
+function fitNote(text: string, g: Geometry, inner: number, measure: MeasureText): { px: number; lines: string[] } {
+  const paragraphs = text.split("\n").map((p) => p.trim());
+  const wrap = (px: number) => {
+    const lines: string[] = [];
+    for (const paragraph of paragraphs) {
+      if (paragraph) lines.push(...wrapWords(paragraph, (line) => measure(line, px, "regular"), inner));
+      else if (lines.length > 0 && lines[lines.length - 1] !== "") lines.push("");
+    }
+    while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+    return lines;
+  };
+  let px = g.note;
+  let lines = wrap(px);
+  while (px > g.noteMin && lines.length > g.noteMaxLines) {
+    px -= 2;
+    lines = wrap(px);
+  }
+  const ellipsize = (line: string) => {
+    let cut = line;
+    while (cut && measure(`${cut}…`, px, "regular") > inner) cut = cut.slice(0, -1).trimEnd();
+    return `${cut}…`;
+  };
+  if (lines.length > g.noteMaxLines) {
+    lines = lines.slice(0, g.noteMaxLines);
+    while (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+    lines[lines.length - 1] = ellipsize(lines[lines.length - 1]);
+  }
+  return { px, lines: lines.map((line) => (measure(line, px, "regular") > inner ? ellipsize(line) : line)) };
 }
 
 export function layoutStatsCard(content: CardContent, aspect: CardAspect, measure: MeasureText): TextRun[] {
@@ -177,6 +221,19 @@ export function layoutStatsCard(content: CardContent, aspect: CardAspect, measur
       draw: (y) => cells.map((c, i) => ({ text: c.label, x: xs[i], y, px: labelPx, weight: "regular" as const, color: LABEL })),
     });
   });
+  if (content.note) {
+    // The coach's caption on the numbers, in white: a message to read, not metadata.
+    const note = fitNote(content.note, g, inner, measure);
+    const step = Math.round(note.px * 1.3);
+    note.lines.forEach((text, i) => {
+      lines.push({
+        height: CAP * note.px,
+        gapBefore: i > 0 ? step - CAP * note.px : rowCells.length > 0 ? g.gapCellsNote : g.gapHeaderCells,
+        // An empty line (between two paragraphs) takes its step and draws nothing.
+        draw: (y) => (text ? [{ text, x: centre, y, px: note.px, weight: "regular", color: WHITE }] : []),
+      });
+    });
+  }
 
   const total = lines.reduce((sum, l) => sum + l.gapBefore + l.height, 0);
   let y = (g.top + g.bottom) / 2 - total / 2;

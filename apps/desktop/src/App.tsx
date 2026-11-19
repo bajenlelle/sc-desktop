@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type SyntheticEvent } from "react";
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useOutlet } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
@@ -14,7 +14,7 @@ import { RootLayout } from "@/components/root-layout";
 import { HomePage } from "@/pages/home";
 import { MatchesPage } from "@/pages/matches";
 import { ReportsPage } from "@/pages/reports";
-import { MatchDetailPage } from "@/pages/match-detail";
+import { GamePage } from "@/pages/game";
 import { UploadPage } from "@/pages/upload";
 import { PlaylistsPage } from "@/pages/playlists";
 import { MyPlaylistsPage } from "@/pages/my-playlists";
@@ -44,23 +44,33 @@ import { StatusScreen } from "@/components/status-screen";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { Button } from "@/components/ui/button";
 
+/** Keeps a press or focus on a toast from reaching a modal sheet's "outside" handlers, which would close it. */
+const keepToastInside = (e: SyntheticEvent) => e.stopPropagation();
+
 function ThemedToaster() {
   // Token-driven unconditionally so toasts follow every color theme —
   // sonner's own light default ignores the active palette.
+  // Toasts sit above sheets and dialogs (sonner's z-index), but a modal one
+  // sets pointer-events: none on the body, which toasts inherit: they take it
+  // back, so an Undo over the Add clips sheet can be pressed. The wrapper
+  // stops the press there, after sonner's own handlers have run.
   return (
-    <Toaster
-      position="bottom-center"
-      duration={4000}
-      toastOptions={{
-        style: {
-          background: "var(--popover)",
-          border: "none",
-          boxShadow: "var(--shadow-menu)",
-          borderRadius: "10px",
-          color: "var(--foreground)",
-        },
-      }}
-    />
+    <div className="contents" onPointerDown={keepToastInside} onFocus={keepToastInside}>
+      <Toaster
+        position="bottom-center"
+        duration={4000}
+        toastOptions={{
+          style: {
+            background: "var(--popover)",
+            border: "none",
+            boxShadow: "var(--shadow-menu)",
+            borderRadius: "10px",
+            color: "var(--foreground)",
+            pointerEvents: "auto",
+          },
+        }}
+      />
+    </div>
   );
 }
 
@@ -237,7 +247,7 @@ export default function App() {
                 path="/matches/:id"
                 element={
                   <ProtectedRoute>
-                    <MatchDetailPage />
+                    <GamePage />
                   </ProtectedRoute>
                 }
               />
