@@ -16,9 +16,9 @@ import type { Collect } from "./use-collect";
  * The playlist the game's plays are collected into, chosen once: "Choose
  * playlist…" until it is, then "Adding to" with its name and its count. The
  * list puts the playlists that already hold this game's clips first, and its
- * search field doubles as the name of a new one (the mechanics of the
- * editor's "Add to another playlist"). Beside it, "Open playlist" opens the
- * target in the editor (with the way back here), and "Send n clips" cuts and
+ * "Search or create…" field doubles as the name of a new one, offered as
+ * Create "name" once typed (the editor's "Add to another playlist"). Beside
+ * it, "Open playlist" opens the target in the editor (with the way back here), and "Send n clips" cuts and
  * uploads, without leaving the game, the clips players don't have yet, while
  * any shared playlist holding this game's plays has such clips; with several
  * such playlists, that button opens a menu of them. While a send runs, the
@@ -36,8 +36,9 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
   const q = trimmed.toLowerCase();
   const options = candidates.filter((pl) => !q || pl.name.toLowerCase().includes(q));
   const exists = (name: string) => candidates.some((pl) => pl.name.toLowerCase() === name.toLowerCase());
-  // Typed: a playlist of that name. Not typed: one named after the game, the usual case.
-  const createName = trimmed || collect.suggestedName;
+  // Only a typed name makes a new playlist, as in the editor's "Search or create…": a row offering
+  // a ready-made name read as the one way to create. (The play menu still offers one named after the game.)
+  const createName = trimmed;
   const showCreateRow = createName.length > 0 && !exists(createName);
 
   async function create() {
@@ -108,7 +109,7 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
           <div className="p-2">
             <SearchField
               ref={inputRef}
-              placeholder="Search or name a new playlist"
+              placeholder="Search or create…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
@@ -131,7 +132,7 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
               ))}
             </div>
           ) : (
-            !showCreateRow && <p className="px-3 pb-3 text-callout text-muted-foreground">No playlist of that name.</p>
+            !showCreateRow && <p className="px-3 pb-3 text-callout text-muted-foreground">Type a name to create a new playlist.</p>
           )}
           {!loading && showCreateRow && (
             <button
@@ -142,7 +143,7 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
             >
               {creating ? <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" /> : <Plus className="size-3.5 shrink-0 text-primary" />}
               <span className="min-w-0 flex-1 truncate">
-                New playlist &ldquo;<span className="font-medium">{createName}</span>&rdquo;
+                Create &ldquo;<span className="font-medium">{createName}</span>&rdquo;
               </span>
             </button>
           )}

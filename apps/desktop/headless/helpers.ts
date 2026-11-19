@@ -439,8 +439,8 @@ export async function showGameView(page: Page): Promise<void> {
  */
 export async function chooseNewTarget(page: Page, name: string): Promise<void> {
   await page.getByRole("button", { name: /^(Choose the playlist to add plays to|Adding to .*\. Change playlist)$/ }).click();
-  await page.getByPlaceholder("Search or name a new playlist").fill(name);
-  await page.getByRole("button", { name: `New playlist “${name}”` }).click();
+  await page.getByPlaceholder("Search or create…").fill(name);
+  await page.getByRole("button", { name: `Create “${name}”` }).click();
   await expect(page.getByRole("button", { name: `Adding to ${name}. Change playlist` })).toBeVisible({ timeout: 15_000 });
   await page.keyboard.press("Escape");
 }

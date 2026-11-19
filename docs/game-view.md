@@ -406,6 +406,9 @@ on the selection when that row is in it.
 - **One target playlist, chosen once** and remembered per game on this device
   (`lib/prefs.ts`). With none chosen, the first add opens the picker from the
   control that was pressed; the choice sets the target and adds the play.
+  Its field reads "Search or create…", as in the editor's picker: a typed
+  name that no playlist has is offered as Create "name". There is no
+  ready-made name in it, so that row isn't read as the only way to create.
 - **Every clip is a play.** An add is `appendClips` on one promise chain per
   playlist, so quick adds get increasing positions. Undo and removing through
   the row's check are `writePlaylistItems`, and only for clips added on this
