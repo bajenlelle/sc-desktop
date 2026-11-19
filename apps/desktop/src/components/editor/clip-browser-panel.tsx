@@ -8,6 +8,7 @@ import {
   formatGameClock,
   isBookkeepingEvent,
   playerName,
+  sortPlaysChronologically,
 } from "@scoutable/shared/lib/events";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
@@ -414,7 +415,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   const gameIdSet = useMemo(() => new Set(gameIds), [gameIds]);
   // The chosen games in the page's order, each with the plays the sheet holds for it.
   const chosenGames = useMemo(
-    () => matches.filter((m) => gameIdSet.has(m.id)).map((m) => ({ ...m, events: plays.get(m.id) ?? [] })),
+    () => matches.filter((m) => gameIdSet.has(m.id)).map((m) => ({ ...m, events: sortPlaysChronologically(plays.get(m.id) ?? []) })),
     [matches, gameIdSet, plays],
   );
   const allEvents = useMemo(() => {

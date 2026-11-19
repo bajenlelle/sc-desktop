@@ -10,6 +10,7 @@ import type { PlaylistClipItem, PlaylistItem, StoredMatch } from "../types/match
 import { isClipItem } from "../types/match";
 import { foldForSearch } from "./league-teams";
 import { playerKey } from "./clip-filters";
+import { sortPlaysChronologically } from "./events";
 
 export type BrowserGame = Pick<StoredMatch, "id" | "title" | "date" | "homeTeam" | "awayTeam" | "events">;
 
@@ -90,7 +91,7 @@ export function orderForAdd(keys: readonly string[], matches: readonly BrowserGa
   const wanted = new Set(keys);
   const out: PlaylistClipItem[] = [];
   for (const m of matches) {
-    for (const e of m.events) {
+    for (const e of sortPlaysChronologically(m.events)) {
       if (wanted.has(`${m.id}:${e.eventId}`)) out.push({ type: "clip", matchId: m.id, eventId: e.eventId });
     }
   }
