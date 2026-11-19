@@ -12,11 +12,19 @@ import { appendClips, createPlaylist, listPlaylists, writePlaylistItems } from "
 import { getCollectTarget, setAddClipsScope, setCollectTarget } from "@/lib/prefs";
 import { Sentry } from "@/lib/sentry";
 import { DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL, demoShipBlockReason, eventLookup, shipPlaylistClips } from "@/lib/ship-clips";
-import { emitUploaded, shipScheduler, useShipStatuses } from "@/lib/background-ship";
+import { emitUploaded, onUploaded, shipScheduler, useShipStatuses } from "@/lib/background-ship";
+import { unsendableClips, withUploadedFiles, type UnsendableReason } from "@scoutable/shared/lib/held-clips";
 import type { ShipJob } from "@scoutable/shared/lib/ship-scheduler";
 
 /** Where an add came from: a row's plus, the Now bar (or A), "Add all", a row's menu, or the selected plays. */
 export type CollectVia = "row" | "now_bar" | "bulk" | "menu" | "selection";
+
+/** Why clips can't be sent from here, and what the coach does about it. */
+const UNSENDABLE: Record<UnsendableReason, string> = {
+  sync: "Their game isn't synced yet. Set the tip-off in the game's Details, then send them.",
+  video: "Their game's video isn't on this computer. Link it in the Library, then send them.",
+  play: "Their plays couldn't be read. Check the connection and send them again.",
+};
 
 /** One toast for the whole view: the latest add replaces the one before, and its Undo is the only one on offer. */
 const COLLECT_TOAST = "game-collect";
@@ -182,6 +190,18 @@ export function useCollect({
     [edit],
   );
 
+  // Files any send put up (this view's, an earlier game view's still running, the editor's): the shown and the
+  // saved copies learn them, so `held` counts down and no later send cuts them again.
+  useEffect(
+    () =>
+      onUploaded((playlistId, uploaded) => {
+        const base = saved.current.get(playlistId);
+        if (base) saved.current.set(playlistId, withUploadedFiles(base, uploaded));
+        edit((prev) => prev?.map((p) => (p.id === playlistId ? { ...p, items: withUploadedFiles(p.items, uploaded) } : p)) ?? prev);
+      }),
+    [edit],
+  );
+
   /** A playlist made here, first in the list (once: the read may already bring it). */
   const addCreated = useCallback(
     (created: Playlist) => edit((prev) => (prev?.some((p) => p.id === created.id) ? prev : [created, ...(prev ?? [])])),
@@ -253,21 +273,22 @@ export function useCollect({
           trackEvent("collect_sent", { clips: count, target: playlist.id === targetIdRef.current, in_place: !loud, trigger });
           if (loud) toast.loading(`Sending ${count} ${count === 1 ? "clip" : "clips"} to ${playlist.name}…`, { id });
           const toShip: Playlist = { ...playlist, items };
-          // The playlist may hold clips of other games: their footage and plays are read for the cut.
-          const otherIds = [...new Set(items.filter(isClipItem).map((c) => c.matchId).filter((m) => m !== match.id))];
-          const others = otherIds.length > 0
-            ? mergeEventsIntoMatches(await listMatchesByIds(otherIds), await listEventsForMatches(otherIds))
-            : [];
-          const games = [match, ...others];
+          // Every game in the playlist read now, this one too: a sync fixed while the clips waited is the one they are cut with.
+          const ids = [...new Set(items.filter(isClipItem).map((c) => c.matchId))];
+          const read = mergeEventsIntoMatches(await listMatchesByIds(ids), await listEventsForMatches(ids));
+          const games = read.some((m) => m.id === match.id) ? read : [match, ...read];
           const matchLookup = new Map(games.map((m) => [m.id, m]));
           const demoBlock = demoShipBlockReason(toShip, matchLookup);
           if (demoBlock) {
             toast.error("Couldn't send the clips", { id: loud ? id : undefined, description: demoBlock });
             return "failed";
           }
+          const eventByKey = eventLookup(games);
+          // Clips no cut here can make (no sync, no video, no play) would be left behind in silence: said, and the send counts as failed.
+          const stuck = unsendableClips(items, matchLookup, (k) => eventByKey.has(k));
           const result = await shipPlaylistClips(toShip, {
             matchLookup,
-            eventByKey: eventLookup(games),
+            eventByKey,
             preRoll: DEFAULT_PRE_ROLL,
             postRoll: DEFAULT_POST_ROLL,
             toastId: loud ? id : undefined,
@@ -276,17 +297,20 @@ export function useCollect({
               if (loud) toast.loading(`Sending clips to ${playlist.name} · ${done} of ${total}`, { id });
             },
             onUploaded: (uploaded) => {
-              // The shown and the saved copies both learn the files, so `held` counts down and no later write forgets them.
-              const byKey = new Map(uploaded.map((u) => [`${u.matchId}:${u.eventId}`, u.r2Url]));
-              const patch = (list: PlaylistItem[]) =>
-                list.map((i) => (isClipItem(i) && byKey.has(itemKey(i)) ? { ...i, r2Url: byKey.get(itemKey(i)) } : i));
-              mutate(playlist.id, patch);
+              // This visit's saved copy learns the files even once the page has gone; the shown copies (here and in
+              // any other game view or the editor) learn them through the bus.
               const base = saved.current.get(playlist.id);
-              if (base) saved.current.set(playlist.id, patch(base));
+              if (base) saved.current.set(playlist.id, withUploadedFiles(base, uploaded));
               emitUploaded(playlist.id, uploaded);
             },
             success: (shipped) => ({ title: `Sent ${shipped} ${shipped === 1 ? "clip" : "clips"} to ${playlist.name}` }),
           });
+          if (stuck.count > 0) {
+            toast.error(`${stuck.count} ${stuck.count === 1 ? "clip" : "clips"} in ${playlist.name} can't be sent yet`, {
+              description: UNSENDABLE[stuck.reason ?? "play"],
+            });
+            return "failed";
+          }
           return result && result.failures.length === 0 ? "sent" : "failed";
         } catch (e) {
           Sentry.captureException(e);

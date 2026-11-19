@@ -32,6 +32,8 @@ export interface ShipScheduler {
   /** Null: nothing waiting, running or failed. The same object until it changes. */
   status(playlistId: string): ShipStatus | null;
   busy(playlistId: string): boolean;
+  /** Settles once no send is running (a sync change waits for it before it re-cuts); waiting ones don't count. */
+  idle(): Promise<void>;
   subscribe(listener: () => void): () => void;
 }
 
@@ -127,6 +129,14 @@ export function createShipScheduler(opts?: { idleMs?: number }): ShipScheduler {
     },
     status: (id) => entries.get(id)?.status ?? null,
     busy: (id) => entries.get(id)?.running !== undefined,
+    async idle() {
+      // A run may start while another ends (a flush waiting on it): look again until none is left.
+      for (;;) {
+        const running = [...entries.values()].map((e) => e.running).filter((r): r is Promise<void> => r !== undefined);
+        if (running.length === 0) return;
+        await Promise.all(running);
+      }
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

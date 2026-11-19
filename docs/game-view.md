@@ -432,7 +432,15 @@ on the selection when that row is in it.
   upload are the editor's own path (`apps/desktop/src/lib/ship-clips.ts`):
   the writes still out land first, the footage and plays of other games in
   the playlist are read, and a failure is said as the editor says it.
-  Signing out drops whatever waits.
+  Signing out drops whatever waits. Every game in the playlist is read when
+  the send runs, so a sync fixed meanwhile is the one the clips are cut
+  with, and a sync change (`lib/sync-change.ts`) waits for a send still
+  running before it re-cuts. Clips no cut here can make (their game isn't
+  synced, its video isn't on this computer, the play couldn't be read) are
+  said in a toast with what to do, and the send counts as failed
+  (`unsendableClips` in `packages/shared/lib/held-clips.ts`). The files a
+  send put up reach every copy on screen (`onUploaded`): another game
+  view's too, so a tab switch mid-send never cuts them twice.
 - **The control says where the clips stand**, in place of a Send button
   (`packages/shared/lib/ship-pill.ts`), counting per shared playlist the
   clips players don't have yet (`heldForPlayers` in

@@ -176,6 +176,26 @@ describe("createShipScheduler", () => {
     expect(job).toHaveBeenCalledTimes(2);
   });
 
+  it("idle waits for every send in progress, not for waiting ones", async () => {
+    const s = createShipScheduler();
+    const gate = deferred<"sent">();
+    s.schedule("a", () => gate.promise);
+    void s.flush("a", "manual");
+    s.schedule("b", async () => "sent");
+    let settled = false;
+    const idle = s.idle().then(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    gate.resolve("sent");
+    await idle;
+    expect(settled).toBe(true);
+    expect(s.status("b")?.phase).toBe("waiting");
+  });
+
+  it("idle with nothing running resolves at once", async () => {
+    await expect(createShipScheduler().idle()).resolves.toBeUndefined();
+  });
+
   it("an unsubscribed listener hears nothing", () => {
     const s = createShipScheduler();
     const listener = vi.fn();
