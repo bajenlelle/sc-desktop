@@ -1,7 +1,8 @@
 import * as React from "react";
-import { Check, ChevronDown, ChevronsUpDown, ListPlus, Loader2, Plus, Send } from "lucide-react";
+import { Check, ChevronDown, ChevronsUpDown, Clock, ListPlus, Loader2, Plus, Send } from "lucide-react";
 import { toast } from "sonner";
 import { playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
+import { shipPhase, shipPill, type ShipPillPhase } from "@scoutable/shared/lib/ship-pill";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -25,7 +26,7 @@ import type { Collect } from "./use-collect";
  * button shows it and takes no second press.
  */
 export function CollectControl({ collect, highlight }: { collect: Collect; highlight?: boolean }) {
-  const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, held, sending } = collect;
+  const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, held, shipStatuses } = collect;
   // Asked for by a row's plus or the Now bar's Add, the picker grows from that control, not from here.
   const anchorRef = React.useMemo(() => ({ current: pickerAnchor }), [pickerAnchor]);
   const [search, setSearch] = React.useState("");
@@ -55,7 +56,8 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
   }
 
   const clipCount = target ? target.items.filter((i) => i.type === "clip").length : 0;
-  const heldTotal = held.reduce((sum, h) => sum + h.count, 0);
+  const pill = shipPill(held, shipStatuses, target?.id ?? null);
+  const unsentOf = (id: string) => held.find((h) => h.playlist.id === id);
 
   return (
     <>
@@ -154,43 +156,66 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
           Open playlist
         </Button>
       )}
-      {held.length === 0 ? null : sending ? (
-        <Button size="sm" disabled aria-label={`Sending clips to ${held.find((h) => h.playlist.id === sending)?.playlist.name ?? "the playlist"}`}>
-          <Loader2 className="animate-spin" />
-          Sending…
-        </Button>
-      ) : held.length === 1 ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button size="sm" onClick={() => void collect.send(held[0].playlist.id)}>
-              <Send />
-              Send {held[0].count} {held[0].count === 1 ? "clip" : "clips"}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{heldTooltip(held[0].playlist.name, held[0].count)}</TooltipContent>
-        </Tooltip>
-      ) : (
+      {pill === null ? null : pill.kind === "several" ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm">
-              <Send />
-              Send {heldTotal} clips
+            <Button size="sm" variant={pill.worst === "unsent" ? "default" : "outline"}>
+              <PhaseIcon phase={pill.worst} />
+              {pill.label}
               <ChevronDown />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuLabel>Not sent yet</DropdownMenuLabel>
-            {held.map(({ playlist, count }) => (
-              <DropdownMenuItem key={playlist.id} onSelect={() => void collect.send(playlist.id)}>
-                <span className="min-w-0 flex-1 truncate">{playlist.name}</span>
-                <span className="shrink-0 text-xs nums text-muted-foreground">{count}</span>
-              </DropdownMenuItem>
-            ))}
+            {held.map(({ playlist, count }) => {
+              const phase = shipPhase(shipStatuses.get(playlist.id));
+              return (
+                <DropdownMenuItem key={playlist.id} disabled={phase === "sending"} onSelect={() => void collect.send(playlist.id)}>
+                  <PhaseIcon phase={phase} />
+                  <span className="min-w-0 flex-1 truncate">{playlist.name}</span>
+                  <span className="shrink-0 text-xs nums text-muted-foreground">
+                    {phase === "sending" ? "Sending…" : phase === "waiting" ? `${count} waiting` : count}
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
           </DropdownMenuContent>
         </DropdownMenu>
+      ) : pill.kind === "sending" ? (
+        <Button size="sm" variant="outline" disabled>
+          <Loader2 className="animate-spin" />
+          <span className="max-w-56 truncate">{pill.label}</span>
+        </Button>
+      ) : pill.kind === "waiting" ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button size="sm" variant="outline" onClick={() => void collect.send(pill.playlistId)}>
+              <Clock />
+              <span className="max-w-56 truncate">{pill.label}</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Players get these once you pause adding, switch playlist or leave the game. Click to send now.</TooltipContent>
+        </Tooltip>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button size="sm" onClick={() => void collect.send(pill.playlistId)}>
+              <Send />
+              <span className="max-w-56 truncate">{pill.label}</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{heldTooltip(unsentOf(pill.playlistId)?.playlist.name ?? "", unsentOf(pill.playlistId)?.count ?? 0)}</TooltipContent>
+        </Tooltip>
       )}
     </>
   );
+}
+
+/** Waiting: a clock. Sending: a spinner. Not sent: the send arrow. */
+function PhaseIcon({ phase }: { phase: ShipPillPhase }) {
+  if (phase === "sending") return <Loader2 className="animate-spin" />;
+  if (phase === "waiting") return <Clock />;
+  return <Send />;
 }
 
 function heldTooltip(name: string, n: number): string {

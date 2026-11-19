@@ -509,7 +509,6 @@ export function useCollect({
 
   /** Where each playlist's send stands (waiting, sending, failed), for the control. */
   const shipStatuses = useShipStatuses(held.map((h) => h.playlist.id));
-  const sending = held.find((h) => shipStatuses.get(h.playlist.id)?.phase === "sending")?.playlist.id ?? null;
 
   const openTarget = useCallback(() => {
     if (target) openPlaylist(target.id);
@@ -539,7 +538,6 @@ export function useCollect({
     setPickerOpen,
     held,
     shipStatuses,
-    sending,
     send,
     openPlaylist,
     openTarget,
