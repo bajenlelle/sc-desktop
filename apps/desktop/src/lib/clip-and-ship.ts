@@ -96,9 +96,11 @@ export async function clipAndShip(
       return null;
     }
 
-    const tempPath = `${tempDir}/sc_ship_${Date.now()}.mp4`;
-    // The cut runs as a job abort can stop where it is.
+    // The cut runs as a job abort can stop where it is. Its id also names the
+    // temp file: sends for several playlists run at once (leaving the game),
+    // and two cuts in the same millisecond must not write one file.
     const jobId = crypto.randomUUID();
+    const tempPath = `${tempDir}/sc_ship_${jobId}.mp4`;
     const stopCut = () => void invoke<boolean>("cancel_export", { id: jobId }).catch(() => {});
     opts?.signal?.addEventListener("abort", stopCut, { once: true });
     try {
