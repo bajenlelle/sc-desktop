@@ -42,6 +42,9 @@ struct Inner {
     /// Stop requests that arrived before their export registered (the
     /// webview can ask the moment it starts the call).
     early: HashSet<String>,
+    /// Set by `close`: every export that starts afterwards is stopped at once
+    /// (an update is about to replace the app), until `reopen`.
+    closed: bool,
 }
 
 #[derive(Default)]
@@ -59,7 +62,7 @@ impl ExportJobs {
     /// however the export ends.
     pub fn begin(jobs: &Arc<Self>, id: &str) -> JobHandle {
         let mut inner = jobs.lock();
-        let cancelled = inner.early.remove(id);
+        let cancelled = inner.early.remove(id) || inner.closed;
         inner.jobs.insert(id.to_string(), Job { cancelled, ..Job::default() });
         JobHandle { jobs: Arc::clone(jobs), id: id.to_string() }
     }
@@ -96,6 +99,19 @@ impl ExportJobs {
                 let _ = std::fs::remove_file(path);
             }
         }
+    }
+
+    /// Stops every running export as `kill_all` does, and every export that
+    /// starts afterwards, until `reopen`: an update is about to replace the
+    /// app, and a send's loop would otherwise start its next cut.
+    pub fn close(&self) {
+        self.lock().closed = true;
+        self.kill_all();
+    }
+
+    /// Exports run again (the update that `close` made way for failed).
+    pub fn reopen(&self) {
+        self.lock().closed = false;
     }
 
     #[cfg(test)]
@@ -330,5 +346,27 @@ mod tests {
             partial_output_path(Path::new("clip")),
             PathBuf::from(".clip.scoutable-partial.mp4")
         );
+    }
+
+    #[test]
+    fn close_stops_running_and_later_exports_until_reopen() {
+        let jobs = Arc::new(ExportJobs::default());
+        let a = ExportJobs::begin(&jobs, "a");
+        let (child_a, kills_a) = fake();
+        a.attach(child_a);
+        jobs.close();
+        assert_eq!(kills_a.load(Ordering::SeqCst), 1);
+        assert!(a.is_cancelled());
+
+        // A send's loop starting its next cut after the close is stopped at once.
+        let b = ExportJobs::begin(&jobs, "b");
+        assert!(b.is_cancelled());
+        let (child_b, kills_b) = fake();
+        b.attach(child_b);
+        assert_eq!(kills_b.load(Ordering::SeqCst), 1);
+
+        jobs.reopen();
+        let c = ExportJobs::begin(&jobs, "c");
+        assert!(!c.is_cancelled());
     }
 }

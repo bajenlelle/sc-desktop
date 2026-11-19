@@ -602,6 +602,22 @@ fn cancel_export(jobs: tauri::State<'_, Arc<ExportJobs>>, id: String) -> bool {
     jobs.cancel(&id)
 }
 
+/// Stops every running export and cut and deletes their files, as quitting
+/// does, and refuses new ones until `resume_exports`. The update card calls
+/// it right before installing: on Windows the updater plugin ends the process
+/// with `std::process::exit`, which never reaches `RunEvent::Exit`, and an
+/// ffmpeg.exe left running would lock the file the installer has to replace.
+#[tauri::command]
+fn stop_all_exports(jobs: tauri::State<'_, Arc<ExportJobs>>) {
+    jobs.close();
+}
+
+/// Exports run again after `stop_all_exports` (the install failed).
+#[tauri::command]
+fn resume_exports(jobs: tauri::State<'_, Arc<ExportJobs>>) {
+    jobs.reopen();
+}
+
 #[tauri::command]
 async fn export_playlist(
     app: tauri::AppHandle,
@@ -1330,6 +1346,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             export_playlist,
             cancel_export,
+            stop_all_exports,
+            resume_exports,
             get_temp_dir,
             list_video_files,
             delete_file,

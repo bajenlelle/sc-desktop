@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Loader2, X } from "lucide-react";
 import {
@@ -17,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Sentry } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 import { silentUpdateCheck, UPDATE_FOUND_EVENT } from "@/lib/updates";
+import { shipScheduler } from "@/lib/background-ship";
 
 /**
  * Update state lives in a small store so the check (mounted once in App)
@@ -72,16 +74,21 @@ export async function installUpdate() {
   progressAcc = INITIAL_DOWNLOAD_PROGRESS;
   setState({ status: "downloading", progress: INITIAL_DOWNLOAD_PROGRESS, error: null });
   try {
-    await update.downloadAndInstall((event) => {
-      if (event.event === "Finished") {
-        setState({ status: "installing" });
-        return;
-      }
+    await update.download((event) => {
+      if (event.event === "Finished") return;
       const prev = progressAcc;
       const next = applyDownloadEvent(prev, event);
       progressAcc = next;
       if (downloadProgressLabel(next) !== downloadProgressLabel(prev)) setState({ progress: next });
     });
+    setState({ status: "installing" });
+    // Stop what ffmpeg is doing first (a background send's cut, an export), as
+    // quitting would: on Windows the install below ends the process without
+    // the app's exit handler, and a running ffmpeg.exe locks the file the
+    // installer replaces. A stopped send's clips are offered again next visit.
+    shipScheduler.cancelAll();
+    await invoke("stop_all_exports").catch(() => {});
+    await update.install();
     // On Windows (NSIS) the line above never returns — the plugin exits the
     // process and the installer relaunches the app itself. From here on is
     // the macOS path: the .app was swapped in place, restart into it.
@@ -90,6 +97,7 @@ export async function installUpdate() {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("Update failed:", msg);
     Sentry.captureException(e);
+    void invoke("resume_exports").catch(() => {});
     setState({ status: "error", error: msg });
     busy = false; // allow "Try again"
   }
