@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { releaseNoteLines } from "../release-notes";
+import { releaseNoteLines, whatsNewUrl } from "../release-notes";
 
 describe("releaseNoteLines", () => {
   it("reads a tag message as lines, bullets as bullets", () => {
@@ -20,5 +20,16 @@ describe("releaseNoteLines", () => {
   it("is empty for no notes", () => {
     expect(releaseNoteLines(undefined)).toEqual([]);
     expect(releaseNoteLines(" \n ")).toEqual([]);
+  });
+});
+
+describe("whatsNewUrl", () => {
+  it("tags the page with where it was opened from", () => {
+    expect(whatsNewUrl("help_menu")).toBe("https://scoutable.se/whats-new?utm_source=desktop&utm_medium=help_menu");
+  });
+
+  it("opens at a version's notes, with or without its v", () => {
+    expect(whatsNewUrl("update_card", "2.0.0")).toBe("https://scoutable.se/whats-new?utm_source=desktop&utm_medium=update_card#v2.0.0");
+    expect(whatsNewUrl("update_card", "v2.1.0")).toBe("https://scoutable.se/whats-new?utm_source=desktop&utm_medium=update_card#v2.1.0");
   });
 });

@@ -16,6 +16,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { whatsNewUrl } from "@scoutable/shared/lib/release-notes";
 import { useTheme } from "next-themes";
 import { GO_PAGES, goKeyOrder, isBrowserShortcut, menuIdForChord, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
 import { useAuth } from "@/lib/auth-context";
@@ -208,6 +209,9 @@ export function MenuHandler() {
           break;
         case "sign-out":
           void signOut();
+          break;
+        case "whats-new":
+          void openUrl(whatsNewUrl("help_menu"));
           break;
         case "open-website":
           void openUrl("https://scoutable.se");

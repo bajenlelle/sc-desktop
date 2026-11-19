@@ -27,3 +27,15 @@ export function releaseNoteLines(body: string | null | undefined): ReleaseNoteLi
   }
   return lines;
 }
+
+/** The site's page with every release's notes, newest first (scoutable.se, from the releases repo). */
+export const WHATS_NEW_URL = "https://scoutable.se/whats-new";
+
+/** Where in the desktop a visit to the page started; the site reads it as utm_medium. */
+export type WhatsNewSource = "update_card" | "help_menu";
+
+/** The page, tagged with where it was opened from, at one version's notes when given ("2.0.0" → #v2.0.0). */
+export function whatsNewUrl(source: WhatsNewSource, version?: string | null): string {
+  const anchor = version ? `#v${version.replace(/^v/, "")}` : "";
+  return `${WHATS_NEW_URL}?utm_source=desktop&utm_medium=${source}${anchor}`;
+}

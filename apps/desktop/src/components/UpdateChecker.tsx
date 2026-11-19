@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Loader2, X } from "lucide-react";
 import {
   applyDownloadEvent,
@@ -8,7 +9,7 @@ import {
   INITIAL_DOWNLOAD_PROGRESS,
   type DownloadProgress,
 } from "@scoutable/shared/lib/update-progress";
-import { releaseNoteLines, type ReleaseNoteLine } from "@scoutable/shared/lib/release-notes";
+import { releaseNoteLines, whatsNewUrl, type ReleaseNoteLine } from "@scoutable/shared/lib/release-notes";
 import { shouldOfferFoundUpdate, UPDATE_RECHECK_MS } from "@scoutable/shared/lib/update-offer";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -158,12 +159,17 @@ export function UpdateChecker() {
 /** Lines the card shows before "More". */
 const NOTES_PREVIEW = 3;
 
+/** The card's text buttons (More/Less, What's new). */
+const NOTES_LINK =
+  "rounded-sm text-callout text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection";
+
 /**
  * What's new in the release: its notes (the release tag's message), the first
  * few lines in the card and the rest behind "More", so a coach knows what the
- * update brings before restarting for it.
+ * update brings before restarting for it. "What's new" opens the site's page
+ * at this version's notes, where every release is described.
  */
-function ReleaseNotes({ lines }: { lines: ReleaseNoteLine[] }) {
+function ReleaseNotes({ lines, version }: { lines: ReleaseNoteLine[]; version: string }) {
   const [open, setOpen] = useState(false);
   const shown = open ? lines : lines.slice(0, NOTES_PREVIEW);
   return (
@@ -176,16 +182,21 @@ function ReleaseNotes({ lines }: { lines: ReleaseNoteLine[] }) {
           </li>
         ))}
       </ul>
-      {lines.length > NOTES_PREVIEW && (
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="self-start rounded-sm text-callout text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
-        >
-          {open ? "Less" : "More"}
+      <div className="flex items-center gap-3">
+        {lines.length > NOTES_PREVIEW && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className={NOTES_LINK}
+          >
+            {open ? "Less" : "More"}
+          </button>
+        )}
+        <button type="button" onClick={() => void openUrl(whatsNewUrl("update_card", version))} className={NOTES_LINK}>
+          What&rsquo;s new
         </button>
-      )}
+      </div>
     </div>
   );
 }
@@ -240,7 +251,7 @@ export function UpdateCard() {
           </button>
         )}
       </div>
-      {status === "idle" && <ReleaseNotes lines={releaseNoteLines(update.body)} />}
+      {status === "idle" && <ReleaseNotes lines={releaseNoteLines(update.body)} version={update.version} />}
       {status === "downloading" && (
         <>
           <ProgressBar percent={progress.percent} className="mt-2" />

@@ -267,10 +267,12 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
     // -- Help ---------------------------------------------------------------
     let send_feedback = item("send-feedback", "Send Feedback…", None)?;
+    let whats_new = item("whats-new", "What’s New in Scoutable", None)?;
     let open_website = item("open-website", "Scoutable Website", None)?;
     let help_menu = SubmenuBuilder::new(app, "Help")
         .item(&send_feedback)
         .separator()
+        .item(&whats_new)
         .item(&open_website)
         .build()?;
     help_menu.set_as_help_menu_for_nsapp()?;
