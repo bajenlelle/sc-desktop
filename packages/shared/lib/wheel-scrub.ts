@@ -24,6 +24,8 @@ export interface WheelGesture {
   sumY: number;
   /** When its latest event came (ms). */
   at: number;
+  /** A mouse's sideways wheel (tilt or thumb wheel), not a trackpad: each event moves at most a notch's step. */
+  notched?: boolean;
 }
 
 export const IDLE_WHEEL: WheelGesture = { axis: null, sumX: 0, sumY: 0, at: -Infinity };
@@ -40,6 +42,12 @@ const PAGE_PX = 400;
  * not a scrub. A trackpad's events are far smaller and pass untouched.
  */
 const NOTCH_PX = 16;
+/**
+ * A gesture whose first event already moves this far sideways is a mouse's
+ * sideways wheel (a tilt or thumb wheel: about 100 px a notch, with no Shift):
+ * a trackpad swipe starts with the fingers' small first movements.
+ */
+const NOTCH_START_PX = 50;
 
 /**
  * Takes one wheel event. `px` is how far it moves the playhead (positive is
@@ -61,8 +69,12 @@ export function wheelScrub(prev: WheelGesture, e: WheelInput, now: number): { ge
     return { gesture: { axis: "x", sumX: 0, sumY: 0, at: now }, px: px === 0 ? null : px };
   }
 
-  if (held.axis === "x") return { gesture: { ...held, at: now }, px: dx };
+  if (held.axis === "x") return { gesture: { ...held, at: now }, px: held.notched ? clamp(dx, -NOTCH_PX, NOTCH_PX) : dx };
   if (held.axis === "y") return { gesture: { ...held, at: now }, px: null };
+
+  if (held.axis === null && held.sumX === 0 && held.sumY === 0 && Math.abs(dx) >= NOTCH_START_PX && Math.abs(dy) < AXIS_PX) {
+    return { gesture: { axis: "x", sumX: 0, sumY: 0, at: now, notched: true }, px: clamp(dx, -NOTCH_PX, NOTCH_PX) };
+  }
 
   const sumX = held.sumX + dx;
   const sumY = held.sumY + dy;

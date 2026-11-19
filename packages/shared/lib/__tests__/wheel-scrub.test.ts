@@ -66,6 +66,15 @@ describe("wheelScrub", () => {
     expect(feed([wheel(5, 0, { shiftKey: true }), wheel(-3, 0, { shiftKey: true })]).px).toEqual([5, -3]);
   });
 
+  it("takes a notch of a mouse's sideways wheel as a small step, without Shift", () => {
+    // A tilt or thumb wheel: about 100 px a notch, sideways from the first event.
+    expect(feed([wheel(120, 0), wheel(120, 0), wheel(-100, 0)]).px).toEqual([16, 16, -16]);
+  });
+
+  it("leaves a fast trackpad swipe at its own size once it is under way", () => {
+    expect(feed([wheel(6, 0), wheel(60, 1), wheel(110, 0)]).px).toEqual([6, 60, 110]);
+  });
+
   it("reads a wheel that counts in lines", () => {
     expect(feed([wheel(3, 0, { deltaMode: 1 })]).px).toEqual([48]);
   });

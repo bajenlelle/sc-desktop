@@ -8,6 +8,7 @@ import { LabelChip } from "@/components/labels/LabelChip";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IS_MACOS } from "@/lib/platform";
 import { labelDotClasses } from "@/lib/label-colors";
 import { cn } from "@/lib/utils";
 import type { CollectStatus } from "./game-play-row";
@@ -145,7 +146,7 @@ export function GameNowBar({
               >
                 <span className={cn("size-2.5 shrink-0 rounded-full", labelDotClasses[lastLabel.color])} aria-hidden />
                 <span className="hidden truncate @min-[780px]/now:inline">{lastLabel.name}</span>
-                <Kbd className="hidden h-4 min-w-4 text-caption @min-[600px]/now:inline-flex">⇧G</Kbd>
+                <Kbd className="hidden h-4 min-w-4 text-caption @min-[600px]/now:inline-flex">{IS_MACOS ? "⇧G" : "Shift G"}</Kbd>
               </Button>
             </TooltipTrigger>
             <TooltipContent>Label this play {lastLabel.name} again</TooltipContent>
