@@ -22,6 +22,12 @@ test("Stats reads the game, and a number opens its plays in the Game view", asyn
   await expect(page.getByRole("heading", { level: 1 })).toContainText(title);
   await expect(page.getByRole("heading", { name: "Score", level: 2 })).toBeVisible({ timeout: 30_000 });
   await shot(page, name("score"));
+  const factors = page.getByRole("heading", { name: "Why it went that way", level: 2 });
+  await expect(factors).toBeVisible();
+  await expect(page.getByText("Points per possession")).toBeVisible();
+  await expect(page.getByRole("button", { name: /: points in the paint, \d+, show plays$/ }).first()).toBeVisible();
+  await factors.scrollIntoViewIfNeeded();
+  await shot(page, name("factors"));
 
   // A quarter's figure: the home team's points in Q1.
   const quarter = page.getByRole("button", { name: /: points in Q1, \d+, show plays$/ }).first();

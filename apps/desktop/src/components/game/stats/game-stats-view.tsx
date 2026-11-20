@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "rea
 import { ChartColumn } from "lucide-react";
 import { gameFlow } from "@scoutable/shared/lib/game-flow";
 import { gameShots } from "@scoutable/shared/lib/game-shots";
+import { gameBox } from "@scoutable/shared/lib/game-box";
+import { FactorsSection } from "./factors-section";
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { EmptyState } from "@/components/empty-state";
 import { Page, PageContent } from "@/components/shell/page";
@@ -34,6 +36,7 @@ export function GameStatsView({
   onShowDetails: () => void;
 }) {
   const flow = useMemo(() => gameFlow(match.events), [match.events]);
+  const box = useMemo(() => gameBox(match.events), [match.events]);
   const shots = useMemo(() => gameShots(match.events), [match.events]);
   const hasFives = useMemo(() => match.events.some((e) => e.onCourtHome?.length || e.onCourtAway?.length), [match.events]);
 
@@ -88,7 +91,10 @@ export function GameStatsView({
             }
           />
         ) : (
-          <ScoreSection match={match} flow={flow} onOpen={open} />
+          <>
+            <ScoreSection match={match} flow={flow} onOpen={open} />
+            <FactorsSection match={match} box={box} onOpen={open} />
+          </>
         )}
       </PageContent>
     </Page>
