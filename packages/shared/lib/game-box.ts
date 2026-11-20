@@ -166,6 +166,107 @@ function sideOf(e: PlayByPlayEvent): 1 | 2 | null {
 
 const isShot = (e: PlayByPlayEvent) => e.type === "2pt" || e.type === "3pt" || e.type === "freethrow";
 
+// ---------------------------------------------------------------------------
+// Team factors (Dean Oliver's four, and points per possession)
+// ---------------------------------------------------------------------------
+
+export interface TeamFactors {
+  /** FGA − OREB + TO + 0.44 × FTA. */
+  possessions: number;
+  /** Points per possession. */
+  ppp: number | null;
+  /** (FGM + 0.5 × 3PM) ÷ FGA. */
+  efg: number | null;
+  /** TO ÷ possessions. */
+  tovRate: number | null;
+  /** OREB ÷ (OREB + the other team's DREB), team rebounds counted. */
+  orebPct: number | null;
+  /** FTA ÷ FGA. */
+  ftRate: number | null;
+}
+
+const ratio = (a: number, b: number): number | null => (b > 0 ? a / b : null);
+
+export function teamFactors(box: GameBox): { home: TeamFactors; away: TeamFactors } {
+  const of = (t: BoxTeam, other: BoxTeam): TeamFactors => {
+    const c = t.totals;
+    const fga = c.fg.attempts ?? 0;
+    const fta = c.ft.attempts ?? 0;
+    const possessions = Math.max(0, fga - c.oreb.value + c.tov.value + 0.44 * fta);
+    return {
+      possessions,
+      ppp: ratio(c.pts.value, possessions),
+      efg: ratio(c.fg.value + 0.5 * c.tp.value, fga),
+      tovRate: ratio(c.tov.value, possessions),
+      orebPct: ratio(c.oreb.value, c.oreb.value + other.totals.dreb.value),
+      ftRate: ratio(fta, fga),
+    };
+  };
+  return { home: of(box.home, box.away), away: of(box.away, box.home) };
+}
+
+// ---------------------------------------------------------------------------
+// Where the points came from, and points by quarter
+// ---------------------------------------------------------------------------
+
+export type PointsFrom = "paint" | "second_chance" | "fast_break" | "turnovers" | "bench";
+
+export const POINTS_FROM: readonly PointsFrom[] = ["paint", "second_chance", "fast_break", "turnovers", "bench"];
+
+const QUALIFIER: Record<Exclude<PointsFrom, "bench">, string> = {
+  paint: "pointsinthepaint",
+  second_chance: "2ndchance",
+  fast_break: "fastbreak",
+  turnovers: "fromturnover",
+};
+
+function pointsOf(e: PlayByPlayEvent): number {
+  if (e.isSuccessful !== 1) return 0;
+  return e.type === "3pt" ? 3 : e.type === "2pt" ? 2 : e.type === "freethrow" ? 1 : 0;
+}
+
+/** Points by side over the plays `keep` lets through, each with its scoring plays. */
+function sidePoints(events: readonly PlayByPlayEvent[], keep: (e: PlayByPlayEvent) => boolean): { home: BoxCell; away: BoxCell } {
+  const out = { 1: { value: 0, ids: [] as number[] }, 2: { value: 0, ids: [] as number[] } };
+  for (const e of gameOrder(events).order) {
+    const pts = pointsOf(e);
+    const side = sideOf(e);
+    if (!pts || !side || isBookkeepingEvent(e) || !keep(e)) continue;
+    out[side].value += pts;
+    out[side].ids.push(e.eventId);
+  }
+  return { home: { value: out[1].value, eventIds: out[1].ids }, away: { value: out[2].value, eventIds: out[2].ids } };
+}
+
+/** A figure is null when the game can't tell it (no fives for bench, no qualifier anywhere for turnovers). */
+export function pointsFrom(
+  events: readonly PlayByPlayEvent[],
+  box: GameBox,
+): Record<PointsFrom, { home: BoxCell; away: BoxCell } | null> {
+  const has = (e: PlayByPlayEvent, q: string) => e.qualifiers?.includes(q) ?? false;
+  const fromTurnovers = events.some((e) => has(e, QUALIFIER.turnovers));
+  const starters = new Set([...box.starters.home, ...box.starters.away]);
+  return {
+    paint: sidePoints(events, (e) => has(e, QUALIFIER.paint)),
+    second_chance: sidePoints(events, (e) => has(e, QUALIFIER.second_chance)),
+    fast_break: sidePoints(events, (e) => has(e, QUALIFIER.fast_break)),
+    turnovers: fromTurnovers ? sidePoints(events, (e) => has(e, QUALIFIER.turnovers)) : null,
+    bench: box.hasFives ? sidePoints(events, (e) => !!e.player && !starters.has(e.player.playerId)) : null,
+  };
+}
+
+export interface QuarterCell {
+  period: number;
+  home: BoxCell;
+  away: BoxCell;
+}
+
+/** Each period's points per side, overtimes included, in period order. */
+export function quarterPoints(events: readonly PlayByPlayEvent[]): QuarterCell[] {
+  const periods = [...new Set(events.map((e) => e.period))].sort((a, b) => a - b);
+  return periods.map((period) => ({ period, ...sidePoints(events, (e) => e.period === period) }));
+}
+
 /** The game's box score from its plays. */
 export function gameBox(events: readonly PlayByPlayEvent[]): GameBox {
   const { order } = gameOrder(events);

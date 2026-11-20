@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlayByPlayEvent } from "../../types/match";
 import { gameFlow } from "../game-flow";
-import { gameBox, statSetName, type BoxStat } from "../game-box";
+import { gameBox, pointsFrom, quarterPoints, statSetName, teamFactors, type BoxStat } from "../game-box";
 
 let nextId = 1;
 type Who = { id: number; no: number; first: string; last: string; side: 1 | 2 };
@@ -176,5 +176,115 @@ describe("gameBox", () => {
 
   it("names a player's set of plays", () => {
     expect(statSetName("Lind", "tp")).toBe("Lind: three-point attempts");
+  });
+});
+
+/** n copies of a play. */
+const many = (n: number, make: () => PlayByPlayEvent) => Array.from({ length: n }, make);
+
+describe("teamFactors", () => {
+  it("possessions follow FGA − OREB + TO + 0.44 × FTA", () => {
+    const events = clocked([
+      ...many(30, () => play("2pt", lind)),
+      ...many(50, () => play("2pt", lind, miss)),
+      ...many(10, () => play("rebound", lind, { subType: "offensive" })),
+      ...many(12, () => play("turnover", lind)),
+      ...many(15, () => play("freethrow", lind)),
+      ...many(5, () => play("freethrow", lind, miss)),
+    ]);
+    const { home } = teamFactors(gameBox(events));
+    expect(home.possessions).toBeCloseTo(90.8, 5);
+    expect(home.ppp).toBeCloseTo(75 / 90.8, 5);
+    expect(home.tovRate).toBeCloseTo(12 / 90.8, 5);
+    expect(home.ftRate).toBeCloseTo(20 / 80, 5);
+  });
+
+  it("eFG counts a three as one and a half", () => {
+    const events = clocked([
+      ...many(20, () => play("2pt", lind)),
+      ...many(10, () => play("3pt", lind)),
+      ...many(40, () => play("2pt", lind, miss)),
+    ]);
+    expect(teamFactors(gameBox(events)).home.efg).toBeCloseTo(0.5, 5);
+  });
+
+  it("offensive rebounds won include team rebounds", () => {
+    const events = clocked([
+      ...many(10, () => play("rebound", lind, { subType: "offensive" })),
+      ...many(2, () => play("rebound", 1, { subType: "offensive" })),
+      ...many(28, () => play("rebound", olsson, { subType: "defensive" })),
+    ]);
+    expect(teamFactors(gameBox(events)).home.orebPct).toBeCloseTo(12 / 40, 5);
+  });
+
+  it("a factor with nothing to divide by is null", () => {
+    const { away } = teamFactors(gameBox(clocked([play("2pt", lind)])));
+    expect(away.efg).toBeNull();
+    expect(away.ftRate).toBeNull();
+    expect(away.ppp).toBeNull();
+  });
+});
+
+describe("pointsFrom", () => {
+  it("points from the paint, second chance and fast break read the qualifiers", () => {
+    const events = clocked([
+      play("2pt", lind, { qualifiers: ["pointsinthepaint", "2ndchance"] }),
+      play("2pt", lind, { ...miss, qualifiers: ["pointsinthepaint"] }),
+      play("freethrow", berg, { qualifiers: ["2ndchance"] }),
+      play("3pt", berg, { qualifiers: ["fastbreak"] }),
+      play("2pt", olsson, { qualifiers: ["pointsinthepaint", "fastbreak"] }),
+    ]);
+    const from = pointsFrom(events, gameBox(events));
+    expect(from.paint!.home.value).toBe(2);
+    expect(from.paint!.home.eventIds).toEqual([events[0].eventId]);
+    expect(from.paint!.away.value).toBe(2);
+    expect(from.second_chance!.home.value).toBe(3);
+    expect(from.second_chance!.home.eventIds).toEqual([events[0].eventId, events[2].eventId]);
+    expect(from.fast_break!.home.value).toBe(3);
+    expect(from.fast_break!.away.value).toBe(2);
+  });
+
+  it("points from turnovers are null when no play in the game carries the qualifier", () => {
+    const plain = clocked([play("2pt", lind)]);
+    expect(pointsFrom(plain, gameBox(plain)).turnovers).toBeNull();
+    const marked = clocked([play("2pt", lind, { qualifiers: ["fromturnover"] }), play("3pt", olsson)]);
+    const from = pointsFrom(marked, gameBox(marked));
+    expect(from.turnovers!.home.value).toBe(2);
+    expect(from.turnovers!.away.value).toBe(0);
+  });
+
+  it("bench points are points by players who didn't start", () => {
+    const five = [1, 2, 20, 21, 22];
+    const sub = P(30, 30, "Sub", 1);
+    const events = clocked([
+      play("2pt", lind, { onCourtHome: five, onCourtAway: [] }),
+      play("3pt", sub, { onCourtHome: [30, 2, 20, 21, 22], onCourtAway: [] }),
+    ]);
+    const from = pointsFrom(events, gameBox(events));
+    expect(from.bench!.home.value).toBe(3);
+    expect(from.bench!.home.eventIds).toEqual([events[1].eventId]);
+    const old = clocked([play("2pt", lind)]);
+    expect(pointsFrom(old, gameBox(old)).bench).toBeNull();
+  });
+});
+
+describe("quarterPoints", () => {
+  it("quarter points cover overtime", () => {
+    const events: PlayByPlayEvent[] = [];
+    for (let q = 1; q <= 5; q++) {
+      events.push(
+        play("2pt", lind, { period: q, gameClockTime: "04:00" }),
+        play("3pt", olsson, { period: q, gameClockTime: "03:00" }),
+        play("freethrow", olsson, { period: q, gameClockTime: "02:00" }),
+      );
+    }
+    const quarters = quarterPoints(events);
+    const flow = gameFlow(events);
+    expect(quarters.map((q) => q.period)).toEqual([1, 2, 3, 4, 5]);
+    quarters.forEach((q, i) => {
+      expect(q.home.value).toBe(flow.periods[i].home);
+      expect(q.away.value).toBe(flow.periods[i].away);
+      expect(q.away.eventIds).toHaveLength(2);
+    });
   });
 });
