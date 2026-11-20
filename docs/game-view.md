@@ -4,8 +4,9 @@
 game's timeline right under it, and beside them a list of its plays that
 follows the footage. The timeline is the story of the score and a way through
 the game. From the page a coach collects plays into a playlist and labels
-them. The settings form the page used to be is the other side of a
-**Game | Details** switch.
+them. The same game as numbers is **Stats**, and the settings form the page
+used to be is **Details**: one **Game | Stats | Details** switch (see
+"Stats" below).
 
 Built after a contact at the federation called a full game view the page that
 matters most, and the first coach interview asked for the same things: jump
@@ -599,11 +600,112 @@ view, and more than nine keys.
 Analytics events are in `packages/shared/types/analytics.ts` (`game_view_*`,
 `collect_*`, `game_marks_filled`, `label_picked`, `label_key_set`).
 
+## Stats (`apps/desktop/src/components/game/stats/`)
+
+The game as numbers, for a coach reviewing it or scouting an opponent from
+it. Built 2026-11-20; design and plan in
+`docs/superpowers/specs/2026-11-20-game-stats-design.md` and
+`docs/superpowers/plans/2026-11-20-game-stats.md`. The research behind it:
+coaches use numbers to choose which video to watch, the tools they compare us
+with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
+
+- **Everything is counted from the stored plays** (`game-box.ts`,
+  `game-shots.ts`, `game-lineups.ts` in `packages/shared/lib`, pure, tested),
+  so it draws at once, works offline and without video, and **a number always
+  equals the plays it opens**: every cell carries its event ids. Only minutes
+  and plus-minus come from the league's box score (`use-game-box-score.ts`,
+  through the stats-card loader); without it they are counted from the fives
+  on the plays (`stints`), and without fives they aren't shown. The season
+  columns are the league's season page, the one stats cards read.
+- **Sections, in reading order**: Score (by quarter, the lead graph with its
+  runs, largest leads, lead changes and ties); Why it went that way (points
+  per possession and the four factors as paired bars, home left; the better
+  side in the heavier weight, never a colour; then points from the paint,
+  second chance, fast break, turnovers and bench); Players (both teams, home
+  first; starters then bench; Game | Season); Shots (a half court per team,
+  basket at the top, a dot per field goal, made filled, missed a ring; at
+  the rim (within 2 m of the basket), mid-range and threes as makes of
+  attempts; one player at a time); Lineups
+  (fives by time on the floor, the five longest of at least two minutes,
+  "Show all").
+- **Small-sample honesty**: one player's shooting is makes of attempts, never
+  a percentage; a season 3P% needs `LEADER_MIN_3PA` attempts; lineups are
+  described (time, score change), not rated (Leonard took the footnote that
+  said so off on 2026-11-20).
+- **From a number to its plays**: `GameFilters.picked` (`game-list.ts`) is a
+  named set of event ids; `keepPlay` keeps only those, combined with any other
+  filter. A click hands the Game view the set and its first play in the same
+  state update that flips the view (`openPlays` in `pages/game.tsx`): the URL
+  lands a moment later, after the Game view has read what it opens with. The
+  footage plays at once from the first play (`autoPlay`; the click was the
+  ask to watch); a reload or a link to a play opens paused. The
+  router state keeps the set for a reload. The Game view shows it as one pill
+  in the filtered row, cleared on its own. A single shot opens as a link to a
+  play, with no filter. Quarter figures open that team's baskets in the
+  quarter; a run opens every play of its stretch; MIN and +/- open the plays
+  while the player was on the floor.
+- **Kept for the visit**: the page's scroll and Game | Season
+  (`GameViewMemory.stats`), written when the view leaves (a scroll event while
+  the page comes down must not count), restored on mount and again a frame
+  later (WebKit lays the page out once more).
+- **Older games get less**: games imported before September 2026 have no shot
+  positions and no fives, so Shots and Lineups say so in one line each, bench
+  points are left out and starters fall back to points order. A column a
+  source doesn't record (Profixio: no misses, rebounds or assists) is dropped,
+  and a source with no misses gets no possessions or four factors (one line
+  says why), since FGA would equal FGM. A points-from figure no play in the
+  game is marked for is left out rather than shown as 0–0. The player rows'
+  rules (box-score-only players, the fallbacks for minutes and +/-) are pure
+  and tested in `game-players.ts`.
+- **Which view a game opens on is unchanged**: Game when its video plays here
+  and it is synced, else Details. `?view=stats` names Stats.
+- **At the rim is 2 m** (`RIM_RADIUS_M`), read off staging's 36 Genius games
+  and 3,094 twos on 2026-11-20: inside 2 m half to two thirds went in and
+  about 80 % were lay-ups, dunks or tip-ins; from 2 m out about a third went
+  in, mostly jump shots. The feed's own areas weren't used: its `inthepaint`
+  (median 1.8 m) and `underbasket` (0.8 m) overlap too much to tell apart, and
+  Leonard found a separate Paint zone hardly differed from the rim. The same
+  look found exactly five a side on 16,396 of 16,422 plays with fives.
+- **Season context** (part 2, built 2026-11-20; design and plan in
+  `docs/superpowers/specs/2026-11-20-season-context-design.md` and
+  `docs/superpowers/plans/2026-11-20-season-context.md`): on a Genius game,
+  each factor bar carries a 2 px line at the team's season, and a caption
+  ("usually 52% · 4th") appears under tonight's number only for a real gap;
+  each team's place in today's table sits under the score ("5th · 7–5 ·
+  won 4"), and a points-from figure's hover adds "usually 38 a game". The
+  season is the team's **other regular-season games**, summed from Genius's
+  per-game team rows and put through the same formula as tonight
+  (`factorsOf` in `game-box.ts`; Genius's own ratios and possessions are
+  never read). A gap is real with at least 4 other games and
+  `|tonight − season| ≥ GAP_SWINGS (1.5) × swing`, the league's typical
+  single-game swing (`season-context.ts`; about two captions a game on SBL
+  Herr 2026/27). Ranks: 1 = best, lowest first for turnover rate, ties shared.
+  The bars use a **fixed scale per factor** (`FACTOR_SCALE`: PPP 1.6, eFG
+  75%, TO 35%, OREB 60%, FT rate 0.7), so a mark always has a place and bars
+  compare across games. Data: the `genius` function's `season` action
+  (`season-payload.ts`, cached 12 h per competition in
+  `genius_season_cache`, stale served on failure; fetched only when a coach
+  opens Stats), read by `use-season-context.ts` (30 min in memory). Without
+  it the view is as before; only an upstream failure adds "Season numbers
+  aren't available right now." Genius's rebound counts match our plays'
+  (team rebounds in, dead-ball rebounds out; checked on staging game
+  2851767). Sentences live in `season-copy.ts`. A finished season (every
+  fixture played) stays cached 30 days. **Rollout order**: the
+  `genius_season_cache` migration, then the `genius` function, then the
+  desktop release; a function without the table fails rather than spend
+  quota on every open, and a desktop facing an older function (it answers
+  `unknown_action`) shows the view without the season and no failure line.
+- **Analytics**: `game_stats_viewed` (entry, has_shots, has_lineups,
+  minutes_source, season, season_gaps), `game_stats_plays_opened` (kind, stat, plays),
+  `game_stats_season_shown`; `game_view_filtered` gains `picked`.
+- **Spec**: `headless/specs/O-game-stats.spec.ts`.
+
 ## Not built
 
 "Show in game"
 from an editor clip (the view already accepts `?play=`); marking in and out
-around a play; substitution rows, lineup tables and a shot chart; the footage
+around a play; substitution rows; an opponent page across games (part 3 of
+the Stats design); the footage
 from a game's cloud copy; free time-range clips with no play (a schema change
 across all three apps). The web game view on `feat/cloud-game-videos` can
 reuse the shared modules after the merge.

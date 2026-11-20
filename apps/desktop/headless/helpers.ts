@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import * as sidebarFs from "node:fs";
 import { test as base, expect, webkit, type Locator, type Page, type Request, type Route } from "@playwright/test";
 import { loadEnv } from "vite";
+import type { SeasonPayload } from "@scoutable/shared/lib/season-payload";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 Object.assign(process.env, loadEnv("headless", path.dirname(HERE), "HEADLESS_"));
@@ -1030,6 +1031,39 @@ export async function failPlaysReads(page: Page): Promise<() => Promise<void>> {
   };
   await page.route(PLAYS_READS, handler);
   return () => page.unroute(PLAYS_READS, handler);
+}
+
+/**
+ * Answers the genius function's `season` action (the Stats view's season
+ * context) with `answer(matchId)`, where `matchId` is the Genius id of the game
+ * whose plays the page read last; "fail" answers as an upstream failure does,
+ * "unknown" as a function that predates the action.
+ * Every other genius action goes through. Call before the first navigation.
+ */
+export async function mockSeason(page: Page, answer: (matchId: number) => SeasonPayload | "fail" | "unknown"): Promise<void> {
+  let matchId: number | null = null;
+  page.on("response", async (response) => {
+    const request = response.request();
+    if (request.method() !== "GET" || !request.url().includes("/rest/v1/matches") || !request.url().includes("play_by_play_events")) return;
+    try {
+      const body = await response.json();
+      const row = Array.isArray(body) ? body[0] : body;
+      if (row?.source_game_id && /^\d+$/.test(row.source_game_id)) matchId = Number(row.source_game_id);
+    } catch {
+      // Not JSON (a failed read): nothing to learn.
+    }
+  });
+  await page.route("**/functions/v1/genius", async (route) => {
+    const body = route.request().postDataJSON() as { action?: string } | null;
+    if (body?.action !== "season") return route.fallback();
+    // The season is asked for once the game is open, so its plays have been read; wait out the response handler.
+    for (let i = 0; matchId === null && i < 100; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+    const result = matchId === null ? "fail" : answer(matchId);
+    if (result === "fail") return route.fulfill({ status: 502, json: { error: "upstream_failed" } });
+    // A genius function deployed before the season action.
+    if (result === "unknown") return route.fulfill({ status: 400, json: { error: "unknown_action" } });
+    return route.fulfill({ status: 200, json: result });
+  });
 }
 
 /** Holds the page's reads of plays back by `ms` until the returned function is called. */

@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { gameOrder } from "@scoutable/shared/lib/game-flow";
+import { EMPTY_GAME_FILTERS, type GameFilters } from "@scoutable/shared/lib/game-list";
+import { GameStatsView } from "@/components/game/stats/game-stats-view";
+import type { OpenKind, PlaySet } from "@/components/game/stats/stat-cell";
 import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { Loader2 } from "lucide-react";
@@ -85,6 +89,7 @@ export function GamePage() {
   );
   const [view, setView] = useState<GameViewMode | null>(() => {
     if (asked === "details" || wantsQuarters) return "details";
+    if (asked === "stats") return "stats";
     if (asked === "game" || startEventId) return "game";
     // A tab switch comes back to the view the game was left on.
     const left = viaTab ? recallGameView(matchId)?.view : null;
@@ -99,6 +104,17 @@ export function GamePage() {
   const [missing, setMissing] = useState(false);
   // The cached copy stands in for the first read only; Details and back reads afresh.
   const fromCache = useRef(loaded !== null);
+
+  // The plays behind a number in Stats, handed to the Game view as one filter (router state, so a reload keeps it).
+  // What a number in Stats hands the Game view: the play to open on and its plays as one filter.
+  const [handoff, setHandoff] = useState<{ eventId: number | null; filters: GameFilters | null } | null>(null);
+  // The same, read back from the router after a reload. The Game view reads it once, when it mounts.
+  const pickedFilters = useMemo<GameFilters | null>(() => {
+    const picked = (location.state as { picked?: { name?: unknown; eventIds?: unknown } } | null)?.picked;
+    return picked && typeof picked.name === "string" && Array.isArray(picked.eventIds)
+      ? { ...EMPTY_GAME_FILTERS, picked: { name: picked.name, eventIds: new Set(picked.eventIds as number[]) } }
+      : null;
+  }, [location.state]);
 
   // The game and whether its video plays here: read on arrival (to choose the
   // view) and again whenever the coach comes back from Details.
@@ -139,6 +155,8 @@ export function GamePage() {
   const show = useCallback(
     (next: GameViewMode, state?: { openQuarters?: boolean }) => {
       setView(next);
+      // The switch opens a view as it was left; plays handed over from Stats were for that one visit.
+      setHandoff(null);
       const params = new URLSearchParams(searchParams);
       params.set("view", next);
       params.delete("play");
@@ -146,6 +164,30 @@ export function GamePage() {
       setSearchParams(params, { replace: true, state: state ?? null });
     },
     [searchParams, setSearchParams],
+  );
+
+  // A number in Stats opens its plays: the Game view, on the first of them, with them as one filter. A single
+  // shot is one play and opens as a link to a play does, with no filter.
+  const openPlays = useCallback(
+    (set: PlaySet, meta: { kind: OpenKind }) => {
+      if (!loaded || set.eventIds.length === 0) return;
+      const ids = new Set(set.eventIds);
+      const first = gameOrder(loaded.match.events.filter((e) => ids.has(e.eventId))).order[0];
+      const params = new URLSearchParams(searchParams);
+      params.set("view", "game");
+      if (first) params.set("play", String(first.eventId));
+      const picked = meta.kind === "shot" ? null : { name: set.name, eventIds: [...set.eventIds] };
+      if (!picked) rememberGameView(matchId, { filters: EMPTY_GAME_FILTERS });
+      setSearchParams(params, { replace: true, state: picked ? { picked } : null });
+      // The Game view reads what it opens with once, at mount, and the URL lands a moment after the view flips:
+      // the hand-off goes in the same update as the view.
+      setHandoff({
+        eventId: first?.eventId ?? null,
+        filters: picked ? { ...EMPTY_GAME_FILTERS, picked: { name: picked.name, eventIds: ids } } : null,
+      });
+      setView("game");
+    },
+    [loaded, matchId, searchParams, setSearchParams],
   );
 
   // The view the game is on, however it was chosen (a link, the switch, the
@@ -216,6 +258,19 @@ export function GamePage() {
     );
   }
 
+  if (view === "stats") {
+    return (
+      <GameStatsView
+        key={loaded.match.id}
+        match={loaded.match}
+        viewSwitch={viewSwitch}
+        entry={entry}
+        onOpenPlays={openPlays}
+        onShowDetails={() => show("details")}
+      />
+    );
+  }
+
   return (
     <GameWatchView
       // A different game is a different visit: its own video, position and filters.
@@ -224,7 +279,10 @@ export function GamePage() {
       videoStatus={loaded.videoStatus}
       viewSwitch={viewSwitch}
       entry={entry}
-      startEventId={startEventId}
+      startEventId={handoff ? handoff.eventId : startEventId}
+      startFilters={handoff ? handoff.filters : pickedFilters}
+      // A number in Stats was clicked to watch its plays; a reload or a link opens paused.
+      autoPlay={handoff !== null && handoff.eventId !== null}
       onOpenDetails={(opts) => show("details", opts)}
     />
   );

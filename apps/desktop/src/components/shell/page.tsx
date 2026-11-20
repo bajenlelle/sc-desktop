@@ -65,7 +65,7 @@ export function PageContent({
   }, [setScrolled]);
 
   return (
-    <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto">
+    <div ref={scrollerRef} data-page-scroller className="min-h-0 flex-1 overflow-y-auto">
       <div ref={sentinelRef} aria-hidden className="h-px w-full" />
       <div
         className={cn(

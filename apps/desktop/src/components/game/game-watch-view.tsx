@@ -98,6 +98,8 @@ export function GameWatchView({
   viewSwitch,
   entry,
   startEventId,
+  startFilters,
+  autoPlay = false,
   onOpenDetails,
 }: {
   match: StoredMatch;
@@ -109,6 +111,10 @@ export function GameWatchView({
   entry: string;
   /** A play to open on (a link from elsewhere). */
   startEventId: number | null;
+  /** Filters to open with instead of the remembered ones: the plays behind a number in the Stats view. */
+  startFilters?: GameFilters | null;
+  /** Play from the start play at once: a number in Stats was clicked to watch its plays. */
+  autoPlay?: boolean;
   onOpenDetails: (opts?: { openQuarters?: boolean }) => void;
 }) {
   const { user, activeOrgId, activeOrgIsPersonal } = useAuth();
@@ -121,7 +127,8 @@ export function GameWatchView({
   const [duration, setDuration] = useState<number | null>(null);
   // How this game was left on an earlier visit; a link to a play opens without it, so the play is in the list.
   const [remembered] = useState(() => (startEventId === null ? recallGameView(match.id) : null));
-  const [filters, setFilters] = useState<GameFilters>(() => remembered?.filters ?? EMPTY_GAME_FILTERS);
+  // The Stats view's plays come with their own filter, also when they open on a play.
+  const [filters, setFilters] = useState<GameFilters>(() => startFilters ?? remembered?.filters ?? EMPTY_GAME_FILTERS);
   const [zoomPeriod, setZoomPeriod] = useState<number | null>(() => remembered?.zoomPeriod ?? null);
   useEffect(() => rememberGameView(match.id, { filters, zoomPeriod }), [match.id, filters, zoomPeriod]);
   const [labelPickerFor, setLabelPickerFor] = useState<string | null>(null);
@@ -314,8 +321,9 @@ export function GameWatchView({
     };
   }, [video]);
 
-  // Where the game opens, once, paused: the play a link named, else where this
-  // visit's last look left it, else just before tip-off.
+  // Where the game opens, once: the play a link named, else where this visit's
+  // last look left it, else just before tip-off. Paused, except for plays
+  // opened from a number in Stats (`autoPlay`), which play at once.
   const resumeAt = useRef(recallGamePosition(match.id));
   const placed = useRef(false);
   /** The period the game opened in (null before tip-off, in a break or after): arriving there isn't a crossing. */
@@ -329,7 +337,12 @@ export function GameWatchView({
     const to = Math.min(at, Math.max(0, duration - 1));
     const opened = momentAt(timeline, to, PERIOD_LEAD_SECONDS);
     placedPeriod.current = opened.phase === "live" ? opened.period : null;
-    video.currentTime = to;
+    // A linked play is held as the current one through its lead-in, as a click on its row holds it: the play the
+    // coach asked for is what is lit and named, not the one before it.
+    if (linked) playback.seekTo(to, { hold: linked, play: autoPlay });
+    else video.currentTime = to;
+    // `playback` is stable enough: the placement runs once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [footage, duration, startEventId, playByEvent, firstBandStart, timeline, video]);
 
   // Remember where the coach was, for coming back from Details or the editor.
@@ -437,6 +450,7 @@ export function GameWatchView({
         ].filter(Boolean),
         search: filters.search.trim() !== "",
         on_court: filters.onCourt,
+        picked: filters.picked !== null,
         visible: order.length,
       });
     }, 800);

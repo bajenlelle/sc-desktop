@@ -9,6 +9,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { GeniusAction, GeniusFixture, GeniusPlayer } from "./genius";
 import type { CatalogLeague } from "../types/league";
+import type { SeasonPayload } from "./season-payload";
 
 export interface GeniusMatchData {
   fixture: GeniusFixture;
@@ -47,6 +48,14 @@ export function getGeniusFixtures(
   competitionId: number,
 ): Promise<GeniusResult<{ fixtures: GeniusFixture[] }>> {
   return invokeGenius(supabase, { action: "fixtures", competitionId });
+}
+
+/**
+ * A competition's season for the Stats view: every game's per-team totals and
+ * today's standings (season-payload.ts). Cached 12 hours server-side.
+ */
+export function getGeniusSeason(supabase: SupabaseClient, competitionId: number): Promise<GeniusResult<SeasonPayload>> {
+  return invokeGenius(supabase, { action: "season", competitionId });
 }
 
 /** Full match payload: fixture + raw actions + participants. */

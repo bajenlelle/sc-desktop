@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, ListFilter, Plus } from "lucide-react";
+import { Check, ListFilter, Plus, X } from "lucide-react";
 import {
   EVENT_TYPE_OPTIONS,
   SHOT_TYPE_OPTIONS,
@@ -298,6 +298,20 @@ export function GameFilterBar({
 
       {filtered && (
         <div className="flex h-7 items-center gap-2 text-subheadline">
+          {filters.picked && (
+            // The plays behind a number in Stats: one pill, cleared on its own; the rest of the filters stay.
+            <span className="flex h-6 min-w-0 items-center gap-0.5 rounded-full bg-fill-2 pr-0.5 pl-2.5" title={filters.picked.name}>
+              <span className="truncate">{filters.picked.name}</span>
+              <button
+                type="button"
+                aria-label={`Clear ${filters.picked.name}`}
+                className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-3 hover:text-foreground active:bg-fill-4 focus-visible:ring-2 focus-visible:ring-selection"
+                onClick={() => onChange({ ...filters, picked: null })}
+              >
+                <X className="size-3.5" />
+              </button>
+            </span>
+          )}
           <span className="shrink-0 whitespace-nowrap nums text-muted-foreground">
             {visible} {visible === 1 ? "play" : "plays"}
           </span>
