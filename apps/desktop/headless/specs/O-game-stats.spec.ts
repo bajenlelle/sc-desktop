@@ -5,7 +5,7 @@
  * Reads only; creates nothing.
  */
 import type { Page } from "@playwright/test";
-import { expect, openFirstGame, playRows, shot, test } from "../helpers";
+import { expect, openFirstGame, openSampleGame, playRows, shot, test } from "../helpers";
 
 const showStats = async (page: Page) => {
   await page.getByRole("radio", { name: "Stats" }).click();
@@ -68,4 +68,33 @@ test("Stats reads the game, and a number opens its plays in the Game view", asyn
   // The chip clears on its own.
   await chip.click();
   await expect(chip).toHaveCount(0);
+
+  // A player's shots: "made/attempts" opens exactly the attempts, and the way back keeps Stats where it was left.
+  await showStats(page);
+  const fg = page.getByRole("button", { name: /: shots, \d+\/[1-9]\d*, show plays$/ }).first();
+  await fg.scrollIntoViewIfNeeded();
+  const fgLabel = (await fg.getAttribute("aria-label"))!;
+  const attempts = Number(/\/(\d+), show plays$/.exec(fgLabel)![1]);
+  const fgName = fgLabel.replace(/, \d+\/\d+, show plays$/, "");
+  // Scroll down to the players: where the coach left the page is what the way back restores.
+  await fg.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  const scrolled = await page.evaluate(() => document.querySelector("[data-page-scroller]")!.scrollTop);
+  expect(scrolled, "the page has scrolled to the players").toBeGreaterThan(100);
+  await fg.click();
+  await expect(page.getByRole("button", { name: `Clear ${fgName}` })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(`${attempts} ${attempts === 1 ? "play" : "plays"}`, { exact: true }).first()).toBeVisible();
+  await expect(playRows(page)).toHaveCount(attempts);
+  await showStats(page);
+  await expect(page.getByRole("heading", { name: "Players", level: 2 })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.querySelector("[data-page-scroller]")!.scrollTop)).toBeGreaterThan(scrolled - 40);
+});
+
+test("a game without positions or fives says so instead of drawing them", async ({ page, browserName }) => {
+  await openSampleGame(page);
+  await showStats(page);
+  await expect(page.getByRole("heading", { name: "Score", level: 2 })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Shot positions come with games imported since September 2026.")).toBeVisible();
+  await expect(page.getByText("Lineups come with games imported since September 2026.")).toBeVisible();
+  await expect(page.getByRole("group", { name: /: shot chart$/ })).toHaveCount(0);
+  await shot(page, `${browserName}-O-stats-old-shape`);
 });

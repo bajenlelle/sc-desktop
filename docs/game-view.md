@@ -4,8 +4,9 @@
 game's timeline right under it, and beside them a list of its plays that
 follows the footage. The timeline is the story of the score and a way through
 the game. From the page a coach collects plays into a playlist and labels
-them. The settings form the page used to be is the other side of a
-**Game | Details** switch.
+them. The same game as numbers is **Stats**, and the settings form the page
+used to be is **Details**: one **Game | Stats | Details** switch (see
+"Stats" below).
 
 Built after a contact at the federation called a full game view the page that
 matters most, and the first coach interview asked for the same things: jump
@@ -599,11 +600,71 @@ view, and more than nine keys.
 Analytics events are in `packages/shared/types/analytics.ts` (`game_view_*`,
 `collect_*`, `game_marks_filled`, `label_picked`, `label_key_set`).
 
+## Stats (`apps/desktop/src/components/game/stats/`)
+
+The game as numbers, for a coach reviewing it or scouting an opponent from
+it. Built 2026-11-20; design and plan in
+`docs/superpowers/specs/2026-11-20-game-stats-design.md` and
+`docs/superpowers/plans/2026-11-20-game-stats.md`. The research behind it:
+coaches use numbers to choose which video to watch, the tools they compare us
+with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
+
+- **Everything is counted from the stored plays** (`game-box.ts`,
+  `game-shots.ts`, `game-lineups.ts` in `packages/shared/lib`, pure, tested),
+  so it draws at once, works offline and without video, and **a number always
+  equals the plays it opens**: every cell carries its event ids. Only minutes
+  and plus-minus come from the league's box score (`use-game-box-score.ts`,
+  through the stats-card loader); without it they are counted from the fives
+  on the plays (`stints`), and without fives they aren't shown. The season
+  columns are the league's season page, the one stats cards read.
+- **Sections, in reading order**: Score (by quarter, the lead graph with its
+  runs, largest leads, lead changes and ties); Why it went that way (points
+  per possession and the four factors as paired bars, home left; the better
+  side in the heavier weight, never a colour; then points from the paint,
+  second chance, fast break, turnovers and bench); Players (both teams, home
+  first; starters then bench; Game | Season); Shots (a half court per team,
+  basket at the top, a dot per field goal, made filled, missed a ring; rim,
+  mid-range and threes as makes of attempts; one player at a time); Lineups
+  (fives by time on the floor, the five longest of at least two minutes,
+  "Show all").
+- **Small-sample honesty**: one player's shooting is makes of attempts, never
+  a percentage; a season 3P% needs `LEADER_MIN_3PA` attempts; lineups are
+  described (time, score change), not rated, and say so.
+- **From a number to its plays**: `GameFilters.picked` (`game-list.ts`) is a
+  named set of event ids; `keepPlay` keeps only those, combined with any other
+  filter. A click hands the Game view the set and its first play in the same
+  state update that flips the view (`openPlays` in `pages/game.tsx`): the URL
+  lands a moment later, after the Game view has read what it opens with. The
+  router state keeps the set for a reload. The Game view shows it as one pill
+  in the filtered row, cleared on its own. A single shot opens as a link to a
+  play, with no filter. Quarter figures open that team's baskets in the
+  quarter; a run opens every play of its stretch; MIN and +/- open the plays
+  while the player was on the floor.
+- **Kept for the visit**: the page's scroll and Game | Season
+  (`GameViewMemory.stats`), written when the view leaves (a scroll event while
+  the page comes down must not count), restored on mount and again a frame
+  later (WebKit lays the page out once more).
+- **Older games get less**: games imported before September 2026 have no shot
+  positions and no fives, so Shots and Lineups say so in one line each, bench
+  points are left out and starters fall back to points order. A column a
+  source doesn't record (Profixio: no misses, rebounds or assists) is dropped.
+- **Which view a game opens on is unchanged**: Game when its video plays here
+  and it is synced, else Details. `?view=stats` names Stats.
+- **Tunable**: `RIM_RADIUS_M` (1.25 m, FIBA's no-charge arc) has not been
+  checked against a real game's positions; layups 2 to 4 m out count as
+  mid-range until it is.
+- **Analytics**: `game_stats_viewed` (entry, has_shots, has_lineups,
+  minutes_source), `game_stats_plays_opened` (kind, stat, plays),
+  `game_stats_season_shown`; `game_view_filtered` gains `picked`.
+- **Spec**: `headless/specs/O-game-stats.spec.ts`.
+
 ## Not built
 
 "Show in game"
 from an editor clip (the view already accepts `?play=`); marking in and out
-around a play; substitution rows, lineup tables and a shot chart; the footage
+around a play; substitution rows; season context (standings, team season
+numbers and league rank, from the league's public pages) and an opponent page
+across games, parts 2 and 3 of the Stats design; the footage
 from a game's cloud copy; free time-range clips with no play (a schema change
 across all three apps). The web game view on `feat/cloud-game-videos` can
 reuse the shared modules after the merge.

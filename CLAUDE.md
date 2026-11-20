@@ -160,7 +160,8 @@ playlists, and share them with teams; players watch on web/mobile.
 
 - `docs/scouting-reports.md`: the scouting report: its draft, the desktop view and the public page.
 - `docs/game-view.md`: the desktop game page: the whole game on one timeline, what it
-  reads from the stats, game marks, and collecting plays into a playlist.
+  reads from the stats, game marks, collecting plays into a playlist, and the
+  Stats view (box score, four factors, shots, lineups; every number opens its plays).
 - `docs/search.md`: the desktop's search over a space (⌘K): what it finds, how it
   orders it, what it reads and when.
 - `docs/maintenance.md`: the bug pipeline, and every secret: where it lives

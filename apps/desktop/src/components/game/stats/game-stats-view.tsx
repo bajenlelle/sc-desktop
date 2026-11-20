@@ -51,13 +51,24 @@ export function GameStatsView({
     const scroller = anchorRef.current?.closest<HTMLElement>("[data-page-scroller]");
     if (!scroller) return;
     const top = recallGameView(match.id)?.stats?.top ?? 0;
-    if (top > 0) scroller.scrollTop = top;
-    const save = () => {
-      const was = recallGameView(match.id)?.stats;
-      rememberGameView(match.id, { stats: { top: scroller.scrollTop, season: was?.season ?? false } });
+    // Restored now and again on the next frame: WebKit can lay the page out once more after the first paint.
+    let last = top;
+    let restoring = top > 0;
+    if (restoring) scroller.scrollTop = top;
+    const frame = requestAnimationFrame(() => {
+      if (restoring) scroller.scrollTop = top;
+      restoring = false;
+    });
+    const note = () => {
+      if (!restoring) last = scroller.scrollTop;
     };
-    scroller.addEventListener("scroll", save, { passive: true });
-    return () => scroller.removeEventListener("scroll", save);
+    scroller.addEventListener("scroll", note, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      scroller.removeEventListener("scroll", note);
+      // Written once, when the view leaves: a scroll event while the page comes down mustn't count.
+      rememberGameView(match.id, { stats: { top: last, season: recallGameView(match.id)?.stats?.season ?? false } });
+    };
   }, [match.id]);
 
   // The league's box score: minutes and plus-minus for the players, names for the lineups.
