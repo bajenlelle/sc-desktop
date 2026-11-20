@@ -637,6 +637,8 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
   filter. A click hands the Game view the set and its first play in the same
   state update that flips the view (`openPlays` in `pages/game.tsx`): the URL
   lands a moment later, after the Game view has read what it opens with. The
+  footage plays at once from the first play (`autoPlay`; the click was the
+  ask to watch); a reload or a link to a play opens paused. The
   router state keeps the set for a reload. The Game view shows it as one pill
   in the filtered row, cleared on its own. A single shot opens as a link to a
   play, with no filter. Quarter figures open that team's baskets in the

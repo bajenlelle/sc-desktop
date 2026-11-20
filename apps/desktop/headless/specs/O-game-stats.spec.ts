@@ -133,6 +133,11 @@ test("plays opened from Stats start on the first of them, held as the current pl
   const rows = playRows(page);
   await expect(rows.first()).toBeVisible({ timeout: 30_000 });
   await expect(rows.first(), "the shot it opened on is the current play, before it happens").toHaveAttribute("aria-current", "true");
+  // The number was the ask to watch: the footage plays without a second click on Play.
+  await expect
+    .poll(() => page.evaluate(() => document.querySelector("video")?.paused ?? true), { message: "the video plays", timeout: 15_000 })
+    .toBe(false);
+  await expect(page.getByRole("button", { name: /^(Play|Resume)$/ })).toHaveCount(0);
 });
 
 test("each team's season marks the factor bars", async ({ page, browserName }) => {

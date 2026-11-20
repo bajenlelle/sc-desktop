@@ -281,6 +281,8 @@ export function GamePage() {
       entry={entry}
       startEventId={handoff ? handoff.eventId : startEventId}
       startFilters={handoff ? handoff.filters : pickedFilters}
+      // A number in Stats was clicked to watch its plays; a reload or a link opens paused.
+      autoPlay={handoff !== null && handoff.eventId !== null}
       onOpenDetails={(opts) => show("details", opts)}
     />
   );
