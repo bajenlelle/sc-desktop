@@ -8,6 +8,7 @@ import { LineupsSection } from "./lineups-section";
 import { PlayersSection } from "./players-section";
 import { ShotsSection } from "./shots-section";
 import { useGameBoxScore } from "./use-game-box-score";
+import { useSeasonContext } from "./use-season-context";
 import { useLeagues } from "@/lib/use-leagues";
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { EmptyState } from "@/components/empty-state";
@@ -74,6 +75,8 @@ export function GameStatsView({
   // The league's box score: minutes and plus-minus for the players, names for the lineups.
   const leagues = useLeagues();
   const boxScore = useGameBoxScore(match, leagues, hasFives);
+  // Each team's season beside the game: marks on the factor bars, the place in the table.
+  const season = useSeasonContext(match, leagues);
 
   // Once per visit, when it is known where the minutes come from.
   const viewed = useRef(false);
@@ -123,7 +126,7 @@ export function GameStatsView({
         ) : (
           <>
             <ScoreSection match={match} flow={flow} onOpen={open} />
-            <FactorsSection match={match} box={box} onOpen={open} />
+            <FactorsSection match={match} box={box} season={season} onOpen={open} />
             <PlayersSection match={match} box={box} flow={flow} boxScore={boxScore} leagues={leagues} onOpen={open} />
             <ShotsSection match={match} shots={shots} people={people} onOpen={open} />
             <LineupsSection match={match} hasFives={hasFives} people={people} onOpen={open} />
