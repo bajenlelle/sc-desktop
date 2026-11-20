@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { gameLineups, LINEUP_MIN_SECONDS, LINEUPS_SHOWN, type Lineup } from "@scoutable/shared/lib/game-lineups";
 import type { StoredMatch } from "@scoutable/shared/types/match";
-import { GroupFooter, GroupHeader } from "@/components/ui/group";
+import { GroupHeader } from "@/components/ui/group";
 import { StatCell, type OpenPlays } from "./stat-cell";
 
 type People = ReadonlyMap<number, { number: string; name: string }>;
@@ -12,7 +12,8 @@ const signed = (n: number | null) => (n === null ? "–" : n > 0 ? `+${n}` : n <
 /**
  * The fives each team used, longest on the floor first, with time and the
  * score change while they were on. Described, not rated: one game is too
- * little to rate a lineup. A row opens every play while that five was on.
+ * little to rate a lineup, so nothing here ranks one. A row opens every play
+ * while that five was on.
  */
 export function LineupsSection({ match, hasFives, people, onOpen }: { match: StoredMatch; hasFives: boolean; people: People; onOpen: OpenPlays }) {
   const lineups = useMemo(() => gameLineups(match.events), [match.events]);
@@ -24,13 +25,10 @@ export function LineupsSection({ match, hasFives, people, onOpen }: { match: Sto
           Lineups come with games imported since September 2026.
         </p>
       ) : (
-        <>
-          <div className="grid gap-4 md:grid-cols-2">
-            <TeamLineups name={match.homeTeam.name || "Home"} lineups={lineups.home} people={people} onOpen={onOpen} />
-            <TeamLineups name={match.awayTeam.name || "Away"} lineups={lineups.away} people={people} onOpen={onOpen} />
-          </div>
-          <GroupFooter>One game is too little to rate a lineup: this is who played together, and how the score moved.</GroupFooter>
-        </>
+        <div className="grid gap-4 md:grid-cols-2">
+          <TeamLineups name={match.homeTeam.name || "Home"} lineups={lineups.home} people={people} onOpen={onOpen} />
+          <TeamLineups name={match.awayTeam.name || "Away"} lineups={lineups.away} people={people} onOpen={onOpen} />
+        </div>
       )}
     </section>
   );

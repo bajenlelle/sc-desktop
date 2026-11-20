@@ -630,7 +630,8 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
   "Show all").
 - **Small-sample honesty**: one player's shooting is makes of attempts, never
   a percentage; a season 3P% needs `LEADER_MIN_3PA` attempts; lineups are
-  described (time, score change), not rated, and say so.
+  described (time, score change), not rated (Leonard took the footnote that
+  said so off on 2026-11-20).
 - **From a number to its plays**: `GameFilters.picked` (`game-list.ts`) is a
   named set of event ids; `keepPlay` keeps only those, combined with any other
   filter. A click hands the Game view the set and its first play in the same
