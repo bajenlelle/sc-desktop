@@ -106,7 +106,7 @@ export type AnalyticsEvent =
   // Game view (desktop /matches/:id: the whole game, its plays and its timeline; docs/game-view.md)
   | "game_view_opened" // plays, synced, video (ok | missing | unreadable | none | remote), score (plays | feed | none), timeouts, entry (library | details | link | tab | library_tab: a game marked Open in the Library | picker: the tab bar's + | search: the search over the space), restored (came back with filters or a quarter zoom), is_demo
   | "game_view_seeked" // via (row | timeline | key | marker | quarter | transport | now_bar | scrubber: the player's own bar | timeline_drag | wheel: a sideways swipe), kind (play | time | timeout | period | run), period; a drag or a swipe is one event, sent when it ends
-  | "game_view_filtered" // team, moment, groups (the filter sheet's active groups), search, on_court, visible
+  | "game_view_filtered" // team, moment, groups (the filter sheet's active groups), search, on_court, picked (the plays behind a number in Stats), visible
   | "game_view_closed" // seconds_played, clips_added, labels_applied
   | "game_tab_switched" // via (sidebar: a row of Open games | key: ⌃Tab | menu: Show Next/Previous Game Tab, Close Tab | picker: the + chose an open game | title_menu: the game title's menu with the sidebar hidden | window_menu: a game in the Window menu), tabs (how many are open), from_game (false: from another page, back to a game)
   | "game_tab_closed" // via (button: the row's × | middle_click | menu: Close Tab, ⌘W or Ctrl+W | key: Delete on the row | tab_menu: the row's own menu | close_others: every other tab, one event), tabs (how many are left), from_game

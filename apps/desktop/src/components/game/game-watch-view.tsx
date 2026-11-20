@@ -98,6 +98,7 @@ export function GameWatchView({
   viewSwitch,
   entry,
   startEventId,
+  startFilters,
   onOpenDetails,
 }: {
   match: StoredMatch;
@@ -109,6 +110,8 @@ export function GameWatchView({
   entry: string;
   /** A play to open on (a link from elsewhere). */
   startEventId: number | null;
+  /** Filters to open with instead of the remembered ones: the plays behind a number in the Stats view. */
+  startFilters?: GameFilters | null;
   onOpenDetails: (opts?: { openQuarters?: boolean }) => void;
 }) {
   const { user, activeOrgId, activeOrgIsPersonal } = useAuth();
@@ -121,7 +124,8 @@ export function GameWatchView({
   const [duration, setDuration] = useState<number | null>(null);
   // How this game was left on an earlier visit; a link to a play opens without it, so the play is in the list.
   const [remembered] = useState(() => (startEventId === null ? recallGameView(match.id) : null));
-  const [filters, setFilters] = useState<GameFilters>(() => remembered?.filters ?? EMPTY_GAME_FILTERS);
+  // The Stats view's plays come with their own filter, also when they open on a play.
+  const [filters, setFilters] = useState<GameFilters>(() => startFilters ?? remembered?.filters ?? EMPTY_GAME_FILTERS);
   const [zoomPeriod, setZoomPeriod] = useState<number | null>(() => remembered?.zoomPeriod ?? null);
   useEffect(() => rememberGameView(match.id, { filters, zoomPeriod }), [match.id, filters, zoomPeriod]);
   const [labelPickerFor, setLabelPickerFor] = useState<string | null>(null);
@@ -437,6 +441,7 @@ export function GameWatchView({
         ].filter(Boolean),
         search: filters.search.trim() !== "",
         on_court: filters.onCourt,
+        picked: filters.picked !== null,
         visible: order.length,
       });
     }, 800);

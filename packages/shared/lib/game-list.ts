@@ -23,6 +23,14 @@ export interface GameFilters {
   clip: ClipFilters;
   /** With a player chosen: every play while that player is on the floor, not only their own. */
   onCourt: boolean;
+  /** The plays behind a number in the Stats view, by name ("Lind: three-point attempts"); combines with the rest. */
+  picked: PickedPlays | null;
+}
+
+/** A named set of plays: what a number in the Stats view stands for. */
+export interface PickedPlays {
+  name: string;
+  eventIds: ReadonlySet<number>;
 }
 
 export const EMPTY_GAME_FILTERS: GameFilters = {
@@ -32,6 +40,7 @@ export const EMPTY_GAME_FILTERS: GameFilters = {
   periods: new Set(),
   clip: EMPTY_CLIP_FILTERS,
   onCourt: false,
+  picked: null,
 };
 
 /** How many of the filter sheet's groups are narrowing the list (the count on its button). */
@@ -48,7 +57,7 @@ export function gameFilterCount(f: GameFilters): number {
 
 /** Whether anything narrows the list: a filtered list offers "Add all", and heads a run only when it is filtered to runs. */
 export function gameFiltersActive(f: GameFilters): boolean {
-  return f.team !== 0 || f.search.trim() !== "" || f.moment !== null || gameFilterCount(f) > 0;
+  return f.team !== 0 || f.search.trim() !== "" || f.moment !== null || f.picked !== null || gameFilterCount(f) > 0;
 }
 
 function teamOf(e: PlayByPlayEvent): number | null {
@@ -83,6 +92,7 @@ export function keepPlay(filters: GameFilters, ctx: GameFilterContext): (play: T
   const clip: ClipFilters = whileOnCourt ? { ...filters.clip, players: new Set() } : filters.clip;
   return (play) => {
     const e = play.event;
+    if (filters.picked && !filters.picked.eventIds.has(e.eventId)) return false;
     if (filters.team !== 0 && teamOf(e) !== filters.team) return false;
     if (filters.periods.size > 0 && !filters.periods.has(e.period)) return false;
     if (filters.moment && !ctx.moments.get(e.eventId)?.has(filters.moment)) return false;

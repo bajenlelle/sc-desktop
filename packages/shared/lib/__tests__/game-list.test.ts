@@ -95,6 +95,20 @@ describe("keepPlay", () => {
     expect(kept(s, withFilters({ periods: new Set([2]) }))).toEqual([3, 4]);
   });
 
+  it("a picked set keeps only its plays", () => {
+    expect(kept(s, withFilters({ picked: { name: "Andersson: shots", eventIds: new Set([1, 3]) } }))).toEqual([1, 3]);
+  });
+
+  it("a picked set combines with the other filters", () => {
+    const picked = { name: "Plays", eventIds: new Set([1, 2, 4]) };
+    expect(kept(s, withFilters({ picked, team: 1 }))).toEqual([1]);
+    expect(kept(s, withFilters({ picked, periods: new Set([2]) }))).toEqual([4]);
+  });
+
+  it("a picked set makes the list filtered", () => {
+    expect(gameFiltersActive(withFilters({ picked: { name: "None", eventIds: new Set() } }))).toBe(true);
+  });
+
   it("searches a player by name or shirt number", () => {
     expect(kept(s, withFilters({ search: "berg" }))).toEqual([2, 4]);
     expect(kept(s, withFilters({ search: " IDA " }))).toEqual([1, 3]);
@@ -192,6 +206,12 @@ describe("gameRows", () => {
     expect(rows[4]).toMatchObject({ kind: "period", plays: 0, score: { home: 0, away: 2 } });
     // The game still ends on its final score.
     expect(rows.at(-1)).toMatchObject({ kind: "period_end", score: { home: 2, away: 4 }, final: true });
+  });
+
+  it("keeps every period's frame around a picked set", () => {
+    const s = setup([ev(1, 1, 30), ev(2, 2, 1100, away), ev(3, 3, 2100)]);
+    const picked = { name: "Home: points in Q3", eventIds: new Set([3]) };
+    expect(kinds(rowsFor(s, withFilters({ picked })))).toEqual(["period:1", "end:1", "period:2", "end:2", "period:3", "play:3", "end:3"]);
   });
 
   it("keeps every period of the game under a filter that only one of them answers", () => {
