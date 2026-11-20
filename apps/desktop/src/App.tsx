@@ -30,6 +30,7 @@ import { OnboardingPage } from "@/pages/onboarding";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { createClient } from "@/lib/supabase/client";
 import { UpdateChecker } from "@/components/UpdateChecker";
+import { reportPendingUpdate } from "@/lib/updates";
 import { MenuHandler } from "@/components/menu-handler";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
 import { Toaster } from "sonner";
@@ -192,7 +193,11 @@ function CrashFallback() {
 
 export default function App() {
   useEffect(() => {
-    getVersion().then((v) => trackEvent('app_started', { app_version: v }))
+    getVersion().then((v) => {
+      trackEvent('app_started', { app_version: v })
+      // If the last run started installing an update, this start says how it went.
+      reportPendingUpdate(v)
+    })
   }, [])
 
   return (
