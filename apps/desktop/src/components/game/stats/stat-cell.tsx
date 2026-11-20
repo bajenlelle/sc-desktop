@@ -23,9 +23,12 @@ export function StatCell({
   name,
   display,
   onOpen,
+  hint,
   className,
 }: {
   cell: Pick<BoxCell, "eventIds">;
+  /** A second line for the hover, such as the team's usual figure. */
+  hint?: string;
   /** The set's name, shown on the Game view's filter ("Lind: three-point attempts"). */
   name: string;
   /** What the cell prints: "4/9", "27", "+11". */
@@ -34,13 +37,17 @@ export function StatCell({
   className?: string;
 }) {
   if (cell.eventIds.length === 0) {
-    return <span className={cn("nums text-muted-foreground/70", className)}>{display}</span>;
+    return (
+      <span title={hint} className={cn("nums text-muted-foreground/70", className)}>
+        {display}
+      </span>
+    );
   }
   return (
     <button
       type="button"
       aria-label={`${name}, ${display}, show plays`}
-      title={`Show plays: ${name}`}
+      title={hint ? `Show plays: ${name}\n${hint}` : `Show plays: ${name}`}
       onClick={() => onOpen({ name, eventIds: cell.eventIds })}
       className={cn(
         "-mx-1 rounded-[5px] px-1 nums outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",

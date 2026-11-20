@@ -10,7 +10,7 @@ import {
   type PointsFrom,
 } from "@scoutable/shared/lib/game-box";
 import { realGap, type SeasonContext, type TeamSeason } from "@scoutable/shared/lib/season-context";
-import { allowedLine, gapCaption, seasonHoverLine, seasonKey } from "@scoutable/shared/lib/season-copy";
+import { allowedLine, gapCaption, seasonHoverLine, seasonKey, usuallyPerGame } from "@scoutable/shared/lib/season-copy";
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { GroupHeader } from "@/components/ui/group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -69,6 +69,10 @@ export function FactorsSection({
     if (!ctx) return false;
     const t: TeamSeason = ctx[side];
     return realGap(factors[side][key], t.factors[key], ctx.swing[key], t.games);
+  };
+  const usual = (side: "home" | "away", k: PointsFrom): string | undefined => {
+    const n = ctx?.[side].perGame[k];
+    return n === null || n === undefined ? undefined : usuallyPerGame(n);
   };
   const keyLine =
     season.status === "failed" ? "Season numbers aren't available right now." : ctx ? seasonKey(ctx.home.games, ctx.away.games, ctx.regular) : null;
@@ -163,6 +167,7 @@ export function FactorsSection({
                   <span className="text-muted-foreground">{FROM[k].label} </span>
                   <StatCell
                     cell={cells.home}
+                    hint={usual("home", k)}
                     name={`${home}: ${FROM[k].set}`}
                     display={String(cells.home.value)}
                     onOpen={(set) => onOpen(set, { kind: "team_stat", stat: k })}
@@ -170,6 +175,7 @@ export function FactorsSection({
                   <span className="text-muted-foreground">–</span>
                   <StatCell
                     cell={cells.away}
+                    hint={usual("away", k)}
                     name={`${away}: ${FROM[k].set}`}
                     display={String(cells.away.value)}
                     onOpen={(set) => onOpen(set, { kind: "team_stat", stat: k })}

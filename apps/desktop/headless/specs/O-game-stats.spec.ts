@@ -137,6 +137,7 @@ test("plays opened from Stats start on the first of them, held as the current pl
 
 test("each team's season marks the factor bars", async ({ page, browserName }) => {
   await mockSeason(page, madeUpSeason);
+  const tracked = await recordAnalytics(page);
   await openFirstGame(page);
   await showStats(page);
   const factors = page.getByRole("heading", { name: "Why it went that way", level: 2 });
@@ -146,15 +147,33 @@ test("each team's season marks the factor bars", async ({ page, browserName }) =
   await expect(page.getByText("Each line marks the team's season, from its other 11 games.")).toBeVisible();
   await factors.scrollIntoViewIfNeeded();
   await shot(page, `${browserName}-O-stats-factors-season`);
+
+  // Each team's place in today's table, under the score; its form on hover.
+  await expect(page.getByText("1st · 11–0 · won 11", { exact: true })).toBeVisible();
+  await expect(page.getByText("2nd · 10–1 · lost 1", { exact: true })).toBeVisible();
+  await page.getByText("1st · 11–0 · won 11", { exact: true }).hover();
+  await expect(page.getByRole("tooltip").filter({ hasText: "Today's table. Last five: W W W W W." })).toBeVisible();
+
+  // A points-from figure says what the team usually scores that way.
+  await expect(page.getByRole("button", { name: /: points in the paint, \d+, show plays$/ }).first()).toHaveAttribute("title", /usually 30 a game$/);
+
+  await expect
+    .poll(async () => (await tracked()).find((e) => e.event === "game_stats_viewed")?.properties)
+    .toMatchObject({ season: "shown", season_gaps: 2 });
 });
 
 test("without the season the bars stay as they were", async ({ page }) => {
   await mockSeason(page, () => "fail");
+  const tracked = await recordAnalytics(page);
   await openFirstGame(page);
   await showStats(page);
   await expect(page.getByText("Season numbers aren't available right now.")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("[data-season-mark]")).toHaveCount(0);
   await expect(page.getByText(/^usually /)).toHaveCount(0);
+  await expect(page.getByText(/ · (won|lost) \d+$/)).toHaveCount(0);
+  await expect
+    .poll(async () => (await tracked()).find((e) => e.event === "game_stats_viewed")?.properties)
+    .toMatchObject({ season: "failed", season_gaps: 0 });
 });
 
 test("a game without positions or fives says so instead of drawing them", async ({ page, browserName }) => {

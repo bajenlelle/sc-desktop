@@ -2,8 +2,11 @@ import { useId, useMemo } from "react";
 import { clockSeconds, flowChart, periodLengthSeconds, type GameFlow } from "@scoutable/shared/lib/game-flow";
 import { periodLabel } from "@scoutable/shared/lib/events";
 import { quarterPoints } from "@scoutable/shared/lib/game-box";
+import type { SeasonContext } from "@scoutable/shared/lib/season-context";
+import { lastFiveLine, standingLine } from "@scoutable/shared/lib/season-copy";
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { GroupHeader } from "@/components/ui/group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { teamTints } from "../team-tints";
 import { StatCell, type OpenPlays } from "./stat-cell";
 
@@ -15,7 +18,18 @@ const CHART_H = 96;
  * its runs. A quarter's figure opens that team's baskets in it; a run opens
  * every play of its stretch.
  */
-export function ScoreSection({ match, flow, onOpen }: { match: StoredMatch; flow: GameFlow; onOpen: OpenPlays }) {
+export function ScoreSection({
+  match,
+  flow,
+  season,
+  onOpen,
+}: {
+  match: StoredMatch;
+  flow: GameFlow;
+  /** Each team's place in today's table, under the score, when the season is in. */
+  season: SeasonContext | null;
+  onOpen: OpenPlays;
+}) {
   const quarters = useMemo(() => quarterPoints(match.events), [match.events]);
   const tints = useMemo(() => teamTints(match.homeTeam.color, match.awayTeam.color), [match.homeTeam.color, match.awayTeam.color]);
   if (flow.source === "none" || quarters.length === 0) return null;
@@ -24,6 +38,7 @@ export function ScoreSection({ match, flow, onOpen }: { match: StoredMatch; flow
     { side: 1 as const, name: match.homeTeam.name || "Home", total: flow.final?.home ?? 0, tint: tints.home },
     { side: 2 as const, name: match.awayTeam.name || "Away", total: flow.final?.away ?? 0, tint: tints.away },
   ];
+  const standingOf = (side: 1 | 2) => (side === 1 ? season?.home.standing : season?.away.standing) ?? null;
   const winner = (flow.final?.home ?? 0) === (flow.final?.away ?? 0) ? 0 : (flow.final?.home ?? 0) > (flow.final?.away ?? 0) ? 1 : 2;
   const lead = (side: 1 | 2) => (side === 1 ? flow.largestLead.home : flow.largestLead.away);
   const leads = teams.filter((t) => (lead(t.side)?.lead ?? 0) > 0).map((t) => `${t.name} +${lead(t.side)!.lead}`);
@@ -77,6 +92,31 @@ export function ScoreSection({ match, flow, onOpen }: { match: StoredMatch; flow
               </tr>
             ))}
           </tbody>
+          {teams.some((t) => standingOf(t.side)) && (
+            <tfoot>
+              <tr>
+                <td colSpan={quarters.length + 2} className="pt-2">
+                  <p className="flex flex-wrap gap-x-6 gap-y-1 text-subheadline text-muted-foreground nums">
+                    {teams.map((t) => {
+                      const s = standingOf(t.side);
+                      if (!s) return null;
+                      return (
+                        <span key={t.side} className="whitespace-nowrap">
+                          <span>{t.name} </span>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default">{standingLine(s)}</span>
+                            </TooltipTrigger>
+                            <TooltipContent>{lastFiveLine(s.last5)}</TooltipContent>
+                          </Tooltip>
+                        </span>
+                      );
+                    })}
+                  </p>
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table>
         <div>
           <LeadGraph match={match} flow={flow} tints={tints} onOpen={onOpen} />

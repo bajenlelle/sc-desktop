@@ -108,7 +108,7 @@ export type AnalyticsEvent =
   | "game_view_seeked" // via (row | timeline | key | marker | quarter | transport | now_bar | scrubber: the player's own bar | timeline_drag | wheel: a sideways swipe), kind (play | time | timeout | period | run), period; a drag or a swipe is one event, sent when it ends
   | "game_view_filtered" // team, moment, groups (the filter sheet's active groups), search, on_court, picked (the plays behind a number in Stats), visible
   | "game_view_closed" // seconds_played, clips_added, labels_applied
-  | "game_stats_viewed" // entry, has_shots (shot positions stored), has_lineups (fives stored), plays, minutes_source (box: the league's box score | stints: from the fives | none)
+  | "game_stats_viewed" // entry, has_shots (shot positions stored), has_lineups (fives stored), plays, minutes_source (box: the league's box score | stints: from the fives | none), season (shown | none: not a Genius game or not in its season | failed), season_gaps (captions the factor bars wrote)
   | "game_stats_plays_opened" // kind (player_stat | team_stat | shot | zone | lineup | quarter | run), stat, plays
   | "game_stats_season_shown" // the players' table switched to the league's season averages
   | "game_tab_switched" // via (sidebar: a row of Open games | key: ⌃Tab | menu: Show Next/Previous Game Tab, Close Tab | picker: the + chose an open game | title_menu: the game title's menu with the sidebar hidden | window_menu: a game in the Window menu), tabs (how many are open), from_game (false: from another page, back to a game)

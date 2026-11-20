@@ -663,8 +663,32 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
   (median 1.8 m) and `underbasket` (0.8 m) overlap too much to tell apart, and
   Leonard found a separate Paint zone hardly differed from the rim. The same
   look found exactly five a side on 16,396 of 16,422 plays with fives.
+- **Season context** (part 2, built 2026-11-20; design and plan in
+  `docs/superpowers/specs/2026-11-20-season-context-design.md` and
+  `docs/superpowers/plans/2026-11-20-season-context.md`): on a Genius game,
+  each factor bar carries a 2 px line at the team's season, and a caption
+  ("usually 52% · 4th") appears under tonight's number only for a real gap;
+  each team's place in today's table sits under the score ("5th · 7–5 ·
+  won 4"), and a points-from figure's hover adds "usually 38 a game". The
+  season is the team's **other regular-season games**, summed from Genius's
+  per-game team rows and put through the same formula as tonight
+  (`factorsOf` in `game-box.ts`; Genius's own ratios and possessions are
+  never read). A gap is real with at least 4 other games and
+  `|tonight − season| ≥ GAP_SWINGS (1.5) × swing`, the league's typical
+  single-game swing (`season-context.ts`; about two captions a game on SBL
+  Herr 2026/27). Ranks: 1 = best, lowest first for turnover rate, ties shared.
+  The bars use a **fixed scale per factor** (`FACTOR_SCALE`: PPP 1.6, eFG
+  75%, TO 35%, OREB 60%, FT rate 0.7), so a mark always has a place and bars
+  compare across games. Data: the `genius` function's `season` action
+  (`season-payload.ts`, cached 12 h per competition in
+  `genius_season_cache`, stale served on failure; fetched only when a coach
+  opens Stats), read by `use-season-context.ts` (30 min in memory). Without
+  it the view is as before; only an upstream failure adds "Season numbers
+  aren't available right now." Genius's rebound counts match our plays'
+  (team rebounds in, dead-ball rebounds out; checked on staging game
+  2851767). Sentences live in `season-copy.ts`.
 - **Analytics**: `game_stats_viewed` (entry, has_shots, has_lineups,
-  minutes_source), `game_stats_plays_opened` (kind, stat, plays),
+  minutes_source, season, season_gaps), `game_stats_plays_opened` (kind, stat, plays),
   `game_stats_season_shown`; `game_view_filtered` gains `picked`.
 - **Spec**: `headless/specs/O-game-stats.spec.ts`.
 
@@ -672,9 +696,8 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
 
 "Show in game"
 from an editor clip (the view already accepts `?play=`); marking in and out
-around a play; substitution rows; season context (standings, team season
-numbers and league rank, from the league's public pages) and an opponent page
-across games, parts 2 and 3 of the Stats design; the footage
+around a play; substitution rows; an opponent page across games (part 3 of
+the Stats design); the footage
 from a game's cloud copy; free time-range clips with no play (a schema change
 across all three apps). The web game view on `feat/cloud-game-videos` can
 reuse the shared modules after the merge.
