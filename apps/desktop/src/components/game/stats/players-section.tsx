@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import type { League } from "@scoutable/shared/types/league";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { BOX_STATS, statSetName, type BoxCell, type BoxStat, type BoxTeam, type GameBox } from "@scoutable/shared/lib/game-box";
 import { onCourtStints, type GameFlow } from "@scoutable/shared/lib/game-flow";
@@ -11,10 +12,9 @@ import { GroupHeader } from "@/components/ui/group";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { trackEvent } from "@/lib/analytics";
 import { recallGameView, rememberGameView } from "@/lib/game-tabs";
-import { useLeagues } from "@/lib/use-leagues";
 import { cn } from "@/lib/utils";
 import { StatCell, type OpenPlays, type PlaySet } from "./stat-cell";
-import { useGameBoxScore, useSeasonPlayers, type MinutesSource } from "./use-game-box-score";
+import { useSeasonPlayers, type useGameBoxScore } from "./use-game-box-score";
 
 /** One player's row: their counted line, and what the league adds (minutes, plus-minus, season). */
 interface Row {
@@ -111,21 +111,20 @@ export function PlayersSection({
   match,
   box,
   flow,
+  boxScore,
+  leagues,
   onOpen,
-  onMinutesSource,
 }: {
   match: StoredMatch;
   box: GameBox;
   flow: GameFlow;
+  boxScore: ReturnType<typeof useGameBoxScore>;
+  leagues: League[];
   onOpen: OpenPlays;
-  onMinutesSource: (source: MinutesSource) => void;
 }) {
-  const leagues = useLeagues();
-  const boxScore = useGameBoxScore(match, leagues, box.hasFives);
   const season = useSeasonPlayers(match, leagues);
   const [showSeason, setShowSeason] = useState(() => recallGameView(match.id)?.stats?.season ?? false);
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean } | null>(null);
-  useEffect(() => onMinutesSource(boxScore.status), [boxScore.status, onMinutesSource]);
 
   // Minutes from the fives, when the league's box score can't be read.
   const lineupSeconds = useMemo(() => {

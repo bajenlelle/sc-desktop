@@ -1,11 +1,14 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { ChartColumn } from "lucide-react";
 import { gameFlow } from "@scoutable/shared/lib/game-flow";
 import { gameShots } from "@scoutable/shared/lib/game-shots";
 import { gameBox } from "@scoutable/shared/lib/game-box";
 import { FactorsSection } from "./factors-section";
+import { LineupsSection } from "./lineups-section";
 import { PlayersSection } from "./players-section";
-import type { MinutesSource } from "./use-game-box-score";
+import { ShotsSection } from "./shots-section";
+import { useGameBoxScore } from "./use-game-box-score";
+import { useLeagues } from "@/lib/use-leagues";
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { EmptyState } from "@/components/empty-state";
 import { Page, PageContent } from "@/components/shell/page";
@@ -57,16 +60,25 @@ export function GameStatsView({
     return () => scroller.removeEventListener("scroll", save);
   }, [match.id]);
 
-  // Once per visit, when the players' table knows where its minutes come from.
+  // The league's box score: minutes and plus-minus for the players, names for the lineups.
+  const leagues = useLeagues();
+  const boxScore = useGameBoxScore(match, leagues, hasFives);
+
+  // Once per visit, when it is known where the minutes come from.
   const viewed = useRef(false);
-  const onMinutesSource = useCallback(
-    (source: MinutesSource) => {
-      if (viewed.current || source === "reading") return;
-      viewed.current = true;
-      trackEvent("game_stats_viewed", { entry, has_shots: shots.hasPositions, has_lineups: hasFives, plays: match.events.length, minutes_source: source });
-    },
-    [entry, shots.hasPositions, hasFives, match.events.length],
-  );
+  useEffect(() => {
+    if (viewed.current || boxScore.status === "reading") return;
+    viewed.current = true;
+    trackEvent("game_stats_viewed", { entry, has_shots: shots.hasPositions, has_lineups: hasFives, plays: match.events.length, minutes_source: boxScore.status });
+  }, [boxScore.status, entry, shots.hasPositions, hasFives, match.events.length]);
+
+  /** Shirt number and name by personId: the plays first, then the box score for players with none. */
+  const people = useMemo(() => {
+    const out = new Map<number, { number: string; name: string }>();
+    for (const [id, p] of boxScore.byPerson) out.set(id, { number: p.number ?? "", name: p.name });
+    for (const p of [...box.home.players, ...box.away.players]) out.set(p.personId, { number: p.number, name: p.name });
+    return out;
+  }, [box, boxScore.byPerson]);
 
   const open: OpenPlays = (set, meta) => {
     trackEvent("game_stats_plays_opened", { kind: meta.kind, stat: meta.stat ?? null, plays: set.eventIds.length });
@@ -101,7 +113,9 @@ export function GameStatsView({
           <>
             <ScoreSection match={match} flow={flow} onOpen={open} />
             <FactorsSection match={match} box={box} onOpen={open} />
-            <PlayersSection match={match} box={box} flow={flow} onOpen={open} onMinutesSource={onMinutesSource} />
+            <PlayersSection match={match} box={box} flow={flow} boxScore={boxScore} leagues={leagues} onOpen={open} />
+            <ShotsSection match={match} shots={shots} people={people} onOpen={open} />
+            <LineupsSection match={match} hasFives={hasFives} people={people} onOpen={open} />
           </>
         )}
       </PageContent>

@@ -41,6 +41,17 @@ test("Stats reads the game, and a number opens its plays in the Game view", asyn
   await shot(page, name("players-season"));
   await numbers.getByRole("radio", { name: "Game" }).click();
   await expect(page.getByRole("columnheader", { name: "PTS" }).first()).toBeVisible();
+
+  // Shots and lineups, for a game imported with positions and fives.
+  const shotsHeading = page.getByRole("heading", { name: "Shots", level: 2 });
+  await shotsHeading.scrollIntoViewIfNeeded();
+  await expect(page.getByRole("group", { name: /: shot chart$/ })).toHaveCount(2);
+  await expect(page.getByRole("button", { name: /: threes, \d+\/\d+, show plays$/ }).first()).toBeVisible();
+  await shot(page, name("shots"));
+  const lineupsHeading = page.getByRole("heading", { name: "Lineups", level: 2 });
+  await lineupsHeading.scrollIntoViewIfNeeded();
+  await expect(page.getByRole("button", { name: /^Lineup .+, show plays$/ }).first()).toBeVisible();
+  await shot(page, name("lineups"));
   await page.evaluate(() => document.querySelector("[data-page-scroller]")?.scrollTo(0, 0));
 
   // A quarter's figure: the home team's points in Q1.
