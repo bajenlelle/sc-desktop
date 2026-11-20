@@ -1036,10 +1036,11 @@ export async function failPlaysReads(page: Page): Promise<() => Promise<void>> {
 /**
  * Answers the genius function's `season` action (the Stats view's season
  * context) with `answer(matchId)`, where `matchId` is the Genius id of the game
- * whose plays the page read last; "fail" answers as an upstream failure does.
+ * whose plays the page read last; "fail" answers as an upstream failure does,
+ * "unknown" as a function that predates the action.
  * Every other genius action goes through. Call before the first navigation.
  */
-export async function mockSeason(page: Page, answer: (matchId: number) => SeasonPayload | "fail"): Promise<void> {
+export async function mockSeason(page: Page, answer: (matchId: number) => SeasonPayload | "fail" | "unknown"): Promise<void> {
   let matchId: number | null = null;
   page.on("response", async (response) => {
     const request = response.request();
@@ -1059,6 +1060,8 @@ export async function mockSeason(page: Page, answer: (matchId: number) => Season
     for (let i = 0; matchId === null && i < 100; i++) await new Promise((resolve) => setTimeout(resolve, 50));
     const result = matchId === null ? "fail" : answer(matchId);
     if (result === "fail") return route.fulfill({ status: 502, json: { error: "upstream_failed" } });
+    // A genius function deployed before the season action.
+    if (result === "unknown") return route.fulfill({ status: 400, json: { error: "unknown_action" } });
     return route.fulfill({ status: 200, json: result });
   });
 }

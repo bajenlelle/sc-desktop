@@ -153,6 +153,13 @@ test("each team's season marks the factor bars", async ({ page, browserName }) =
   await expect(page.getByText("2nd · 10–1 · lost 1", { exact: true })).toBeVisible();
   await page.getByText("1st · 11–0 · won 11", { exact: true }).hover();
   await expect(page.getByRole("tooltip").filter({ hasText: "Today's table. Last five: W W W W W." })).toBeVisible();
+  await page.mouse.move(0, 0);
+  // The keyboard reaches it too.
+  await page.getByText("2nd · 10–1 · lost 1", { exact: true }).focus();
+  await expect(page.getByRole("tooltip").filter({ hasText: "Today's table. Last five: W W W W L." })).toBeVisible();
+
+  // A screen reader hears each side's season beside tonight's number, marks and captions being visual.
+  await expect(page.getByText(/^Season, 11 other games: 10% · \d+(st|nd|rd|th) of \d+$/)).toHaveCount(2);
 
   // A points-from figure says what the team usually scores that way.
   await expect(page.getByRole("button", { name: /: points in the paint, \d+, show plays$/ }).first()).toHaveAttribute("title", /usually 30 a game$/);
@@ -174,6 +181,19 @@ test("without the season the bars stay as they were", async ({ page }) => {
   await expect
     .poll(async () => (await tracked()).find((e) => e.event === "game_stats_viewed")?.properties)
     .toMatchObject({ season: "failed", season_gaps: 0 });
+});
+
+test("a genius function from before the season leaves the view as it was, without a failure line", async ({ page }) => {
+  await mockSeason(page, () => "unknown");
+  const tracked = await recordAnalytics(page);
+  await openFirstGame(page);
+  await showStats(page);
+  await expect(page.getByRole("heading", { name: "Why it went that way", level: 2 })).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(async () => (await tracked()).find((e) => e.event === "game_stats_viewed")?.properties, { timeout: 30_000 })
+    .toMatchObject({ season: "none", season_gaps: 0 });
+  await expect(page.getByText("Season numbers aren't available right now.")).toHaveCount(0);
+  await expect(page.locator("[data-season-mark]")).toHaveCount(0);
 });
 
 // The real `season` action on staging, no mock. It spends about three Genius calls the first time a

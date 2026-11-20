@@ -12,7 +12,9 @@
 //   { action: "season", competitionId }            → every game's per-team
 //                                                    totals and the standings
 //                                                    (season-payload.ts), 12h
-//                                                    TTL, stale on failure
+//                                                    TTL (30 days once every
+//                                                    fixture is played), stale
+//                                                    on failure
 //   { action: "competitions" }                     → raw competition list,
 //                                                    platform-admin only; the
 //                                                    once-a-season maintenance
@@ -58,6 +60,8 @@ const R2_BUCKET = Deno.env.get("R2_BUCKET") ?? "";
 const GENIUS_BASE = "https://api.wh.geniussports.com/v1/basketball";
 const FIXTURES_TTL_MS = 6 * 60 * 60 * 1000;
 const SEASON_TTL_MS = 12 * 60 * 60 * 1000;
+// A season whose every fixture is played won't change: keep it a month.
+const SEASON_DONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PAGE_LIMIT = 500; // Warehouse max per page
 
 // The league catalogue, and the single source of what this function will
@@ -367,15 +371,18 @@ async function loadFixtures(
  * three calls a refresh. Stale data is served over an upstream error.
  */
 async function loadSeason(admin: SupabaseClient, competitionId: number): Promise<Json> {
-  const { data: cached } = await admin
+  const { data: cached, error: readError } = await admin
     .from("genius_season_cache")
     .select("payload, fetched_at")
     .eq("competition_id", competitionId)
     .maybeSingle();
-  if (cached && Date.now() - new Date(cached.fetched_at).getTime() <= SEASON_TTL_MS) return cached.payload as Json;
+  // Without the cache (the table missing, the database down) every open would spend quota: fail instead.
+  if (readError) throw new Error(`season cache read failed: ${readError.message}`);
+  const ttl = (cached?.payload as Json | undefined)?.complete ? SEASON_DONE_TTL_MS : SEASON_TTL_MS;
+  if (cached && Date.now() - new Date(cached.fetched_at).getTime() <= ttl) return cached.payload as Json;
 
   try {
-    const [{ fixtures }, rows, standings] = await Promise.all([
+    const [{ fixtures, fresh }, rows, standings] = await Promise.all([
       loadFixtures(admin, competitionId),
       geniusAll(`/statistics/teammatch/competitions/${competitionId}`),
       geniusAll(`/competitions/${competitionId}/standings`),
@@ -386,6 +393,14 @@ async function loadSeason(admin: SupabaseClient, competitionId: number): Promise
       .from("genius_season_cache")
       .upsert({ competition_id: competitionId, payload, fetched_at: fetchedAt }, { onConflict: "competition_id" });
     if (upsertError) console.error("[genius] season cache upsert failed:", upsertError.message);
+    // A fresh fixture list keeps the league team catalogue current, as the fixtures action does.
+    if (fresh) {
+      try {
+        await syncTeams(admin, competitionId, fixtures);
+      } catch (e) {
+        console.error("[genius] team sync failed:", e instanceof Error ? e.message : String(e));
+      }
+    }
     return payload;
   } catch (e) {
     if (!cached) throw e;

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, type ReactNode } from "react";
+import { Fragment, useMemo, type ReactNode } from "react";
 import {
   LOWER_IS_BETTER,
   POINTS_FROM,
@@ -54,14 +54,11 @@ export function FactorsSection({
   box,
   season,
   onOpen,
-  onGaps,
 }: {
   match: StoredMatch;
   box: GameBox;
   season: { status: SeasonStatus; context: SeasonContext | null };
   onOpen: OpenPlays;
-  /** How many captions the section wrote, once the season is in. */
-  onGaps?: (n: number) => void;
 }) {
   const factors = useMemo(() => teamFactors(box), [box]);
   const ctx = season.context;
@@ -76,12 +73,6 @@ export function FactorsSection({
   };
   const keyLine =
     season.status === "failed" ? "Season numbers aren't available right now." : ctx ? seasonKey(ctx.home.games, ctx.away.games, ctx.regular) : null;
-  const gaps = ctx ? FACTORS.reduce((n, f) => n + Number(gapOf(f.key, "home")) + Number(gapOf(f.key, "away")), 0) : 0;
-  useEffect(() => {
-    if (season.status !== "reading") onGaps?.(gaps);
-    // Reported once the season settles; the callback's identity doesn't matter.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [season.status, gaps]);
   const from = useMemo(() => pointsFrom(match.events, box), [match.events, box]);
   const tints = useMemo(() => teamTints(match.homeTeam.color, match.awayTeam.color), [match.homeTeam.color, match.awayTeam.color]);
   const home = match.homeTeam.name || "Home";
@@ -190,12 +181,26 @@ export function FactorsSection({
   );
 }
 
-/** Tonight's number, and under it a caption when the gap to the season is real. */
+/**
+ * Tonight's number, and under it a caption when the gap to the season is real.
+ * The season's lines are also read out beside the number, since the mark and
+ * the hover are visual; the caption takes keyboard focus to show its hover.
+ */
 function Figure({ align, bold, text, caption, hover }: { align: "left" | "right"; bold: boolean; text: string; caption: string | null; hover?: ReactNode }) {
   return (
     <span className={cn("flex flex-col", align === "right" ? "items-end text-right" : "items-start")}>
       <span className={cn("nums", bold && "font-semibold")}>{text}</span>
-      {caption && <WithHover hover={hover}><span className="cursor-default whitespace-nowrap text-footnote text-muted-foreground nums">{caption}</span></WithHover>}
+      {hover && <span className="sr-only">{hover}</span>}
+      {caption && (
+        <WithHover hover={hover}>
+          <span
+            tabIndex={0}
+            className="cursor-default whitespace-nowrap rounded-[4px] text-footnote text-muted-foreground nums outline-none focus-visible:ring-2 focus-visible:ring-selection"
+          >
+            {caption}
+          </span>
+        </WithHover>
+      )}
     </span>
   );
 }

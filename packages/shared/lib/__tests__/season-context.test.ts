@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { League } from "../../types/league";
 import type { StoredMatch } from "../../types/match";
 import { FACTOR_KEYS, factorsOf } from "../game-box";
-import { GAP_SWINGS, MIN_GAP_GAMES, geniusTotals, realGap, seasonContext, seasonMatchOf } from "../season-context";
+import { GAP_SWINGS, MIN_GAP_GAMES, geniusTotals, realGap, seasonContext, seasonGaps, seasonMatchOf } from "../season-context";
 import type { SeasonGame, SeasonPayload, SeasonStanding, TeamGame } from "../season-payload";
 import sblHerr from "./fixtures/season-sbl-herr.json";
 
@@ -189,9 +189,12 @@ describe("on SBL Herr 2026/27 as Genius had it on 2026-11-20", () => {
     for (const game of season.games) {
       const c = seasonContext(season, game.matchId)!;
       const tonight = { home: factorsOf(geniusTotals(game.home!), geniusTotals(game.away!)), away: factorsOf(geniusTotals(game.away!), geniusTotals(game.home!)) };
+      let byHand = 0;
       for (const side of ["home", "away"] as const) {
-        for (const k of FACTOR_KEYS) if (realGap(tonight[side][k], c[side].factors[k], c.swing[k], c[side].games)) captions++;
+        for (const k of FACTOR_KEYS) if (realGap(tonight[side][k], c[side].factors[k], c.swing[k], c[side].games)) byHand++;
       }
+      expect(seasonGaps(tonight, c)).toBe(byHand);
+      captions += byHand;
     }
     const perGame = captions / season.games.length;
     expect(perGame).toBeGreaterThan(1.7);

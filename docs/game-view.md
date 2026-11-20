@@ -686,7 +686,12 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
   it the view is as before; only an upstream failure adds "Season numbers
   aren't available right now." Genius's rebound counts match our plays'
   (team rebounds in, dead-ball rebounds out; checked on staging game
-  2851767). Sentences live in `season-copy.ts`.
+  2851767). Sentences live in `season-copy.ts`. A finished season (every
+  fixture played) stays cached 30 days. **Rollout order**: the
+  `genius_season_cache` migration, then the `genius` function, then the
+  desktop release; a function without the table fails rather than spend
+  quota on every open, and a desktop facing an older function (it answers
+  `unknown_action`) shows the view without the season and no failure line.
 - **Analytics**: `game_stats_viewed` (entry, has_shots, has_lineups,
   minutes_source, season, season_gaps), `game_stats_plays_opened` (kind, stat, plays),
   `game_stats_season_shown`; `game_view_filtered` gains `picked`.

@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { ChartColumn } from "lucide-react";
 import { gameFlow } from "@scoutable/shared/lib/game-flow";
 import { gameShots } from "@scoutable/shared/lib/game-shots";
-import { gameBox } from "@scoutable/shared/lib/game-box";
+import { gameBox, teamFactors } from "@scoutable/shared/lib/game-box";
+import { seasonGaps } from "@scoutable/shared/lib/season-context";
 import { FactorsSection } from "./factors-section";
 import { LineupsSection } from "./lineups-section";
 import { PlayersSection } from "./players-section";
@@ -78,16 +79,16 @@ export function GameStatsView({
   // Each team's season beside the game: marks on the factor bars, the place in the table.
   const season = useSeasonContext(match, leagues);
 
-  // How many season captions the factor bars wrote, once the season settles.
-  const [seasonGaps, setSeasonGaps] = useState<number | null>(null);
+  // How many captions the factor bars write: the same rule, counted here.
+  const gaps = useMemo(
+    () => (season.context && match.events.length > 0 ? seasonGaps(teamFactors(box), season.context) : 0),
+    [season.context, box, match.events.length],
+  );
 
   // Once per visit, when it is known where the minutes come from and whether the season came.
   const viewed = useRef(false);
   useEffect(() => {
     if (viewed.current || boxScore.status === "reading" || season.status === "reading") return;
-    // The factor bars report their captions in the same commit the season lands; a game with no plays has none.
-    const gaps = match.events.length === 0 ? 0 : seasonGaps;
-    if (gaps === null) return;
     viewed.current = true;
     trackEvent("game_stats_viewed", {
       entry,
@@ -98,7 +99,7 @@ export function GameStatsView({
       season: season.status === "ready" ? "shown" : season.status,
       season_gaps: gaps,
     });
-  }, [boxScore.status, season.status, seasonGaps, entry, shots.hasPositions, hasFives, match.events.length]);
+  }, [boxScore.status, season.status, gaps, entry, shots.hasPositions, hasFives, match.events.length]);
 
   /** Shirt number and name by personId: the plays first, then the box score for players with none. */
   const people = useMemo(() => {
@@ -140,7 +141,7 @@ export function GameStatsView({
         ) : (
           <>
             <ScoreSection match={match} flow={flow} season={season.context} onOpen={open} />
-            <FactorsSection match={match} box={box} season={season} onOpen={open} onGaps={setSeasonGaps} />
+            <FactorsSection match={match} box={box} season={season} onOpen={open} />
             <PlayersSection match={match} box={box} flow={flow} boxScore={boxScore} leagues={leagues} onOpen={open} />
             <ShotsSection match={match} shots={shots} people={people} onOpen={open} />
             <LineupsSection match={match} hasFives={hasFives} people={people} onOpen={open} />

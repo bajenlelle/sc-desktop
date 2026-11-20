@@ -65,6 +65,8 @@ export interface SeasonPayload {
   games: SeasonGame[];
   standings: SeasonStanding[];
   fetchedAt: string;
+  /** Every fixture has been played: the season won't change, so the function keeps it for long. */
+  complete?: boolean;
 }
 
 const FIELDS: Record<Exclude<keyof TeamGame, "teamId">, string> = {
@@ -121,14 +123,14 @@ function trimStanding(s: Json): SeasonStanding {
 
 /**
  * The season answer from Genius's raw teammatch rows, the raw fixture list and
- * the raw standings. Only whole-game rows (`periodNumber` 0) are kept; every
+ * the raw standings. Only whole-game rows (`periodType` REGULAR, `periodNumber` 0) are kept; every
  * fixture with one home and one away competitor becomes a game, with or
  * without rows; a row whose game isn't a fixture is dropped.
  */
 export function seasonPayload(teamRows: Json[], fixtures: Json[], standings: Json[], fetchedAt: string): SeasonPayload {
   const rows = new Map<string, TeamGame>();
   for (const r of teamRows) {
-    if (num(r.periodNumber) !== 0 || r.periodNumber === null || r.periodNumber === undefined) continue;
+    if (r.periodType !== "REGULAR" || r.periodNumber === null || r.periodNumber === undefined || num(r.periodNumber) !== 0) continue;
     rows.set(`${num(r.matchId)}:${num(r.teamId)}`, trimTeamGame(r));
   }
 
@@ -149,5 +151,6 @@ export function seasonPayload(teamRows: Json[], fixtures: Json[], standings: Jso
     games.push(game);
   }
 
-  return { games, standings: standings.map(trimStanding), fetchedAt };
+  const complete = fixtures.length > 0 && fixtures.every((f) => f.matchStatus === "COMPLETE");
+  return { games, standings: standings.map(trimStanding), fetchedAt, complete };
 }

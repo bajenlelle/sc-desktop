@@ -105,7 +105,12 @@ export function ScoreSection({
                           <span>{t.name} </span>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <span className="cursor-default">{standingLine(s)}</span>
+                              <span
+                                tabIndex={0}
+                                className="cursor-default rounded-[4px] outline-none focus-visible:ring-2 focus-visible:ring-selection"
+                              >
+                                {standingLine(s)}
+                              </span>
                             </TooltipTrigger>
                             <TooltipContent>{lastFiveLine(s.last5)}</TooltipContent>
                           </Tooltip>

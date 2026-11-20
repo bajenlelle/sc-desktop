@@ -86,6 +86,20 @@ describe("seasonPayload", () => {
     expect(g.away?.pts).toBe(90);
   });
 
+  it("keeps only regular whole-game rows, never another period kind numbered 0", () => {
+    const p = seasonPayload([row(1, 10, { sPoints: 90 }), row(1, 10, { periodType: "OVERTIME", sPoints: 7 })], [fixture(1, 10, 20)], [], "t");
+    expect(p.games[0].home?.pts).toBe(90);
+    const only = seasonPayload([row(1, 10, { periodType: "OVERTIME" })], [fixture(1, 10, 20)], [], "t");
+    expect(only.games[0].home).toBeUndefined();
+  });
+
+  it("says when every fixture of the season is complete", () => {
+    const done = (f: Record<string, unknown>) => ({ ...f, matchStatus: "COMPLETE" });
+    expect(seasonPayload([], [done(fixture(1, 10, 20)), done(fixture(2, 20, 10))], [], "t").complete).toBe(true);
+    expect(seasonPayload([], [done(fixture(1, 10, 20)), { ...fixture(2, 20, 10), matchStatus: "SCHEDULED" }], [], "t").complete).toBe(false);
+    expect(seasonPayload([], [], [], "t").complete).toBe(false);
+  });
+
   it("lists a fixture before its statistics exist", () => {
     const p = seasonPayload([], [fixture(2, 10, 20, "FINALS")], [], "t");
     expect(p.games).toEqual([{ matchId: 2, matchType: "FINALS", homeTeamId: 10, awayTeamId: 20 }]);

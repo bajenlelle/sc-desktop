@@ -52,6 +52,9 @@ export function allowedLine(key: FactorKey, opponent: string, allowed: number): 
  */
 export function seasonKey(homeGames: number, awayGames: number, regular: boolean): string | null {
   if (homeGames === 0 && awayGames === 0) return null;
+  // A side with no games has no line: speak of the side that has one.
+  if (homeGames === 0) homeGames = awayGames;
+  if (awayGames === 0) awayGames = homeGames;
   const same = homeGames === awayGames;
   if (!regular) {
     return same

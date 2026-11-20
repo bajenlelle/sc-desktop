@@ -4,7 +4,8 @@
 -- Stats view compares a game with each team's season from it
 -- (docs/superpowers/specs/2026-11-20-season-context-design.md).
 --
--- Refreshed after 12 hours, on the first request; served stale when Genius
+-- Refreshed after 12 hours (30 days once every fixture is played), on the
+-- first request; served stale when Genius
 -- fails. Server-written only: RLS enabled with no policies, so only the
 -- service role (the genius function) reads and writes it.
 

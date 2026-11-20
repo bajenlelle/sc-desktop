@@ -50,6 +50,10 @@ describe("season copy", () => {
     expect(seasonKey(22, 22, false)).toBe("Each line marks the team's regular season, from its 22 games.");
     expect(seasonKey(22, 21, false)).toBe("Each line marks the team's regular season, from their games (22 and 21).");
     expect(seasonKey(0, 0, true)).toBeNull();
+    // One side with no games has no line: the key speaks of the other.
+    expect(seasonKey(0, 11, true)).toBe("Each line marks the team's season, from its other 11 games.");
+    expect(seasonKey(3, 0, true)).toBe("Each line marks the team's season after 3 games.");
+    expect(seasonKey(0, 30, false)).toBe("Each line marks the team's regular season, from its 30 games.");
   });
 
   it("writes a team's place in the table", () => {

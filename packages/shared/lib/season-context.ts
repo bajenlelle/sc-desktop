@@ -200,6 +200,15 @@ export function realGap(tonight: number | null, season: number | null, swing: nu
   return Math.abs(tonight - season) >= GAP_SWINGS * swing;
 }
 
+/** How many captions tonight's factors get beside the season: the real gaps on both sides. */
+export function seasonGaps(tonight: { home: TeamFactors; away: TeamFactors }, ctx: SeasonContext): number {
+  let n = 0;
+  for (const side of ["home", "away"] as const) {
+    for (const k of FACTOR_KEYS) if (realGap(tonight[side][k], ctx[side].factors[k], ctx.swing[k], ctx[side].games)) n++;
+  }
+  return n;
+}
+
 /** The Genius competition and match a stored game's season comes from; null for any other game. */
 export function seasonMatchOf(match: StoredMatch, leagues: League[]): { competitionId: number; matchId: number } | null {
   if (statsKindOf(match) !== "genius") return null;
