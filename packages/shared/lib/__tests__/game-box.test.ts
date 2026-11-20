@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { PlayByPlayEvent } from "../../types/match";
 import { gameFlow } from "../game-flow";
-import { gameBox, pointsFrom, quarterPoints, statSetName, teamFactors, type BoxStat } from "../game-box";
+import {
+  FACTOR_KEYS,
+  FACTOR_SCALE,
+  LOWER_IS_BETTER,
+  barShare,
+  factorsOf,
+  gameBox,
+  pointsFrom,
+  quarterPoints,
+  statSetName,
+  teamFactors,
+  type BoxStat,
+} from "../game-box";
 
 let nextId = 1;
 type Who = { id: number; no: number; first: string; last: string; side: 1 | 2 };
@@ -232,6 +244,68 @@ describe("teamFactors", () => {
     expect(away.efg).toBeNull();
     expect(away.ftRate).toBeNull();
     expect(away.ppp).toBeNull();
+  });
+
+  it("equals factorsOf over the box totals", () => {
+    const events = clocked([
+      ...many(20, () => play("2pt", lind)),
+      ...many(6, () => play("3pt", berg)),
+      ...many(30, () => play("2pt", lind, miss)),
+      ...many(7, () => play("rebound", lind, { subType: "offensive" })),
+      ...many(2, () => play("rebound", 1, { subType: "offensive" })),
+      ...many(9, () => play("turnover", berg)),
+      ...many(8, () => play("freethrow", lind)),
+      ...many(4, () => play("freethrow", lind, miss)),
+      ...many(21, () => play("rebound", olsson, { subType: "defensive" })),
+    ]);
+    const box = gameBox(events);
+    const totals = (c: typeof box.home.totals) => ({
+      pts: c.pts.value,
+      fgm: c.fg.value,
+      fga: c.fg.attempts ?? 0,
+      tpm: c.tp.value,
+      fta: c.ft.attempts ?? 0,
+      oreb: c.oreb.value,
+      dreb: c.dreb.value,
+      tov: c.tov.value,
+    });
+    const { home, away } = teamFactors(box);
+    expect(home).toEqual(factorsOf(totals(box.home.totals), totals(box.away.totals)));
+    expect(away).toEqual(factorsOf(totals(box.away.totals), totals(box.home.totals)));
+  });
+});
+
+describe("factorsOf", () => {
+  const t = { pts: 100, fgm: 40, fga: 80, tpm: 10, fta: 20, oreb: 10, dreb: 30, tov: 12 };
+
+  it("counts possessions as FGA − OREB + TO + 0.44 × FTA and the factors over them", () => {
+    const f = factorsOf(t, { dreb: 25 });
+    expect(f.possessions).toBeCloseTo(90.8, 6);
+    expect(f.ppp).toBeCloseTo(100 / 90.8, 6);
+    expect(f.efg).toBeCloseTo(0.5625, 6);
+    expect(f.tovRate).toBeCloseTo(12 / 90.8, 6);
+    expect(f.orebPct).toBeCloseTo(10 / 35, 6);
+    expect(f.ftRate).toBeCloseTo(0.25, 6);
+  });
+
+  it("gives null, never NaN, for a factor with nothing to divide by", () => {
+    const f = factorsOf({ ...t, fga: 0, fgm: 0, tpm: 0, fta: 0, oreb: 0, tov: 0 }, { dreb: 0 });
+    expect([f.ppp, f.efg, f.tovRate, f.orebPct, f.ftRate]).toEqual([null, null, null, null, null]);
+  });
+});
+
+describe("barShare", () => {
+  it("places a value on the factor's fixed scale", () => {
+    expect(FACTOR_SCALE).toEqual({ ppp: 1.6, efg: 0.75, tovRate: 0.35, orebPct: 0.6, ftRate: 0.7 });
+    expect(barShare(0.375, "efg")).toBeCloseTo(0.5, 6);
+    expect(barShare(2, "ppp")).toBe(1);
+    expect(barShare(null, "ftRate")).toBe(0);
+    expect(barShare(-0.1, "tovRate")).toBe(0);
+  });
+
+  it("lists the factors in reading order, turnover rate the one where lower is better", () => {
+    expect(FACTOR_KEYS).toEqual(["ppp", "efg", "tovRate", "orebPct", "ftRate"]);
+    expect([...LOWER_IS_BETTER]).toEqual(["tovRate"]);
   });
 });
 

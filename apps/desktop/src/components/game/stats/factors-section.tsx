@@ -1,5 +1,5 @@
 import { Fragment, useMemo } from "react";
-import { POINTS_FROM, pointsFrom, teamFactors, type GameBox, type PointsFrom, type TeamFactors } from "@scoutable/shared/lib/game-box";
+import { LOWER_IS_BETTER, POINTS_FROM, pointsFrom, teamFactors, type FactorKey, type GameBox, type PointsFrom } from "@scoutable/shared/lib/game-box";
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { GroupHeader } from "@/components/ui/group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -7,13 +7,11 @@ import { cn } from "@/lib/utils";
 import { teamTints } from "../team-tints";
 import { StatCell, type OpenPlays } from "./stat-cell";
 
-type FactorKey = Exclude<keyof TeamFactors, "possessions">;
-
 /** The rows in the order coaches read them: efficiency first, then the four factors. */
-const FACTORS: { key: FactorKey; label: string; help: string; format: (v: number) => string; lowerIsBetter?: boolean }[] = [
+const FACTORS: { key: FactorKey; label: string; help: string; format: (v: number) => string }[] = [
   { key: "ppp", label: "Points per possession", help: "Points scored each time the team had the ball.", format: (v) => v.toFixed(2) },
   { key: "efg", label: "Shooting (eFG%)", help: "Field-goal percentage with a made three counted as one and a half twos.", format: pct },
-  { key: "tovRate", label: "Turnover rate", help: "Share of possessions that ended in a turnover; lower is better.", format: pct, lowerIsBetter: true },
+  { key: "tovRate", label: "Turnover rate", help: "Share of possessions that ended in a turnover; lower is better.", format: pct },
   { key: "orebPct", label: "Offensive rebounds won", help: "Share of the team's own misses it rebounded.", format: pct },
   { key: "ftRate", label: "Free-throw rate", help: "Free throws taken per field-goal attempt.", format: (v) => v.toFixed(2) },
 ];
@@ -78,7 +76,7 @@ export function FactorsSection({ match, box, onOpen }: { match: StoredMatch; box
             const h = factors.home[f.key];
             const a = factors.away[f.key];
             const top = Math.max(h ?? 0, a ?? 0);
-            const better = h === null || a === null || h === a ? 0 : (h > a) !== !!f.lowerIsBetter ? 1 : 2;
+            const better = h === null || a === null || h === a ? 0 : (h > a) !== LOWER_IS_BETTER.has(f.key) ? 1 : 2;
             return (
               <Fragment key={f.key}>
                 <span className={cn("text-right nums", better === 1 && "font-semibold")}>{h === null ? "–" : f.format(h)}</span>

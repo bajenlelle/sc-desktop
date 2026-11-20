@@ -185,7 +185,66 @@ export interface TeamFactors {
   ftRate: number | null;
 }
 
+/** The factors other than possessions, in the order coaches read them. */
+export type FactorKey = Exclude<keyof TeamFactors, "possessions">;
+
+export const FACTOR_KEYS: readonly FactorKey[] = ["ppp", "efg", "tovRate", "orebPct", "ftRate"];
+
+/** Factors where the lower number is the better one. */
+export const LOWER_IS_BETTER: ReadonlySet<FactorKey> = new Set<FactorKey>(["tovRate"]);
+
+/**
+ * Each factor's bar runs from 0 to this, the same for every game, so a season
+ * mark always has a place on the track and bars compare across games.
+ */
+export const FACTOR_SCALE: Record<FactorKey, number> = { ppp: 1.6, efg: 0.75, tovRate: 0.35, orebPct: 0.6, ftRate: 0.7 };
+
+/** A value's share of its factor's track, 0 to 1; past the end fills it. */
+export function barShare(value: number | null, key: FactorKey): number {
+  if (value === null || !(value > 0)) return 0;
+  return Math.min(1, value / FACTOR_SCALE[key]);
+}
+
+/** What the factors are counted from: one game's totals, or a season's summed. Rebounds include team rebounds. */
+export interface FactorTotals {
+  pts: number;
+  fgm: number;
+  fga: number;
+  tpm: number;
+  fta: number;
+  oreb: number;
+  dreb: number;
+  tov: number;
+}
+
 const ratio = (a: number, b: number): number | null => (b > 0 ? a / b : null);
+
+/** The one formula for tonight's numbers and a season's: possessions are FGA − OREB + TO + 0.44 × FTA. */
+export function factorsOf(t: FactorTotals, opp: Pick<FactorTotals, "dreb">): TeamFactors {
+  const possessions = Math.max(0, t.fga - t.oreb + t.tov + 0.44 * t.fta);
+  return {
+    possessions,
+    ppp: ratio(t.pts, possessions),
+    efg: ratio(t.fgm + 0.5 * t.tpm, t.fga),
+    tovRate: ratio(t.tov, possessions),
+    orebPct: ratio(t.oreb, t.oreb + opp.dreb),
+    ftRate: ratio(t.fta, t.fga),
+  };
+}
+
+function boxTotals(t: BoxTeam): FactorTotals {
+  const c = t.totals;
+  return {
+    pts: c.pts.value,
+    fgm: c.fg.value,
+    fga: c.fg.attempts ?? 0,
+    tpm: c.tp.value,
+    fta: c.ft.attempts ?? 0,
+    oreb: c.oreb.value,
+    dreb: c.dreb.value,
+    tov: c.tov.value,
+  };
+}
 
 export function teamFactors(box: GameBox): { home: TeamFactors; away: TeamFactors } {
   // A source that logs made baskets only (Profixio) has FGA = FGM: every factor would be invented.
@@ -193,21 +252,9 @@ export function teamFactors(box: GameBox): { home: TeamFactors; away: TeamFactor
     const none: TeamFactors = { possessions: null, ppp: null, efg: null, tovRate: null, orebPct: null, ftRate: null };
     return { home: none, away: { ...none } };
   }
-  const of = (t: BoxTeam, other: BoxTeam): TeamFactors => {
-    const c = t.totals;
-    const fga = c.fg.attempts ?? 0;
-    const fta = c.ft.attempts ?? 0;
-    const possessions = Math.max(0, fga - c.oreb.value + c.tov.value + 0.44 * fta);
-    return {
-      possessions,
-      ppp: ratio(c.pts.value, possessions),
-      efg: ratio(c.fg.value + 0.5 * c.tp.value, fga),
-      tovRate: ratio(c.tov.value, possessions),
-      orebPct: ratio(c.oreb.value, c.oreb.value + other.totals.dreb.value),
-      ftRate: ratio(fta, fga),
-    };
-  };
-  return { home: of(box.home, box.away), away: of(box.away, box.home) };
+  const home = boxTotals(box.home);
+  const away = boxTotals(box.away);
+  return { home: factorsOf(home, away), away: factorsOf(away, home) };
 }
 
 // ---------------------------------------------------------------------------
