@@ -69,7 +69,7 @@ export function LeadersPopover({
               className={cn(
                 "rounded-full px-2.5 py-1 text-xs font-medium transition-[background-color,color,transform] duration-100 active:scale-95",
                 m.id === metric
-                  ? "bg-selection text-selection-foreground"
+                  ? "bg-fill-3 text-foreground ring-1 ring-separator-strong hover:bg-fill-4"
                   : "bg-fill-1 text-muted-foreground hover:bg-fill-2 hover:text-foreground",
               )}
             >

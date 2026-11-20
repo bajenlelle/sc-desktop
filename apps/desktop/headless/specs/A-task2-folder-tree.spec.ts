@@ -127,7 +127,7 @@ test("A task 2: open-folder icon, aligned indents, guide line", async ({ page, b
 
   // The guide stays behind a selected row (the created playlist is the selected one): across the selected
   // pill its pixel is the pill's colour; across the (unselected) subfolder row it is a visible line.
-  await expect(child, "the child playlist is the selected row").toHaveClass(/bg-selection/);
+  await expect(child, "the child playlist is the selected row").toHaveClass(/bg-row-selected-solid/);
   const gx = Math.floor(guideBox.x);
   const childMid = childRow.y + childRow.height / 2;
   const subRow = await box(sub, "the subfolder row");

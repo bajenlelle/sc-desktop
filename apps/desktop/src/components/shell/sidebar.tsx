@@ -13,6 +13,9 @@ import { toggleBrowser } from "@/lib/playlist-browser-store";
 import { openQuickSearch } from "@/lib/quick-search-store";
 import { cn } from "@/lib/utils";
 import { sidebarPages, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
+import { useHeadingToGame } from "@/components/game/use-game-tab-actions";
+import { gameTabsScope, useGameTabs } from "@/lib/game-tabs";
+import { OpenGames } from "./open-games";
 import { SpaceSwitcher } from "./space-switcher";
 import { UserMenu } from "./user-menu";
 
@@ -45,11 +48,11 @@ function NavItem({
       className={cn(
         "flex h-7 items-center gap-2 rounded-md px-2 text-sm font-medium outline-none transition-[background-color,transform] duration-100 active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-selection",
         active
-          ? "bg-selection text-selection-foreground"
+          ? "bg-row-selected text-foreground"
           : "text-foreground hover:bg-fill-1 active:bg-fill-2",
       )}
     >
-      <Icon className={cn("size-4 shrink-0", active ? "text-selection-foreground" : "text-primary")} />
+      <Icon className="size-4 shrink-0 text-primary" />
       <span className="truncate">{label}</span>
     </Link>
   );
@@ -67,6 +70,7 @@ export function Sidebar() {
     profileLoading,
     myOrgs,
     activeOrg,
+    activeOrgId,
     activeOrgRole,
     activeOrgIsPersonal,
     setActiveOrg,
@@ -78,6 +82,12 @@ export function Sidebar() {
 
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const ready = !!user && !profileLoading;
+  // A game that is open is selected as its own row under Open games, not as the Library.
+  const openGames = useGameTabs(gameTabsScope(user?.id, activeOrgId));
+  const shownGame = /^\/matches\/([^/]+)$/.exec(pathname)?.[1];
+  // A switch on its way to an open game selects that game's row from the click, not the Library meanwhile.
+  const headingTo = useHeadingToGame();
+  const libraryActive = !headingTo && pathname.startsWith("/matches") && !(shownGame && openGames.tabs.some((t) => t.id === shownGame));
 
   const row = (page: GoPage) => {
     switch (page) {
@@ -107,7 +117,7 @@ export function Sidebar() {
           />
         );
       case "go-library":
-        return <NavItem key={page} to="/matches" icon={Film} label="Library" active={pathname.startsWith("/matches")} />;
+        return <NavItem key={page} to="/matches" icon={Film} label="Library" active={libraryActive} />;
     }
   };
 
@@ -163,6 +173,9 @@ export function Sidebar() {
             {sidebarPages({ staff: isCoachOrAdmin, personal: activeOrgIsPersonal }).map(row)}
           </nav>
         )}
+
+        {/* The games open on this computer, from any page (components/shell/open-games.tsx). */}
+        {ready && <OpenGames />}
 
         {/* The one action a coach reaches for from any page, under the list as in Reminders' "Add List":
             the same link as the Library's Import game button (the import page gates licenses and roles). */}

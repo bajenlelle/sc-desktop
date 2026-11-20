@@ -30,10 +30,9 @@ function filterBySearch(list: StoredMatch[], search: string): StoredMatch[] {
 
 export function MatchesPage() {
   const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
-  // The games open in the game page's tabs, marked in the list from two open games (with one, the mark would
-  // only be on the game the coach just came from).
+  // The games open on this computer (the sidebar's Open games), marked Open in the list.
   const gameTabs = useGameTabs(gameTabsScope(user?.id, activeOrgId));
-  const openInTabs = useMemo(() => new Set(gameTabs.tabs.length >= 2 ? gameTabs.tabs.map((t) => t.id) : []), [gameTabs.tabs]);
+  const openInTabs = useMemo(() => new Set(gameTabs.tabs.map((t) => t.id)), [gameTabs.tabs]);
   const navigate = useNavigate();
   const canAccess = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
   const [matches, setMatches] = useState<StoredMatch[]>([]);

@@ -24,8 +24,9 @@ import {
 const TARGET = owned("target");
 const LABEL = owned("chip");
 
-const tablist = (page: Page) => page.getByRole("tablist", { name: "Open games" });
-const tab = (page: Page, title: string) => tablist(page).getByRole("tab", { name: title, exact: true });
+// The open games: rows in the sidebar (components/shell/open-games.tsx).
+const tablist = (page: Page) => page.getByRole("navigation", { name: "Open games" });
+const tab = (page: Page, title: string) => tablist(page).getByRole("button", { name: title, exact: true });
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
 const plays = (page: Page) => page.getByRole("list", { name: "Plays" });
 const teamRadios = (page: Page) => page.getByRole("radiogroup", { name: "Team" }).getByRole("radio");
@@ -39,7 +40,7 @@ const zoom = (page: Page) => page.getByRole("button", { name: "Timeline zoom" })
 async function switchTo(page: Page, game: { title: string }): Promise<void> {
   await tab(page, game.title).click();
   await expect(heading(page)).toHaveText(game.title);
-  await expect(tab(page, game.title)).toHaveAttribute("aria-selected", "true");
+  await expect(tab(page, game.title)).toHaveAttribute("aria-current", "page");
 }
 
 async function deleteOwnLabel(page: Page): Promise<void> {

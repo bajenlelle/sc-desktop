@@ -118,7 +118,7 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
                     onChange(league);
                     setOpen(false);
                   }}
-                  className="mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-[5px] px-2 py-1 text-left text-sm outline-none hover:bg-selection hover:text-selection-foreground focus-visible:bg-selection focus-visible:text-selection-foreground"
+                  className="mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-[5px] px-2 py-1 text-left text-sm outline-none hover:bg-fill-2 focus-visible:bg-fill-2 active:bg-fill-3"
                 >
                   <span aria-hidden>{countryFlag(league.country)}</span>
                   <span className="flex-1 truncate">{league.name}</span>

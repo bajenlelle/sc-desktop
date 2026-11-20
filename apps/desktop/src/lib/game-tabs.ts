@@ -1,8 +1,14 @@
 /**
- * The game page's tabs: the games a coach has open, per user and space, for
- * the app session (sessionStorage). A tiny external store, so the page that
- * remounts on every switch reads the same tabs without a provider. The pure
+ * The open games (the game tabs, drawn as rows in the sidebar's Open games):
+ * the games a coach has open, per user and space, kept across launches
+ * (localStorage) and checked against the database the first time they are
+ * read, so a game deleted or moved meanwhile doesn't come back. Signing out
+ * forgets them. A tiny external store, so the sidebar and the page that
+ * remounts on every switch read the same tabs without a provider. The pure
  * rules live in @scoutable/shared/lib/game-tabs.
+ *
+ * Also where each game was left in its video, across launches too, so a game
+ * that comes back after a restart opens where the coach was.
  *
  * Also the games loaded on this visit, so a tab switch shows its game without
  * the spinner. Any `matches-changed` (a sync, a video, a title, an import, a
@@ -66,12 +72,14 @@ function read(scope: string | null): GameTabs {
   if (!state) {
     let raw: string | null = null;
     try {
-      raw = sessionStorage.getItem(KEY + scope);
+      raw = localStorage.getItem(KEY + scope);
     } catch {
       /* storage unavailable: start with no tabs */
     }
     state = parseGameTabs(raw);
     states.set(scope, state);
+    // Kept from an earlier launch: the games may have been deleted, renamed or moved since.
+    if (state.tabs.length > 0) queueMicrotask(() => checkRestored(scope));
   }
   return state;
 }
@@ -80,9 +88,42 @@ function write(scope: string | null, next: GameTabs) {
   if (!scope || read(scope) === next) return;
   states.set(scope, next);
   try {
-    sessionStorage.setItem(KEY + scope, JSON.stringify(next));
+    if (next.tabs.length === 0) localStorage.removeItem(KEY + scope);
+    else localStorage.setItem(KEY + scope, JSON.stringify(next));
   } catch {
-    /* private mode or quota: the tabs still work for this page's life */
+    /* private mode or quota: the tabs still work until the app quits */
+  }
+  for (const listener of listeners) listener();
+}
+
+/** Brings tabs read from storage up to date with their games, once per launch and scope. */
+function checkRestored(scope: string) {
+  const ids = read(scope).tabs.map((t) => t.id);
+  if (ids.length === 0) return;
+  const orgId = scope.slice(scope.indexOf(":") + 1) || null;
+  listMatchesByIds(ids)
+    .then((matches) => {
+      const found = matches.map((m) => ({ id: m.id, title: m.title, date: m.date || null, orgId: m.orgId }));
+      write(scope, reconcileGameTabs(read(scope), found, orgId, ids));
+    })
+    .catch(() => {
+      /* a failed read keeps the tabs as they are; opening a game that's gone says so and closes its tab */
+    });
+}
+
+/** Forgets a user's open games on this computer: they signed out. */
+function forgetUsersTabs(userId: string) {
+  const prefix = `${userId}:`;
+  for (const scope of [...states.keys()]) if (scope.startsWith(prefix)) states.delete(scope);
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(KEY + prefix)) keys.push(key);
+    }
+    for (const key of keys) localStorage.removeItem(key);
+  } catch {
+    /* storage unavailable: nothing was kept */
   }
   for (const listener of listeners) listener();
 }
@@ -113,6 +154,8 @@ let watching = false;
 let cachedFor: string | null | undefined;
 
 function onAuthChanged(userId: string | null) {
+  // Signed out: their open games don't stay on the computer for whoever signs in next.
+  if (cachedFor && userId === null) forgetUsersTabs(cachedFor);
   if (cachedFor !== undefined && userId !== cachedFor) {
     loadedGames.clear();
     gameViews.clear();
@@ -230,6 +273,39 @@ export function neighbourGameTab(scope: string | null, activeId: string, step: 1
   return stepGameTab(read(scope), activeId, step);
 }
 
+const POSITIONS_KEY = "scoutable_game_positions";
+/** Games whose place in the video is kept: the most recently left. */
+const POSITIONS_MAX = 30;
+
+function readPositions(): [string, number][] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(POSITIONS_KEY) ?? "[]");
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (e): e is [string, number] => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "number" && Number.isFinite(e[1]) && e[1] > 0,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Where a game was left in its video, in seconds; null for a game not left yet (or forgotten). */
+export function recallGamePosition(matchId: string): number | null {
+  return readPositions().find(([id]) => id === matchId)?.[1] ?? null;
+}
+
+/** Notes where a game is in its video; the thirty games left most recently are kept. */
+export function rememberGamePosition(matchId: string, seconds: number): void {
+  if (!(seconds > 0)) return;
+  const first: [string, number] = [matchId, seconds];
+  const next: [string, number][] = [first, ...readPositions().filter(([id]) => id !== matchId)].slice(0, POSITIONS_MAX);
+  try {
+    localStorage.setItem(POSITIONS_KEY, JSON.stringify(next));
+  } catch {
+    /* the game opens at tip-off next time */
+  }
+}
+
 type LoadedGame = { match: StoredMatch; videoStatus: VideoFileStatus | "none" };
 
 /** The games read on this visit, least recently used first; one more than the tabs, so the leaving game's copy stays. */
@@ -262,6 +338,8 @@ export interface GameViewMemory {
   /** The play list's scroll, and whether it was following playback. */
   list: { top: number; following: boolean } | null;
   view: GameViewMode | null;
+  /** The playlist the game was opened from (the editor's Show in Game, its games in the subtitle): the toolbar's back button returns to it. */
+  from: { playlistId: string; title: string; path: "/playlists" | "/my-playlists" } | null;
 }
 
 const gameViews = new Map<string, GameViewMemory>();
@@ -271,18 +349,18 @@ export function recallGameView(matchId: string): GameViewMemory | null {
 }
 
 export function rememberGameView(matchId: string, patch: Partial<GameViewMemory>): void {
-  const was = gameViews.get(matchId) ?? { filters: EMPTY_GAME_FILTERS, zoomPeriod: null, list: null, view: null };
+  const was = gameViews.get(matchId) ?? { filters: EMPTY_GAME_FILTERS, zoomPeriod: null, list: null, view: null, from: null };
   gameViews.set(matchId, { ...was, ...patch });
 }
 
 /**
- * Says that a tab was closed to make room (the bar holds six), with the way
+ * Says that a tab was closed to make room (six games stay open), with the way
  * to bring it back. The Reopen button asks as the File menu's item does, so
- * the tab bar answers it. It stays twice as long as the app's other notices:
+ * the tabs' keys (components/game/game-tab-keys.tsx) answer it. It stays twice as long as the app's other notices:
  * nobody asked for that tab to close, and its two lines take reading.
  */
 export function announceClosedGameTab(title: string): void {
-  toast(`Closed ${title || "a game"} to make room: six games fit in the tabs`, {
+  toast(`Closed ${title || "a game"} to make room: up to six games stay open`, {
     id: "game-tab-made-room",
     duration: 8000,
     action: { label: "Reopen", onClick: () => window.dispatchEvent(new CustomEvent("menu-reopen-game-tab")) },

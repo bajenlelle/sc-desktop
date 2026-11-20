@@ -24,126 +24,155 @@ stretch where a game turned.
   read again when Game is entered from Details or from outside (Library, a
   link), so a sync changed in Details shows; a tab switch serves the copy read
   on this visit until any `matches-changed`, or for 10 minutes.
-- A game comes back as it was left, for the app session: its position
-  (`sessionStorage`, `scoutable_game_position:<id>`), and its filters, quarter
-  zoom, list scroll and (on a tab switch) view (`lib/game-tabs.ts`), labels and
-  playlists shown at once and read again behind. A link to a play opens without the filters.
+- A game comes back as it was left: its position across launches
+  (`localStorage`, `scoutable_game_positions`, the thirty games left last), and
+  for the app session its filters, quarter zoom, list scroll and (on a switch
+  between open games) view (`lib/game-tabs.ts`), labels and playlists shown at
+  once and read again behind. A link to a play opens without the filters.
   Not kept: the filter sheet, the selection, and Undo for adds made on an
   earlier visit. All of it but the position is dropped when the signed-in
   user changes (sign-out doesn't reload the webview).
 
-### Games in tabs
+### Open games (the game tabs)
 
-- **One mounted view, no hidden videos.** A tab is a remembered game, not a
-  page kept alive: switching remounts the page on the other game, so there is
-  still one decoder (`lib/release-video.ts`), and the memory above is what
-  brings it back as it was left.
-- **The bar is the page's top row**, above the game's own toolbar
-  (`components/game/game-tab-bar.tsx`): everything under it belongs
-  to the shown game, as in Notion or a browser. It is there with one game
-  open too, as a single tab with the + after it. It used to show from two
-  games, as Safari's and Finder's bars do, and then the only ways to a second
-  tab were ⌘T and the File menu, which were not found; with the bar always
-  there the + is always in the same place, and the page doesn't move down a
-  row when the second game opens. It costs a row of 44 px, which the video
-  loses only where the window is low and wide. The bar is the page's own
-  row: there is none while the window shows something in the page's place
-  (the wait at start, a refused device, an account that couldn't be read:
-  `useRouteGate`), and none over a game that isn't there when no game is
-  open. The first tab starts 16 px in, where the page's content does. The tabs start at the left at
-  their own width (208 px at most, shrinking together when there are many,
-  never stretched to fill the row); the shown game's tab is the page's own
-  colour and leads into the toolbar under it, the others are plain until
-  pointed at. The × is on the right: always there on the shown tab, on hover
-  or focus on the others. A lone tab has none, and its Close Tab, Delete and
-  a middle click do nothing: there is no other game to give the page to, and
-  the toolbar's Library is the way out of the game. The row drags the window, and with the sidebar
-  hidden on macOS the traffic lights sit in it (the toolbar under it then
-  doesn't pad for them: `Toolbar`'s `underTabs`).
-- **The bar lives in the window's layout**, not in the game page
-  (`components/root-layout.tsx`): the page is built again for every game, the
-  bar is not. That is what lets a tab that is pressed be dragged on, and why
-  the bar doesn't redraw on a switch.
-- Six at most: a seventh game closes the tab shown least recently, and a
+- **One mounted view, no hidden videos.** An open game is a remembered game,
+  not a page kept alive: switching remounts the page on the other game, so
+  there is still one decoder (`lib/release-video.ts`), and the memory above is
+  what brings it back as it was left.
+- **They are rows in the sidebar, under "Open games"**
+  (`components/shell/open-games.tsx`), there from any page. Decided
+  2026-11-20: the tabs used to be a bar above the game page (2.0.0), and
+  leaving the game for a playlist hid them, so the way back was Library → the
+  game. With the rows in the sidebar the bar showed the same thing twice and
+  was removed (Arc and Edge's vertical tabs have one tab list, not two), and
+  the game got its 44 px back. Everything the bar did moved with it:
+  - The caption's **+** opens the game picker (`game-tab-picker.tsx`,
+    `packages/shared/lib/game-picker.ts`): the Library's games in the
+    Library's order, archived ones left out, searched by title and team. An
+    open game says "Open" and choosing it goes to it; Return opens the first.
+    New Tab (⌘T, File menu; Ctrl+T without a menu bar) opens the same picker.
+  - A row is the game's title alone, starting at the caption's edge (no icon:
+    a team-colour bar there read as a missing logo, 2026-11-20), cut short
+    team by team ("Fryshuset Bask… vs AIK", `tabTitleParts`), with the whole
+    title and date as a tooltip. The game on screen is the selected row, and
+    the Library row is not. A switch selects its game from the click, before
+    the page has drawn (`setHeadingToGame`): the router keeps the page it
+    leaves on screen until the next one is ready, and closing the game on
+    screen otherwise lit the Library for a moment, then the next game.
+  - A row lights on the press and opens on the release, so a press can turn
+    into a drag that moves it without opening anything (framer-motion's
+    `Reorder` on y; the others slide aside on the app's springs, no bounce;
+    reduced motion fades). While it moves the order is the list's own, and it
+    is kept when the row is let go (`orderGameTabs`): written on every swap,
+    as it was, the order redrew every page that reads the open games and
+    rebuilt the Window menu, and opening on the press loaded a game mid-drag,
+    which made the drag stutter.
+  - Its × (on hover or focus), a middle click and its menu (Close Tab, Close
+    Other Tabs) close it. The game on screen can't be closed while it is the
+    only open game: there is no game to give the page to, and the toolbar's
+    back button leaves the game. From another page any row closes, the last
+    one too.
+  - The keyboard: Tab stops once on the rows; ↓ and ↑ move along them and
+    wrap, Home and End go to the ends; Return or Space opens one (the arrows
+    only move the focus: a game takes a moment to open); Delete closes it and
+    the focus goes to the next row. A click doesn't take the focus: the game's
+    keys go on working.
+- **With the sidebar hidden** the rows are out of sight, so the game's title
+  in the toolbar becomes their menu (`GameTitle` in
+  `components/game/game-toolbar-parts.tsx`, as Xcode's jump bar): the open
+  games, the one on screen checked, and New Tab…, which opens the picker under
+  the title. ⌘T off the game page with the sidebar hidden shows the sidebar
+  for the picker.
+- Six at most: a seventh game closes the one shown least recently, and a
   notice says which, with Reopen. The notice stays eight seconds, twice the
-  app's others: nobody asked for that tab to close. New games open on the
-  right. A tab activates on press and closes with its ×, a middle click, or
-  its menu (right-click: Close Tab, Close Other Tabs). A click on a tab
-  doesn't take the keyboard's focus: with the focus on a tab, Space and the
-  arrows would be the tab list's and not the game's.
-- **A tab drags into another place** (framer-motion's `Reorder`): it follows
-  the pointer, the others slide out of its way on the app's springs, and a
-  tab let go past an end springs back. The press that chose the tab can carry
-  on as the drag. The order is the tabs' own (`orderGameTabs`), kept with
-  them. The tabs have no drag constraints on purpose: given the strip as its
-  bounds, the library rescales every resting tab's offset whenever the strip
-  changes size, which left the tabs out of place after one closed.
-- **The keyboard works the tabs as a tab list** (W3C's Tabs pattern): Tab
-  stops once, on the shown game's tab; ← and → move the focus along the tabs
-  and round the ends, Home and End go to the first and the last; Return or
-  Space chooses the tab the focus is on (the arrows only move the focus: a
-  game takes a moment to open) and the focus stays on it; Delete closes it
-  and the focus goes to the tab after it. The × buttons are for the pointer
-  and are not Tab stops (`gameTabForKey`).
-- **A title that names two teams is cut short team by team**
-  ("Fryshuset Bask… vs AIK"), so two games of the same home team don't read
-  the same (`tabTitleParts`); the tooltip has the whole title and the date.
-- **A closed tab comes back**: Reopen Closed Tab (⇧⌘T, File menu; Ctrl+Shift+T
-  where there is no menu bar) puts the tab closed last back in its place, as
-  it was left. The last ten, for the visit, in memory (`lib/game-tabs.ts`):
-  tabs the coach closed and tabs that made room, not games that were deleted
-  or moved to another space. Tabs closed together (Close Other Tabs) come
-  back one at a time, each where it stood: their places are noted as if they
-  had been closed one after the other (`closedGameTabs`).
-- **The + after the last tab opens a game picker** (`game-tab-picker.tsx`,
-  `packages/shared/lib/game-picker.ts`): the Library's games in the Library's
-  order, archived ones left out, searched by title and team as the Library
-  is. A game that already has a tab says "Open" and choosing it goes to that
-  tab; any other opens in a new one. Return opens the first game listed.
-  New Tab (⌘T, File menu; Ctrl+T where there is no menu bar) opens the same
-  picker, on the game page.
-- **⌘W closes the shown game's tab while there are two tabs or more**, and
-  the window otherwise (with one game the bar is there, but there is no tab
-  to close to). The File menu has Close Tab and Close Window, as Safari does:
-  with two tabs or more, ⌘W and ⇧⌘W; with one, there is no Close Tab in the menu and Close
-  Window is ⌘W (`src-tauri/src/menu.rs`: `menu_game_tabs` puts Close Tab in
-  and takes it out, because the menu library changes an item's shortcut but
-  doesn't take one away). Close Window is closed natively, so it works where
-  nothing in the webview listens. Both act only while the main window is the
-  one in front: with the About panel or a file dialog in front, ⌘W is not
-  for the window behind it. Close Tab also
-  waits while a dialog is open, and on a page whose game has no tab it goes
-  to the game shown last. Where there is no menu bar, Ctrl+W closes the tab
-  and is left alone with fewer than two (`packages/shared/lib/menu-shortcuts.ts`).
-- **The Library marks the games that are open** ("Open", from two open
-  games: with one, the mark would only be on the game the coach just came
-  from), and a click on one goes back to its tab
-  as it was left, with nothing to load.
-- The tabs are per user and space for the app session (`sessionStorage`,
-  `scoutable_game_tabs:<userId>:<orgId>`; `apps/desktop/src/lib/game-tabs.ts`
-  over the pure `packages/shared/lib/game-tabs.ts`). On any `matches-changed`
-  the store empties its loaded-game cache and reads the open games again:
-  renamed games take their new title, deleted ones and games moved to another
-  space lose their tab (an empty read is taken as a failed one).
-- ⌃Tab and ⌃⇧Tab step through the tabs and wrap (not while a dialog is
-  open); the Window menu has Show Next Game Tab (⌘⇧]) and Show Previous Game
-  Tab (⌘⇧[), on only on the game page.
-- A switch replaces the history entry (`replace: true`), as the Game | Details
-  switch does: Back leaves the games. It first leaves the field being typed
-  in, so a Details title saves; and a playlist write still out from the game
-  it leaves lands before the next game reads or writes that playlist.
-- Why at the top (decided 2026-11-14): under the toolbar, as equal pills
-  filling the row, the tabs read as a second switch below Game | Details, and
-  the toolbar that belongs to one game sat above the row that changes games.
-  Not built, and why (looked up 2026-11-14 against W3C's Tabs pattern,
-  NN/g's tab guidelines, Safari, Chrome, Notion and VS Code): ⌘1–⌘9 for the
-  nth tab (⌘1–⌘6 are the Go menu); the tabs back after the app is quit (the
-  bar shows only on the game page and the app opens on Home, so yesterday's
-  tabs would turn up the next time any game is opened); a Library click that
-  changes the game in the tab and doesn't open a new one (a tab per opened
-  game is what lets tabs be found; the notice at the cap is its price); tab
-  widths held while the pointer is in the strip; a `tabpanel` wired to the
-  tab; moving a tab with the keyboard; the bar outside the game page.
+  app's others: nobody asked for that game to close. New games go last.
+- **The keys and menus work from any page** (`components/game/game-tab-keys.tsx`,
+  drawn by the window's layout, so it answers wherever the coach is):
+  - ⌃Tab and ⌃⇧Tab, and the Window menu's Show Next Game Tab (⌘⇧]) and Show
+    Previous Game Tab (⌘⇧[): on the game page they step through the open
+    games and wrap; from another page they go back to the game shown last.
+    Not while a dialog is open.
+  - The Window menu lists the open games, the one on screen checked, as a Mac
+    app lists its open documents (`menu_open_games` in `src-tauri/src/menu.rs`
+    rebuilds the list; a choice arrives as `open-game:<id>`). No menu bar on
+    Windows, so no list there.
+  - Reopen Closed Tab (⇧⌘T; Ctrl+Shift+T) puts the game closed last back in
+    its place, as it was left. The last ten, for the visit, in memory: games
+    the coach closed and ones that made room, not games deleted or moved to
+    another space. Several closed together (Close Other Tabs) come back one at
+    a time, each where it stood (`closedGameTabs`).
+  - ⌘W closes the game on screen while another is open, and the window
+    otherwise. The File menu has Close Tab and Close Window, as Safari does:
+    with two open games or more on the game page, ⌘W and ⇧⌘W; otherwise there
+    is no Close Tab in the menu and Close Window is ⌘W (`menu_game_tabs` puts
+    Close Tab in and takes it out, because the menu library changes an item's
+    shortcut but doesn't take one away). Close Window is closed natively, so it
+    works where nothing in the webview listens. Both act only while the main
+    window is in front: with the About panel or a file dialog in front, ⌘W is
+    not for the window behind it. Close Tab also waits while a dialog is open.
+    Without a menu bar, Ctrl+W closes the tab under the same rule
+    (`packages/shared/lib/menu-shortcuts.ts`).
+- **The Library, Home's Recent imports and the search mark the open games**
+  ("Open"); a click on one goes back to it as it was left, with nothing to
+  load. The search's Recent lists the open games first.
+- **They come back after the app is quit.** Per user and space in
+  `localStorage` (`scoutable_game_tabs:<userId>:<orgId>`;
+  `apps/desktop/src/lib/game-tabs.ts` over the pure
+  `packages/shared/lib/game-tabs.ts`), checked against the database the first
+  time they are read on a launch, so a game deleted, renamed or moved since
+  isn't offered as it was. Where each game was in its video comes back too
+  (`scoutable_game_positions`, the thirty games left last). Signing out forgets
+  that user's open games. On any `matches-changed` the store empties its
+  loaded-game cache and reads the open games again: renamed games take their
+  new title, deleted ones and games moved to another space close (an empty
+  read is taken as a failed one). Reversed 2026-11-20: they used to last the
+  app session, because the bar showed only on the game page and yesterday's
+  games would have turned up the next time any game was opened. In the
+  sidebar they are in sight from the start.
+- A switch between open games on the game page replaces the history entry
+  (`replace: true`), as the Game | Details switch does: Back leaves the games.
+  From another page it is a step like any link, and Back returns to that page.
+  A switch first leaves the field being typed in, so a Details title saves;
+  and a playlist write still out from the game it leaves lands before the next
+  game reads or writes that playlist.
+- Not built, and why (looked up 2026-11-14 against W3C's Tabs pattern, NN/g's
+  tab guidelines, Safari, Chrome, Notion and VS Code, and again 2026-11-20
+  against Arc, Edge's vertical tabs and Figma): ⌘1–⌘9 for the nth game (⌘1–⌘6
+  are the Go menu); a Library click that changes the game in a row and doesn't
+  open a new one (a row per opened game is what lets games be found again; the
+  notice at the cap is its price); moving a row with the keyboard; a "Pick up
+  where you left off" card on Home (the open games already come back in the
+  sidebar, and it would say the same thing twice).
+
+### Ways into the game
+
+The game is where a playlist's clips come from, so the places that name a game
+lead to it, as references in the text, not new buttons:
+
+- **The editor's subtitle** (`components/editor/editor-toolbar.tsx`): "12 items
+  · Fryshuset vs AIK" names the playlist's one game, and the name opens it;
+  with several, "3 games" opens a menu of them with their clips, in the order
+  the playlist first uses them (`packages/shared/lib/playlist-games.ts`). Quiet
+  until pointed at, then the link it is. A game the Library doesn't hold
+  (deleted, another space) is left out.
+- **Show in game** on a clip row's menu, and Go → Show Clip in Game (⌘G,
+  Ctrl+G; ⇧⌘J was first, and other apps' global keys such as Notion's took
+  it): the clip's game at that play (`?play=<eventId>`), as Final Cut's
+  Reveal Source in Browser lands on the source at the same frame. The
+  menu item is for the row the keys are on, else the clip playing, and is off
+  elsewhere. The game's title on a row is not a link: the row is already a
+  target for the press, selection and drag, and a link inside it would fight
+  them.
+- **A shared playlist's footage** (`components/playlist/watch-view.tsx`): for a
+  coach, the game under the footage is named, and opens at the clip's play
+  when the game is in the space's Library. Players get the name only.
+- **Back goes the way it came.** A game opened from a playlist shows
+  "‹ {playlist}" where it otherwise has "‹ Library" (`GameBackButton`), as the
+  editor shows "‹ {game}" when it was opened from a game; it reopens that
+  playlist (the editor, or the shared playlist). It is remembered per game
+  for the visit, across the Game | Details switch and a return through the open
+  games; opening the game any other way makes it the Library's again. The
+  game's Add collects into that playlist (`setCollectTarget`).
 
 ### The player and its timeline
 

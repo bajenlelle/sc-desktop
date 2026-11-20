@@ -14,7 +14,7 @@ const contentClass =
   "z-50 min-w-[8rem] overflow-hidden rounded-lg bg-material-popover p-1 text-popover-foreground shadow-menu backdrop-blur-xl chrome-animate"
 
 const itemClass =
-  "relative flex cursor-default select-none items-center gap-2 rounded-[5px] px-2 py-1 text-sm outline-none focus:bg-selection focus:text-selection-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0"
+  "relative flex cursor-default select-none items-center gap-2 rounded-[5px] px-2 py-1 text-sm outline-none focus:bg-fill-2 focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0"
 
 function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root {...props} />
@@ -112,7 +112,7 @@ function DropdownMenuSub({ ...props }: React.ComponentProps<typeof DropdownMenuP
 function DropdownMenuSubTrigger({ className, children, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger>) {
   return (
     <DropdownMenuPrimitive.SubTrigger
-      className={cn(itemClass, "data-[state=open]:bg-selection data-[state=open]:text-selection-foreground", className)}
+      className={cn(itemClass, "data-[state=open]:bg-fill-2", className)}
       {...props}
     >
       {children}

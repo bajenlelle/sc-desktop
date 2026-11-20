@@ -1,5 +1,5 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { GameTabBar } from "@/components/game/game-tab-bar";
+import { GameTabKeys } from "@/components/game/game-tab-keys";
 import { QuickSearchHost } from "@/components/search/quick-search-host";
 import { Sidebar } from "@/components/shell/sidebar";
 import { LicenseBanner } from "@/components/license-banner";
@@ -19,14 +19,13 @@ export function RootLayout() {
       <Sidebar />
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <LicenseBanner />
-        {/* The game page's tabs, above the page and outside its key: the page is built again for every game,
-            the bar is not, so a tab that is pressed can be dragged on. */}
-        <GameTabBar />
         <div key={pathname} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <Outlet />
         </div>
       </main>
       <TeamStep />
+      {/* The open games' keys and menu items, from any page (the games are the sidebar's Open games). */}
+      <GameTabKeys />
       {/* The search over the space: ⌘K, Ctrl+K or the sidebar's Search (docs/search.md). */}
       <QuickSearchHost />
     </div>

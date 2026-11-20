@@ -198,6 +198,21 @@ describe("recentItems", () => {
     expect(recentItems(index, recents).map((i) => `${i.kind}:${i.id}`)).toEqual(["game:g2", "report:p1", "playlist:p2"]);
   });
 
+  it("puts the open games first, in the order they were opened last", () => {
+    const recents: RecentOpen[] = [
+      { kind: "playlist", id: "p2", at: 400 },
+      { kind: "game", id: "g1", at: 300 },
+      { kind: "game", id: "g2", at: 200 },
+      { kind: "game", id: "g3", at: 100 },
+    ];
+    expect(recentItems(index, recents, 8, new Set(["g3", "g2"])).map((i) => `${i.kind}:${i.id}`)).toEqual([
+      "game:g2",
+      "game:g3",
+      "playlist:p2",
+      "game:g1",
+    ]);
+  });
+
   it("leaves out what is no longer there", () => {
     const recents: RecentOpen[] = [
       { kind: "playlist", id: "gone", at: 300 },

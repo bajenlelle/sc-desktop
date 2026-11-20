@@ -60,12 +60,14 @@ const PLAIN: Record<string, string> = {
   o: "add-game",
   e: "export-playlist",
   b: "toggle-playlist-browser",
-  // On only while the game page has two tabs or more (a tab to close to); elsewhere the chord is left alone.
+  // On only while the game page has two open games or more (one to close to); elsewhere the chord is left alone.
   w: "close-tab",
-  // The game page's tab picker; on only on the game page.
+  // The open games' picker; on while there is somewhere to show it (the game page, or the sidebar's Open games).
   t: "new-game-tab",
   // The search over the space (docs/search.md); the same chord closes it.
   k: "search",
+  // The editor's clip shown in its game (G for Game); on only while the editor has a clip.
+  g: "show-clip-in-game",
   "0": "zoom-reset",
   // Organization is not a row of the sidebar: its key comes after the rows' (1 to 5), whatever they are.
   "6": "go-organization",
@@ -82,7 +84,7 @@ export function menuIdForChord(e: KeyChord, pages: readonly GoPage[] = GO_PAGES)
   // "+" is the unshifted key people reach for anyway.
   if (key === "=" || key === "+") return "zoom-in";
   if (key === "-") return "zoom-out";
-  // Shift chords: fullscreen-player, a closed game tab back, and the game tabs on Shift with [ or ].
+  // Shift chords: fullscreen-player, a closed game tab back, the game tabs on Shift with [ or ].
   // Shift turns [ and ] into { and } on US layouts, so either is accepted.
   if (e.shiftKey) {
     if (key === "f") return "fullscreen-player";

@@ -266,7 +266,7 @@ export function ReportPlayerPicker({
                           <tr
                             key={id}
                             onClick={() => toggle(id)}
-                            className={cn("cursor-default border-b border-separator/60 last:border-b-0 transition-colors duration-100 hover:bg-fill-1", on && "bg-selection/10")}
+                            className={cn("cursor-default border-b border-separator/60 last:border-b-0 transition-colors duration-100 hover:bg-fill-1", on && "bg-row-selected")}
                           >
                             <td className="py-1.5 pl-3">
                               <input

@@ -1,20 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Loader2 } from "lucide-react";
 import { pickableGames, type PickableGame } from "@scoutable/shared/lib/game-picker";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchField } from "@/components/ui/search-field";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDate } from "@/lib/format-date";
 import { listMatchesLight } from "@/lib/matches-db";
-import { IS_MACOS } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type { StoredMatch } from "@/types/match";
 
 /**
- * The "+" after the last tab: a picker of the Library's games, so another
- * game opens in a tab without leaving the one on screen. It lists what the
- * Library lists (archived games left out), searched the way the Library is;
- * a game that already has a tab says so, and choosing it goes to that tab.
+ * A picker of the Library's games, so another game opens without leaving the
+ * one on screen: from the + after the sidebar's "Open games", from New Tab
+ * (⌘T), and, with the sidebar hidden, from the game title's menu. It lists
+ * what the Library lists (archived games left out), searched the way the
+ * Library is; a game that is already open says so, and choosing it goes to it.
  * Return opens the first game listed.
  */
 export function GameTabPicker({
@@ -23,14 +22,23 @@ export function GameTabPicker({
   orgId,
   openIds,
   onPick,
+  children,
+  anchor = false,
+  side = "bottom",
+  align = "start",
 }: {
-  /** Open or not is the bar's to say: the File menu's New Tab (⌘T) opens it as the + does. */
+  /** Open or not is the caller's to say: New Tab (⌘T) opens it as the + does. */
   open: boolean;
   onOpenChange: (open: boolean) => void;
   orgId: string | null;
-  /** The games that have a tab. */
+  /** The games that are open. */
   openIds: ReadonlySet<string>;
   onPick: (game: PickableGame) => void;
+  /** The element it opens from: its trigger, or with `anchor` only where it is placed (another control opens it). */
+  children: ReactNode;
+  anchor?: boolean;
+  side?: "bottom" | "right";
+  align?: "start" | "center";
 }) {
   const [search, setSearch] = useState("");
   // null while the Library is being read.
@@ -70,25 +78,10 @@ export function GameTabPicker({
       open={open}
       onOpenChange={onOpenChange}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label="Open another game"
-              className="mb-0.5 ml-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-[background-color,color,transform] duration-100 hover:bg-fill-2 hover:text-foreground active:scale-95 active:bg-fill-3 data-[state=open]:bg-fill-2 data-[state=open]:text-foreground focus-visible:ring-2 focus-visible:ring-selection"
-            >
-              <Plus className="size-4" />
-            </button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          Open another game <span className="text-muted-foreground">{IS_MACOS ? "⌘T" : "Ctrl T"}</span>
-        </TooltipContent>
-      </Tooltip>
+      {anchor ? <PopoverAnchor asChild>{children}</PopoverAnchor> : <PopoverTrigger asChild>{children}</PopoverTrigger>}
       <PopoverContent
-        align="start"
-        side="bottom"
+        align={align}
+        side={side}
         className="w-80 p-0"
         onOpenAutoFocus={(e) => {
           e.preventDefault();

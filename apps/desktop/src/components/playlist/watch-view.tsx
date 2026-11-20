@@ -47,6 +47,7 @@ export function WatchView({
   title,
   items,
   matchTitleFor,
+  onOpenGame,
   isWatched,
   onWatched,
   progress,
@@ -57,6 +58,8 @@ export function WatchView({
   items: WatchItem[];
   /** The game a clip comes from, in multi-game playlists; undefined otherwise. */
   matchTitleFor: (matchId: string) => string | undefined;
+  /** A coach's way into the clip's game at its play: the game named under the footage is a link then. */
+  onOpenGame?: (matchId: string, eventId: number) => void;
   isWatched: (matchId: string, eventId: number) => boolean;
   onWatched: (matchId: string, eventId: number) => void;
   progress: { watched: number; total: number };
@@ -325,14 +328,31 @@ export function WatchView({
                 <span className="truncate text-title-3">{playerName(activeClip.event)}</span>
               </div>
               <p className="text-callout text-muted-foreground nums">
-                {[
-                  `Q${activeClip.event.period}`,
-                  formatGameClock(activeClip.event.gameClockTime),
-                  activeClip.event.eventTeam?.teamName,
-                  matchTitleFor(activeClip.matchId),
-                ]
+                {[`Q${activeClip.event.period}`, formatGameClock(activeClip.event.gameClockTime), activeClip.event.eventTeam?.teamName]
                   .filter(Boolean)
                   .join(" · ")}
+                {(() => {
+                  const game = matchTitleFor(activeClip.matchId);
+                  if (!game) return null;
+                  return (
+                    <>
+                      {" · "}
+                      {onOpenGame ? (
+                        // A reference, not a button: quiet until pointed at, then the link it is.
+                        <button
+                          type="button"
+                          onClick={() => onOpenGame(activeClip.matchId, activeClip.event.eventId)}
+                          title={`Open ${game} at this play`}
+                          className="rounded-sm underline-offset-2 outline-none transition-colors duration-100 hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+                        >
+                          {game}
+                        </button>
+                      ) : (
+                        game
+                      )}
+                    </>
+                  );
+                })()}
               </p>
             </div>
           )}

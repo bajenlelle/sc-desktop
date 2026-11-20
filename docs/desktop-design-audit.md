@@ -220,7 +220,7 @@ Built on `design/apple-redesign` in six commits, one per milestone, plus fixes. 
 | 5 | The video is recreated on a layout toggle | One `<video>` for the editor's life, hosted by `PlayerStage`; Split, Theater and full screen move it, so playback and auto-advance continue. | `editor/use-persistent-video.ts`, `editor/player-stage.tsx` |
 | 6 | Keys have several owners | Key scopes: only the topmost surface's keys fire (editor, Add Clips sheet, tip-off picker). F does nothing without footage. Backspace outside a text field no longer navigates back. | `src/lib/key-scope.ts`, `packages/shared/lib/player-keys.ts` + tests, `src/main.tsx` |
 | 7 | The chrome is a web page | Transparent window with the system's sidebar vibrancy, traffic lights inset in the sidebar, a labelled source-list sidebar with the space switcher at the top and the account at the bottom, toolbars that content scrolls under with a soft edge instead of a line, the update offer as a card in the sidebar. Windows keeps a standard window. | `src-tauri/tauri.macos.conf.json`, `components/shell/*`, `root-layout.tsx` |
-| 8 | One colour, three meanings | Hover and pressed states use neutral fills derived from each theme's text colour; selection uses the accent; amber is left to warnings. | `index.css` (derived tokens), the `hover:bg-accent` sweep |
+| 8 | One colour, three meanings | Hover and pressed states use neutral fills derived from each theme's text colour; selection uses the accent; amber is left to warnings. Revised 2026-11-20: a chosen row (the sidebar's page, an open game, a playlist, selected clips, the play on screen, a report row) is a neutral fill (`--row-selected`, paler while the window is in the background), as Mail, Notes and Music mark it; the solid accent there read as loud, three blocks of it on one screen competing with Add clips. Menus and pickers highlight the item under the pointer or the keys with a neutral fill too (a destructive item with a red tint, its text red), and a pressed filter chip is a grey fill. The accent stays on controls: checkboxes, switches, focus rings, primary buttons, a calendar's chosen day. | `index.css` (derived tokens), the `hover:bg-accent` sweep |
 | 9 | Three typefaces | The system font with macOS text styles (size-specific tracking), tabular figures for every count and clock, no font fetched at runtime, no uppercase micro-labels. | `index.css`, `index.html` |
 | 10 | Reduced motion is ignored | `MotionConfig reducedMotion="user"`; CSS fallbacks turn menu motion into a fade and stop pulses; reduced transparency makes materials opaque; increased contrast strengthens separators; a light/dark switch no longer animates every colour. | `App.tsx`, `index.css`, `theme-provider.tsx` |
 
@@ -298,3 +298,13 @@ The game page's Game view (`docs/game-view.md`) was built after this audit, with
 **Verified:** the headless spec `H-game-player` in WebKit and Chrome at 1440×900, 1280×720 and 1024×640, light and dark. **Not verified:** the swipe on a real trackpad (its feel and direction), a two-hour recording, full screen in the app, Shift with a wheel on Windows.
 
 **Kept on purpose:** the full-width selection fill (the editor's), the Play button over the first frame, two position marks on two scales (the player's bar is the file, the timeline is the game).
+
+## Toolbar in a narrow window (2026-11-20)
+
+The editor's toolbar holds about 560 px of actions; below some 1,200 px of window the title and its subtitle had
+no room left and disappeared. Like a Mac toolbar switching to Icon Only, the bar now has a compact form
+(`Toolbar`'s `compactBelow`, measured on the bar itself, with 32 px of hysteresis): Filter, Play, Add clips,
+Export and the Clips | Report switch show their icons only, their labels as tooltips and accessible names
+(`ToolbarAction`, `useToolbarCompact`). The title fills the room between the leading items and the actions, so the
+actions stay put on the right whatever the title's length; beside a subtitle of parts (the editor's count and its
+game) the title takes at most two thirds, and the game's name keeps a few letters to click.

@@ -113,7 +113,7 @@ function MemberRow({
                   <DropdownMenuSeparator />
                 </>
               )}
-              <DropdownMenuItem className="text-destructive focus:bg-destructive focus:text-white" onSelect={onRemove}>
+              <DropdownMenuItem className="text-destructive focus:bg-destructive/10 focus:text-destructive" onSelect={onRemove}>
                 Remove from club…
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -211,7 +211,7 @@ function TeamMembers({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
-                        className="text-destructive focus:bg-destructive focus:text-white"
+                        className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                         onSelect={() => void handleRemove(tm.userId)}
                       >
                         Remove from team
@@ -295,7 +295,7 @@ function TeamRow({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem className="text-destructive focus:bg-destructive focus:text-white" onSelect={onDelete}>
+              <DropdownMenuItem className="text-destructive focus:bg-destructive/10 focus:text-destructive" onSelect={onDelete}>
                 Delete team…
               </DropdownMenuItem>
             </DropdownMenuContent>

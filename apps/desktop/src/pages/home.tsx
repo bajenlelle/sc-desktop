@@ -6,6 +6,7 @@ import { GroupedList, GroupHeader } from "@/components/ui/group";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { MatchRow } from "@/components/match-row";
+import { gameTabsScope, useGameTabs } from "@/lib/game-tabs";
 import { EmptyState } from "@/components/empty-state";
 import { GettingStarted } from "@/components/getting-started";
 import { NextActionHero } from "@/components/home/next-action-hero";
@@ -87,6 +88,8 @@ function CoachHomePage() {
   const navigate = useNavigate();
   const { user, profile, activeOrgId, activeOrgIsPersonal, activeOrgCanManage, myOrgs, setActiveOrg } =
     useAuth();
+  // Games open on this computer: marked Open in Recent imports, as in the Library.
+  const openGames = useGameTabs(gameTabsScope(user?.id, activeOrgId));
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   /** The shared subset of `playlists`, with share timestamps: the engagement dashboard's base. Null until read. */
@@ -224,6 +227,7 @@ function CoachHomePage() {
   }
 
   const recentMatches = recentImports(matches);
+  const openGameIds = new Set(openGames.tabs.map((t) => t.id));
   const recentPlaylists = playlists.slice(0, PLAYLIST_TILE_COUNT);
   const noGames = !loading && matches.length === 0;
   const noPlaylists = !loading && playlists.length === 0;
@@ -366,7 +370,7 @@ function CoachHomePage() {
             ) : (
               <GroupedList>
                 {recentMatches.map((match) => (
-                  <MatchRow key={match.id} match={match} />
+                  <MatchRow key={match.id} match={match} openInTab={openGameIds.has(match.id)} />
                 ))}
               </GroupedList>
             )}

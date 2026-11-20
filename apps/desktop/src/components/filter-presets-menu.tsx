@@ -182,7 +182,7 @@ export function FilterPresetsMenu({
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => onDelete(p)}
-                  className="text-destructive focus:bg-destructive focus:text-white"
+                  className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                 >
                   Delete
                 </DropdownMenuItem>

@@ -146,7 +146,9 @@ import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, notifyExportSuccess, type ExportSegment } from "@/lib/export";
 import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import { ProgressBar } from "@/components/ui/progress-bar";
-import { getExportWatermarkDisabled, getSyncTipSeen, setHasExported, setSyncTipSeen } from "@/lib/prefs";
+import { getExportWatermarkDisabled, getSyncTipSeen, setCollectTarget, setHasExported, setSyncTipSeen } from "@/lib/prefs";
+import { setShowClipInGameEnabled } from "@/components/menu-handler";
+import { playlistGames } from "@scoutable/shared/lib/playlist-games";
 import { clipAndShip } from "@/lib/clip-and-ship";
 import { buildShipSegments, DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL, demoShipBlockReason, shipPlaylistClips } from "@/lib/ship-clips";
 import { onUploaded, shipScheduler } from "@/lib/background-ship";
@@ -4273,7 +4275,8 @@ export function PlaylistsPage() {
             style={{ paddingLeft: 8 + depth * FOLDER_INDENT }}
             className={cn(
               "group mx-2 flex h-7 cursor-default select-none items-center gap-1 rounded-md pr-1.5 outline-none transition-[background-color,box-shadow] duration-100",
-              isActive ? "bg-selection text-selection-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
+              // Opaque: the folder's guide line runs behind the rows (see the guide below).
+              isActive ? "bg-row-selected-solid text-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
               isDropTarget && "bg-selection/20 ring-2 ring-inset ring-selection",
               clipOpenPlaylistId === pl.id && "animate-pulse",
               isSaving && "pointer-events-none opacity-60",
@@ -4281,7 +4284,7 @@ export function PlaylistsPage() {
             onClick={() => !isEditingThis && selectPlaylist(pl)}
           >
             {folders.length > 0 && <span aria-hidden className="size-3.5 shrink-0" />}
-            <ListVideo className={cn("size-4 shrink-0", isActive ? "text-selection-foreground" : "text-primary")} />
+            <ListVideo className="size-4 shrink-0 text-primary" />
             {isEditingThis && editingVia === "sidebar" ? (
               <input
                 autoFocus
@@ -4318,7 +4321,7 @@ export function PlaylistsPage() {
                   {pl.name}
                 </span>
                 {(pl.teamIds?.length ?? 0) > 0 && (
-                  <Users className={cn("size-3 shrink-0", isActive ? "text-selection-foreground/80" : "text-muted-foreground")} />
+                  <Users className={cn("size-3 shrink-0", "text-muted-foreground")} />
                 )}
               </>
             )}
@@ -4326,7 +4329,7 @@ export function PlaylistsPage() {
               <span
                 className={cn(
                   "text-xs nums",
-                  isActive ? "text-selection-foreground/80" : "text-muted-foreground",
+                  "text-muted-foreground",
                   menuOpen ? "hidden" : "group-hover:hidden",
                 )}
               >
@@ -4342,7 +4345,7 @@ export function PlaylistsPage() {
                     aria-label="Playlist actions"
                     className={cn(
                       "size-5 items-center justify-center rounded-sm outline-none transition-colors duration-100",
-                      isActive ? "text-selection-foreground hover:bg-white/20" : "text-muted-foreground hover:bg-fill-2 hover:text-foreground",
+                      isActive ? "text-muted-foreground hover:bg-fill-3 hover:text-foreground" : "text-muted-foreground hover:bg-fill-2 hover:text-foreground",
                       menuOpen ? "flex" : "hidden group-hover:flex",
                     )}
                   >
@@ -5616,6 +5619,41 @@ export function PlaylistsPage() {
   }, [menuExportEnabled]);
 
   // ---------------------------------------------------------------------------
+  // The playlist's games. The subtitle names them (one game, or "3 games" with a menu of them), and a clip
+  // opens in its game at that play: Show in Game in the row's menu, Go → Show Clip in Game (⌘G), as Final
+  // Cut's Reveal Source. The game's back button names this playlist and returns here, and the game's Add
+  // collects into it (components/game/game-toolbar-parts.tsx, use-collect.ts).
+  // ---------------------------------------------------------------------------
+
+  const gamesInPlaylist = useMemo(() => (selected ? playlistGames(selected.items, matchLookup) : []), [selected, matchLookup]);
+  const openGame = useCallback(
+    (matchId: string, eventId: number | null, via: "subtitle" | "subtitle_menu" | "clip_menu" | "menu") => {
+      const pl = selectedRef.current;
+      if (!pl || !matchLookup.has(matchId)) return;
+      setCollectTarget(matchId, pl.id);
+      trackEvent("game_opened_from_playlist", { via, at_play: eventId !== null, games: gamesInPlaylist.length });
+      navigate(`/matches/${matchId}${eventId !== null ? `?play=${eventId}` : ""}`, { state: { from: { playlistId: pl.id, title: pl.name } } });
+    },
+    [matchLookup, navigate, gamesInPlaylist.length],
+  );
+  // The clip Show Clip in Game is about: the row the keys are on, else the one playing; a text card has no game.
+  const clipKeyForGame = focusKey && !focusKey.startsWith("text:") ? focusKey : activeKey && !activeKey.startsWith("text:") ? activeKey : null;
+  const clipForGame = useMemo(() => {
+    if (!clipKeyForGame) return null;
+    const at = clipKeyForGame.lastIndexOf(":");
+    const matchId = clipKeyForGame.slice(0, at);
+    const eventId = Number(clipKeyForGame.slice(at + 1));
+    return matchLookup.has(matchId) && Number.isFinite(eventId) ? { matchId, eventId } : null;
+  }, [clipKeyForGame, matchLookup]);
+  useEffect(() => {
+    setShowClipInGameEnabled(!!selected && !reportView && clipForGame !== null);
+    if (!selected || reportView || !clipForGame) return;
+    const handler = () => openGame(clipForGame.matchId, clipForGame.eventId, "menu");
+    window.addEventListener("menu-show-clip-in-game", handler);
+    return () => window.removeEventListener("menu-show-clip-in-game", handler);
+  }, [selected, reportView, clipForGame, openGame]);
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
@@ -6215,6 +6253,9 @@ export function PlaylistsPage() {
                 onFixSync={
                   noSync || !matchLookup.get(queueItem.matchId)?.videoUrl ? undefined : () => openSyncFix(queueItem, "clip_menu")
                 }
+                onShowInGame={
+                  matchLookup.has(queueItem.matchId) ? () => openGame(queueItem.matchId, queueItem.event.eventId, "clip_menu") : undefined
+                }
                 onRemove={inSelection ? handleRemoveSelected : () => { if (clip) handleRemoveSingleClip(clip); }}
                 removeCount={inSelection ? selectedClipIds.size : 1}
                 labelControls={activeOrgId ? {
@@ -6317,7 +6358,8 @@ export function PlaylistsPage() {
         name={selected.name}
         backTo={backTo}
         itemCount={selected.items.length}
-        isMultiMatch={isMultiMatch}
+        games={gamesInPlaylist}
+        onOpenGame={(id, via) => openGame(id, null, via)}
         editing={editingPlaylistId === selected.id && editingVia === "header"}
         editValue={editPlaylistName}
         onEditValueChange={setEditPlaylistName}
@@ -6526,16 +6568,16 @@ export function PlaylistsPage() {
                           data-playlist-id={pl.id}
                           className={cn(
                             "group mx-2 flex min-h-7 cursor-default select-none items-center gap-1.5 rounded-md px-2 py-1 transition-[background-color,box-shadow] duration-100",
-                            isActive ? "bg-selection text-selection-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
+                            isActive ? "bg-row-selected text-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
                             clipDragOverPlaylistId === pl.id && "bg-selection/20 ring-2 ring-inset ring-selection",
                           )}
                           onClick={() => selectPlaylist(pl)}
                         >
-                          <Users className={cn("size-4 shrink-0", isActive ? "text-selection-foreground" : "text-primary")} />
+                          <Users className="size-4 shrink-0 text-primary" />
                           <div className="flex min-w-0 flex-1 flex-col">
                             <span className="truncate text-sm leading-tight">{pl.name}</span>
                             {teamNames && (
-                              <span className={cn("truncate text-footnote", isActive ? "text-selection-foreground/70" : "text-muted-foreground")}>
+                              <span className={cn("truncate text-footnote", "text-muted-foreground")}>
                                 {teamNames}
                               </span>
                             )}
@@ -6544,7 +6586,7 @@ export function PlaylistsPage() {
                             type="button"
                             className={cn(
                               "flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 outline-none transition-[opacity,background-color] duration-100 group-hover:opacity-100 focus-visible:opacity-100",
-                              isActive ? "text-selection-foreground hover:bg-white/20" : "text-muted-foreground hover:bg-fill-2 hover:text-foreground",
+                              isActive ? "text-muted-foreground hover:bg-fill-3 hover:text-foreground" : "text-muted-foreground hover:bg-fill-2 hover:text-foreground",
                             )}
                             title="Manage sharing"
                             onClick={(e) => {

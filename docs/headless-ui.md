@@ -99,7 +99,7 @@ fixture don't break each other.
 ## The window's drag regions
 
 In the real app a press on an element that carries `data-tauri-drag-region`
-(the title strip, the game page's tab bar, a toolbar's empty part) is taken by
+(the title strip, a toolbar's empty part) is taken by
 Tauri's own script to start a native window drag: the page gets the
 pointerdown and nothing after it, no mouseup and no click. Without Tauri a
 headless page gets the whole click, so anything that waits for the click

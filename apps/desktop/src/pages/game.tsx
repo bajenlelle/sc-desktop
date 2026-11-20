@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { GameBackButton } from "@/components/game/game-toolbar-parts";
 import { GameViewSwitch, type GameViewMode } from "@/components/game/game-view-switch";
 import { GameWatchView } from "@/components/game/game-watch-view";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import {
   announceClosedGameTab,
@@ -42,16 +42,16 @@ import { MatchDetailPage } from "./match-detail";
  * in Details is what it shows; a tab switch serves the copy read on this
  * visit (lib/game-tabs.ts) until any `matches-changed`, or for ten minutes.
  *
- * The open games sit in tabs above the page (one game is one tab), per user and
- * space, in a bar the window's layout draws (components/game/game-tab-bar.tsx:
- * this page is built again for every game, the bar is not). Switching
- * replaces the history entry, so Back leaves the games. A tab switch opens
- * the view the game was left on (lib/game-tabs.ts).
+ * The open games (one game is one tab) are rows in the sidebar's Open games,
+ * per user and space, there from any page (components/shell/open-games.tsx).
+ * Switching from one game to another replaces the history entry, so Back
+ * leaves the games. A switch opens the view the game was left on
+ * (lib/game-tabs.ts). A game opened from a playlist goes back to it: the
+ * toolbar's back button names the playlist (GameBackButton).
  */
 export function GamePage() {
   const { id } = useParams<{ id: string }>();
   const matchId = id!;
-  const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, activeOrgId } = useAuth();
@@ -64,6 +64,21 @@ export function GamePage() {
   // A tab switch: by the tab bar, by a game marked Open in the Library, or by the search finding a game that has a tab.
   const viaTab = via === "tab" || via === "library_tab" || via === "search_tab";
   const startEventId = Number(searchParams.get("play")) || null;
+  // Opened from a playlist (the editor's Show in Game, a game in its subtitle): Back goes to it. Opened any other
+  // way but a switch between open games (the sidebar's rows, the keys, the menus), Back is the Library's again.
+  useState(() => {
+    const from = (location.state as { from?: { playlistId?: unknown; title?: unknown; path?: unknown } } | null)?.from;
+    if (from && typeof from.playlistId === "string") {
+      rememberGameView(matchId, {
+        from: {
+          playlistId: from.playlistId,
+          title: typeof from.title === "string" ? from.title : "Playlist",
+          path: from.path === "/my-playlists" ? "/my-playlists" : "/playlists",
+        },
+      });
+    } else if (via !== "tab") rememberGameView(matchId, { from: null });
+    return null;
+  });
   // A tab switch shows the game as this visit read it, without the spinner.
   const [loaded, setLoaded] = useState<{ match: StoredMatch; videoStatus: VideoFileStatus | "none" } | null>(() =>
     viaTab ? recallLoadedGame(matchId) : null,
@@ -182,28 +197,15 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missing, matchId]);
 
-  // The tab bar is the row above the page whenever a game has a tab, and one is enough
-  // (components/game/game-tab-bar.tsx). A game that isn't there, with no game open, has no bar over it.
-  const underTabs = tabs.tabs.length > 0;
-
   const viewSwitch = <GameViewSwitch value={view ?? "game"} onChange={(next) => show(next)} />;
 
   // A game that isn't there is the Details view's to say (it has the empty state).
-  if (view === "details" || missing) return <MatchDetailPage viewSwitch={missing ? undefined : viewSwitch} underTabs={underTabs} />;
+  if (view === "details" || missing) return <MatchDetailPage viewSwitch={missing ? undefined : viewSwitch} />;
 
   if (!loaded || view === null) {
     return (
       <Page>
-        <Toolbar
-          underTabs={underTabs}
-          title="Game"
-          leading={
-            <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/matches")}>
-              <ChevronLeft />
-              Library
-            </Button>
-          }
-        />
+        <Toolbar title="Game" leading={<GameBackButton matchId={matchId} />} />
         <PageContent width="narrow">
           <div className="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
@@ -221,7 +223,6 @@ export function GamePage() {
       match={loaded.match}
       videoStatus={loaded.videoStatus}
       viewSwitch={viewSwitch}
-      underTabs={underTabs}
       entry={entry}
       startEventId={startEventId}
       onOpenDetails={(opts) => show("details", opts)}

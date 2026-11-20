@@ -56,6 +56,7 @@ describe("menuIdForChord", () => {
 
   it("maps Shift with T to reopening a closed game tab, and T alone to a new one", () => {
     expect(menuIdForChord(chord("T", { ctrlKey: true, shiftKey: true }))).toBe("reopen-game-tab");
+    expect(menuIdForChord(chord("g", { ctrlKey: true }))).toBe("show-clip-in-game");
     expect(menuIdForChord(chord("t", { ctrlKey: true, shiftKey: true }))).toBe("reopen-game-tab");
     expect(menuIdForChord(chord("t", { ctrlKey: true }))).toBe("new-game-tab");
   });

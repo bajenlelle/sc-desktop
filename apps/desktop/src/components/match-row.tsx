@@ -23,7 +23,7 @@ export function MatchRow({
   onArchive?: (archived: boolean) => void;
   /** From probeMatches — undefined while probing (no badge until known). */
   videoStatus?: VideoFileStatus;
-  /** Library only: the game is open in one of the game page's tabs. */
+  /** The game is open on this computer (the sidebar's Open games): marked Open, and it comes back as it was left. */
   openInTab?: boolean;
 }) {
   const date = formatDate(match.date);

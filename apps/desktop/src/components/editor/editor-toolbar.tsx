@@ -1,4 +1,5 @@
 import * as React from "react";
+import type { PlaylistGame } from "@scoutable/shared/lib/playlist-games";
 import {
   ArrowDownUp,
   BarChart3,
@@ -23,7 +24,7 @@ import {
 } from "lucide-react";
 import { exportProgressLabel, exportProgressPercent, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { ExportAction } from "@/components/export-format-dialog";
-import { Toolbar } from "@/components/shell/toolbar";
+import { Toolbar, ToolbarAction } from "@/components/shell/toolbar";
 import { PlaylistViewSwitch } from "@/components/editor/playlist-view-switch";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,12 +65,65 @@ export function BackButton({ title, onBack }: BackToGame) {
   );
 }
 
+/** A reference in running text: quiet until pointed at, then the link it is. */
+const REFERENCE =
+  "cursor-pointer rounded-sm underline-offset-2 outline-none transition-colors duration-100 hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-selection data-[state=open]:text-primary";
+
+/**
+ * The playlist's games, in its subtitle: one game is named, a link that opens it; several are counted
+ * ("3 games"), and the count opens a menu of them with their clips. A reference, not a button: the subtitle
+ * reads as it did, and the game is a click away.
+ */
+function GamesReference({ games, onOpen }: { games: PlaylistGame[]; onOpen: (matchId: string, via: "subtitle" | "subtitle_menu") => void }) {
+  if (games.length === 1) {
+    const [game] = games;
+    return (
+      <a
+        href={`/matches/${game.id}`}
+        // Takes the room after the title up to its own length, and keeps a few letters to click when there is
+        // less: the title gives way after that (components/shell/toolbar.tsx).
+        className={cn(REFERENCE, "block w-0 min-w-[3rem] max-w-max grow truncate")}
+        title={`Open ${game.title}`}
+        onClick={(e) => {
+          // The playlist opens it: it notes the way back and where Add collects to.
+          e.preventDefault();
+          onOpen(game.id, "subtitle");
+        }}
+      >
+        {game.title}
+      </a>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <span role="button" tabIndex={0} className={cn(REFERENCE, "shrink-0")}>
+          {games.length} games
+        </span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-64">
+        {games.map((game) => (
+          <DropdownMenuItem key={game.id} onSelect={() => onOpen(game.id, "subtitle_menu")}>
+            <span className="min-w-0 flex-1 truncate">{game.title}</span>
+            <span className="shrink-0 pl-3 text-xs nums text-muted-foreground">
+              {game.clips} clip{game.clips !== 1 ? "s" : ""}
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export interface EditorToolbarProps {
   name: string;
   /** Set while the editor was opened from a game page. */
   backTo?: BackToGame | null;
   itemCount: number;
-  isMultiMatch: boolean;
+  /** The games the playlist's clips come from (packages/shared/lib/playlist-games.ts), named in the subtitle. */
+  games: PlaylistGame[];
+  /** Opens a game (its toolbar's back button returns to this playlist). */
+  onOpenGame: (matchId: string, via: "subtitle" | "subtitle_menu") => void;
   editing: boolean;
   editValue: string;
   onEditValueChange: (value: string) => void;
@@ -204,13 +258,23 @@ export function EditorToolbar(p: EditorToolbarProps) {
       type="button"
       onClick={p.onStartRename}
       title="Rename playlist"
-      className="max-w-[32rem] truncate rounded-md px-1 text-left text-title-3 text-foreground outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+      className="max-w-full truncate rounded-md px-1 text-left text-title-3 text-foreground outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
     >
       {p.name}
     </button>
   );
 
-  const subtitle = `${p.itemCount} item${p.itemCount !== 1 ? "s" : ""}${p.isMultiMatch ? " · multiple games" : ""}`;
+  // Parts the toolbar lays out side by side: the count stays whole, the game's name is cut short by itself and
+  // keeps enough of itself to be read and clicked (components/shell/toolbar.tsx).
+  const subtitle = (
+    <>
+      <span className="shrink-0 whitespace-pre">
+        {p.itemCount} item{p.itemCount !== 1 ? "s" : ""}
+        {p.games.length > 0 ? " · " : ""}
+      </span>
+      {p.games.length > 0 && <GamesReference games={p.games} onOpen={p.onOpenGame} />}
+    </>
+  );
 
   return (
     <Toolbar
@@ -223,6 +287,9 @@ export function EditorToolbar(p: EditorToolbarProps) {
       }
       title={title}
       subtitle={subtitle}
+      // Below this the actions show their icons only, so the title and the game keep their room. Measured on the
+      // bar itself: the labels take some 180 px, and a back button to a game needs room of its own.
+      compactBelow={p.backTo ? 1240 : 1100}
       actions={
         <>
           {/* Clip length: pre/post roll, set once per playlist. */}
@@ -253,37 +320,65 @@ export function EditorToolbar(p: EditorToolbarProps) {
             </PopoverContent>
           </Popover>
 
-          <Button
-            variant={p.filtersActive ? "secondary" : "ghost"}
-            size="sm"
-            onClick={p.onToggleFilters}
-            aria-pressed={p.filtersOpen}
-            title="Filter clips by player, label, event type, period or game"
-          >
-            <Filter />
-            Filter
-            {p.activeFilterDims > 0 && (
-              <span className="rounded-full bg-primary px-1.5 text-caption nums text-primary-foreground">{p.activeFilterDims}</span>
+          <ToolbarAction label="Filter">
+            {(compact) => (
+              <Button
+                variant={p.filtersActive ? "secondary" : "ghost"}
+                size={compact && p.activeFilterDims === 0 ? "icon-sm" : "sm"}
+                onClick={p.onToggleFilters}
+                aria-pressed={p.filtersOpen}
+                aria-label={compact ? "Filter" : undefined}
+                title={compact ? undefined : "Filter clips by player, label, event type, period or game"}
+              >
+                <Filter />
+                {!compact && "Filter"}
+                {p.activeFilterDims > 0 && (
+                  <span className="rounded-full bg-primary px-1.5 text-caption nums text-primary-foreground">{p.activeFilterDims}</span>
+                )}
+              </Button>
             )}
-          </Button>
+          </ToolbarAction>
 
           {p.isPlaying ? (
-            <Button variant="outline" size="sm" onClick={p.onStop}>
-              <Square className="fill-current" />
-              Stop
-            </Button>
+            <ToolbarAction label="Stop">
+              {(compact) => (
+                <Button variant="outline" size={compact ? "icon-sm" : "sm"} onClick={p.onStop} aria-label={compact ? "Stop" : undefined}>
+                  <Square className="fill-current" />
+                  {!compact && "Stop"}
+                </Button>
+              )}
+            </ToolbarAction>
           ) : (
-            <Button variant="outline" size="sm" onClick={p.onPlay} disabled={p.playDisabled}>
-              <Play className="fill-current" />
-              {p.playLabel}
-            </Button>
+            <ToolbarAction label={p.playLabel}>
+              {(compact) => (
+                <Button
+                  variant="outline"
+                  size={compact ? "icon-sm" : "sm"}
+                  onClick={p.onPlay}
+                  disabled={p.playDisabled}
+                  aria-label={compact ? p.playLabel : undefined}
+                >
+                  <Play className="fill-current" />
+                  {!compact && p.playLabel}
+                </Button>
+              )}
+            </ToolbarAction>
           )}
 
           <div className={cn("flex items-center rounded-md", p.highlightAddClips && highlightRing)}>
-            <Button size="sm" className="rounded-r-none" onClick={p.onAddClips}>
-              <Plus />
-              Add clips
-            </Button>
+            <ToolbarAction label="Add clips">
+              {(compact) => (
+                <Button
+                  size={compact ? "icon-sm" : "sm"}
+                  className="rounded-r-none"
+                  onClick={p.onAddClips}
+                  aria-label={compact ? "Add clips" : undefined}
+                >
+                  <Plus />
+                  {!compact && "Add clips"}
+                </Button>
+              )}
+            </ToolbarAction>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -327,19 +422,24 @@ export function EditorToolbar(p: EditorToolbarProps) {
           ) : (
             <Explained reason={p.exportLocked ? null : p.exportDisabledReason}>
               <DropdownMenu onOpenChange={(open) => open && p.onExportMenuOpen()}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className={cn(p.highlightExport && highlightRing)}
-                    disabled={p.exportLocked ? !p.hasItems : !!p.exportDisabledReason}
-                    title={p.exportLocked ? (p.exportLockedTitle ?? "Export playlists as MP4 with Pro") : undefined}
-                  >
-                    {p.exportLocked ? <Lock /> : <FileDown />}
-                    {p.exportLabel}
-                    <ChevronDown className="size-3 text-muted-foreground" />
-                  </Button>
-                </DropdownMenuTrigger>
+                <ToolbarAction label={p.exportLabel}>
+                  {(compact) => (
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className={cn(p.highlightExport && highlightRing)}
+                        disabled={p.exportLocked ? !p.hasItems : !!p.exportDisabledReason}
+                        aria-label={compact ? p.exportLabel : undefined}
+                        title={p.exportLocked ? (p.exportLockedTitle ?? "Export playlists as MP4 with Pro") : undefined}
+                      >
+                        {p.exportLocked ? <Lock /> : <FileDown />}
+                        {!compact && p.exportLabel}
+                        <ChevronDown className="size-3 text-muted-foreground" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  )}
+                </ToolbarAction>
                 <DropdownMenuContent align="end" className="w-64">
                   <DropdownMenuItem onSelect={() => p.onExport("save")}>
                     <FileDown className="text-muted-foreground" />
@@ -418,7 +518,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={p.onStartRename}>Rename…</DropdownMenuItem>
-              <DropdownMenuItem onSelect={p.onDeletePlaylist} className="text-destructive focus:bg-destructive focus:text-white">
+              <DropdownMenuItem onSelect={p.onDeletePlaylist} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
                 <Trash2 />
                 Delete playlist…
               </DropdownMenuItem>

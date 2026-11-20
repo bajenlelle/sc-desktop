@@ -186,10 +186,17 @@ export function searchIndex(index: SearchIndex, query: string, recents: readonly
 }
 
 /** What was opened last and is still there, newest first, across kinds. */
-export function recentItems(index: SearchIndex, recents: readonly RecentOpen[], max = SEARCH_RECENT_MAX): SearchItem[] {
+export function recentItems(
+  index: SearchIndex,
+  recents: readonly RecentOpen[],
+  max = SEARCH_RECENT_MAX,
+  /** Games open on this computer (the sidebar's Open games): they come first, in the order they were opened last. */
+  openGames: ReadonlySet<string> = new Set(),
+): SearchItem[] {
   const byKey = new Map(index.entries.map((e) => [key(e.item.kind, e.item.id), e.item]));
+  const isOpen = (r: RecentOpen) => r.kind === "game" && openGames.has(r.id);
   const out: SearchItem[] = [];
-  for (const r of recents) {
+  for (const r of [...recents.filter(isOpen), ...recents.filter((r) => !isOpen(r))]) {
     const item = byKey.get(key(r.kind, r.id));
     if (item) out.push(item);
     if (out.length === max) break;

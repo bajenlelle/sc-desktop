@@ -108,13 +108,14 @@ export type AnalyticsEvent =
   | "game_view_seeked" // via (row | timeline | key | marker | quarter | transport | now_bar | scrubber: the player's own bar | timeline_drag | wheel: a sideways swipe), kind (play | time | timeout | period | run), period; a drag or a swipe is one event, sent when it ends
   | "game_view_filtered" // team, moment, groups (the filter sheet's active groups), search, on_court, visible
   | "game_view_closed" // seconds_played, clips_added, labels_applied
-  | "game_tab_switched" // via (tab | key | menu | picker: the + chose a game that had a tab), tabs (how many are open)
-  | "game_tab_closed" // via (button | middle_click | menu: Close Tab, ⌘W or Ctrl+W | key: Delete on the tab | tab_menu: the tab's own menu | close_others: every other tab, one event), tabs (how many are left)
+  | "game_tab_switched" // via (sidebar: a row of Open games | key: ⌃Tab | menu: Show Next/Previous Game Tab, Close Tab | picker: the + chose an open game | title_menu: the game title's menu with the sidebar hidden | window_menu: a game in the Window menu), tabs (how many are open), from_game (false: from another page, back to a game)
+  | "game_tab_closed" // via (button: the row's × | middle_click | menu: Close Tab, ⌘W or Ctrl+W | key: Delete on the row | tab_menu: the row's own menu | close_others: every other tab, one event), tabs (how many are left), from_game
+  | "game_opened_from_playlist" // via (subtitle: the editor's one game named | subtitle_menu: one of its "N games" | clip_menu: a row's Show in Game | menu: Go > Show Clip in Game, ⌘G | watch_caption: the game under a shared playlist's footage), at_play (opened at the clip's play), games (in the playlist)
   // Search over a space (desktop ⌘K or Ctrl+K; docs/search.md). What was typed is never sent.
   | "search_opened" // via (shortcut: ⌘K, Ctrl+K or Go > Search… | sidebar)
   | "search_result_opened" // kind (playlist | report | game), from (recent | newest: nothing opened here yet | results), position (row from the top, 0 first), query_length
   | "game_tab_reopened" // tabs (how many are open): Reopen Closed Tab, or the Reopen of the made-room notice
-  | "game_tabs_reordered" // tabs: a tab was dragged to another place
+  | "game_tabs_reordered" // tabs: an open game's row was dragged to another place
   | "collect_target_set" // source (existing | new), shared, via (toolbar | row | now_bar | bulk | menu | selection)
   | "collect_undone" // via (toast | row), clips
   | "collect_sent" // clips, target (it was the "Adding to" playlist), in_place (true: cut and uploaded from the game view; absent: opened the editor to upload what was held)

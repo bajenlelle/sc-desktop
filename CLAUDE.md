@@ -115,6 +115,9 @@ playlists, and share them with teams; players watch on web/mobile.
   env var is set. Don't add error tracking dependencies to `packages/shared`.
 - **UI copy** is English, sentence case, remaining-oriented for quotas
   ("2 of 3 imports left").
+- **UI design**: before designing, building or reviewing any UI (layout,
+  colour, motion, menus, toolbars, lists), invoke the `apple-design` skill
+  (`.claude/skills/apple-design`) and follow it.
 - Never commit `.env*` files or secrets; DSNs are the only allowed
   hardcoded identifier.
 
