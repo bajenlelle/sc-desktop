@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { BOX_STATS, statSetName, type BoxCell, type BoxStat, type BoxTeam, type GameBox } from "@scoutable/shared/lib/game-box";
 import { onCourtStints, type GameFlow } from "@scoutable/shared/lib/game-flow";
 import { gameLineups } from "@scoutable/shared/lib/game-lineups";
+import { playerRows, type PlayerRow } from "@scoutable/shared/lib/game-players";
 import type { HostedSeasonPlayer } from "@scoutable/shared/lib/hosted-stats";
 import { LEADER_MIN_3PA } from "@scoutable/shared/lib/report-leaders";
 import type { StoredMatch } from "@scoutable/shared/types/match";
@@ -16,17 +17,8 @@ import { cn } from "@/lib/utils";
 import { StatCell, type OpenPlays, type PlaySet } from "./stat-cell";
 import { useSeasonPlayers, type useGameBoxScore } from "./use-game-box-score";
 
-/** One player's row: their counted line, and what the league adds (minutes, plus-minus, season). */
-interface Row {
-  personId: number;
-  name: string;
-  number: string;
-  starter: boolean;
-  cells: Record<BoxStat, BoxCell>;
-  min: number | null;
-  pm: number | null;
-  /** The plays while they were on the floor: what MIN and +/- open. */
-  floorIds: readonly number[];
+/** One player's row (game-players.ts), with the league's season beside it. */
+interface Row extends PlayerRow {
   season: HostedSeasonPlayer | null;
 }
 
@@ -68,10 +60,6 @@ const SEASON_COLS: { key: SeasonCol; label: string; title: string }[] = [
 
 /** Columns that a source may not record at all; dropped when neither team has one. */
 const MAY_BE_UNRECORDED: readonly BoxStat[] = ["oreb", "dreb", "ast", "tov", "stl", "blk", "pf"];
-
-const ZERO = Object.fromEntries(
-  BOX_STATS.map((s): [BoxStat, BoxCell] => [s, s === "fg" || s === "tp" || s === "ft" ? { value: 0, attempts: 0, eventIds: [] } : { value: 0, eventIds: [] }]),
-) as Record<BoxStat, BoxCell>;
 
 const minutes = (seconds: number | null) => (seconds === null ? "–" : String(Math.round(seconds / 60)));
 const signed = (n: number | null) => (n === null ? "–" : n > 0 ? `+${n}` : n < 0 ? `−${-n}` : "0");
@@ -135,49 +123,27 @@ export function PlayersSection({
     return seconds;
   }, [match.events, box.hasFives]);
 
-  const rowsOf = (team: BoxTeam): Row[] => {
-    const side = team.side;
-    const starters = new Set(side === 1 ? box.starters.home : box.starters.away);
-    const floor = (personId: number) => {
-      const stints = onCourtStints(flow, personId);
-      const ids: number[] = [];
-      for (const s of stints) {
-        const from = flow.indexOf.get(s.fromEventId) ?? 0;
-        const to = flow.indexOf.get(s.toEventId) ?? from;
-        for (const e of flow.order.slice(from, to + 1)) ids.push(e.eventId);
-      }
-      const pm = stints.length > 0 && stints.every((s) => s.plusMinus !== null) ? stints.reduce((n, s) => n + s.plusMinus!, 0) : null;
-      return { ids, pm };
-    };
-    const make = (personId: number, name: string, number: string, cells: Record<BoxStat, BoxCell>): Row => {
-      const league = boxScore.byPerson.get(personId);
-      const stints = floor(personId);
-      return {
-        personId,
-        name,
-        number,
-        starter: starters.has(personId),
-        cells,
-        min: league?.min ?? (boxScore.status === "stints" ? (lineupSeconds.get(personId) ?? null) : null),
-        pm: league?.pm ?? (boxScore.status !== "box" ? stints.pm : null),
-        floorIds: stints.ids,
-        season: season.players?.get(String(personId)) ?? null,
-      };
-    };
-    const rows = team.players.map((p) => make(p.personId, p.name, p.number, p.cells));
-    // Players the league's box score lists who have no play of their own.
-    for (const [personId, p] of boxScore.byPerson) {
-      if (p.side !== side || rows.some((r) => r.personId === personId)) continue;
-      rows.push(make(personId, p.name, p.number ?? "", ZERO));
+  /** The plays during a player's stints, and the score change over them. */
+  const floor = (personId: number) => {
+    const stints = onCourtStints(flow, personId);
+    const eventIds: number[] = [];
+    for (const s of stints) {
+      const from = flow.indexOf.get(s.fromEventId) ?? 0;
+      const to = flow.indexOf.get(s.toEventId) ?? from;
+      for (const e of flow.order.slice(from, to + 1)) eventIds.push(e.eventId);
     }
-    return rows.sort(
-      (a, b) =>
-        Number(b.starter) - Number(a.starter) ||
-        (b.min ?? -1) - (a.min ?? -1) ||
-        b.cells.pts.value - a.cells.pts.value ||
-        a.name.localeCompare(b.name),
-    );
+    const plusMinus = stints.length > 0 && stints.every((s) => s.plusMinus !== null) ? stints.reduce((n, s) => n + s.plusMinus!, 0) : null;
+    return { eventIds, plusMinus };
   };
+  const rowsOf = (team: BoxTeam): Row[] =>
+    playerRows({
+      team,
+      starters: team.side === 1 ? box.starters.home : box.starters.away,
+      league: boxScore.byPerson,
+      source: boxScore.status,
+      lineupSeconds,
+      floor,
+    }).map((r) => ({ ...r, season: season.players?.get(String(r.personId)) ?? null }));
 
   const teams = [
     { team: box.home, name: match.homeTeam.name || "Home" },

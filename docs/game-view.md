@@ -623,8 +623,10 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
   side in the heavier weight, never a colour; then points from the paint,
   second chance, fast break, turnovers and bench); Players (both teams, home
   first; starters then bench; Game | Season); Shots (a half court per team,
-  basket at the top, a dot per field goal, made filled, missed a ring; rim,
-  mid-range and threes as makes of attempts; one player at a time); Lineups
+  basket at the top, a dot per field goal, made filled, missed a ring; at
+  the rim, paint, mid-range and threes as makes of attempts, rim and paint by
+  the feed's own areas (`underbasket`, `inthepaint`) so the paint's short
+  twos aren't called mid-range; one player at a time); Lineups
   (fives by time on the floor, the five longest of at least two minutes,
   "Show all").
 - **Small-sample honesty**: one player's shooting is makes of attempts, never
@@ -647,12 +649,17 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
 - **Older games get less**: games imported before September 2026 have no shot
   positions and no fives, so Shots and Lineups say so in one line each, bench
   points are left out and starters fall back to points order. A column a
-  source doesn't record (Profixio: no misses, rebounds or assists) is dropped.
+  source doesn't record (Profixio: no misses, rebounds or assists) is dropped,
+  and a source with no misses gets no possessions or four factors (one line
+  says why), since FGA would equal FGM. A points-from figure no play in the
+  game is marked for is left out rather than shown as 0–0. The player rows'
+  rules (box-score-only players, the fallbacks for minutes and +/-) are pure
+  and tested in `game-players.ts`.
 - **Which view a game opens on is unchanged**: Game when its video plays here
   and it is synced, else Details. `?view=stats` names Stats.
-- **Tunable**: `RIM_RADIUS_M` (1.25 m, FIBA's no-charge arc) has not been
-  checked against a real game's positions; layups 2 to 4 m out count as
-  mid-range until it is.
+- **Tunable**: `RIM_RADIUS_M` (1.25 m, FIBA's no-charge arc) and the key's
+  measures only zone a shot the feed gives no area; not yet checked against a
+  real game's positions.
 - **Analytics**: `game_stats_viewed` (entry, has_shots, has_lineups,
   minutes_source), `game_stats_plays_opened` (kind, stat, plays),
   `game_stats_season_shown`; `game_view_filtered` gains `picked`.

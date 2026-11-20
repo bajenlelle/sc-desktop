@@ -10,6 +10,7 @@ import { StatCell, type OpenPlays } from "./stat-cell";
 
 const ZONE: Record<ShotZone, { label: string; set: string }> = {
   rim: { label: "At the rim", set: "shots at the rim" },
+  paint: { label: "Paint", set: "other shots in the paint" },
   mid: { label: "Mid-range", set: "mid-range shots" },
   three: { label: "Threes", set: "threes" },
 };

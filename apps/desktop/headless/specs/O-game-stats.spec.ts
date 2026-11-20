@@ -87,6 +87,11 @@ test("Stats reads the game, and a number opens its plays in the Game view", asyn
   await showStats(page);
   await expect(page.getByRole("heading", { name: "Players", level: 2 })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.querySelector("[data-page-scroller]")!.scrollTop)).toBeGreaterThan(scrolled - 40);
+
+  // The set stays the Game view's filter across a visit to Stats, until it is cleared.
+  await page.getByRole("radiogroup", { name: "View" }).getByRole("radio", { name: "Game" }).click();
+  await expect(page.getByRole("button", { name: `Clear ${fgName}` }), "the set survives Stats and back").toBeVisible({ timeout: 30_000 });
+  await expect(playRows(page)).toHaveCount(attempts);
 });
 
 test("a game without positions or fives says so instead of drawing them", async ({ page, browserName }) => {

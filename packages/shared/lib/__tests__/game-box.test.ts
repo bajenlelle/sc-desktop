@@ -210,11 +210,21 @@ describe("teamFactors", () => {
 
   it("offensive rebounds won include team rebounds", () => {
     const events = clocked([
+      play("2pt", lind, miss),
       ...many(10, () => play("rebound", lind, { subType: "offensive" })),
       ...many(2, () => play("rebound", 1, { subType: "offensive" })),
       ...many(28, () => play("rebound", olsson, { subType: "defensive" })),
     ]);
     expect(teamFactors(gameBox(events)).home.orebPct).toBeCloseTo(12 / 40, 5);
+  });
+
+  it("a source that records no misses has no factors", () => {
+    const events = clocked([...many(10, () => play("2pt", lind)), ...many(5, () => play("3pt", olsson)), play("foul", olsson)]);
+    const { home, away } = teamFactors(gameBox(events));
+    for (const f of [home, away]) {
+      expect(f.possessions).toBeNull();
+      expect([f.ppp, f.efg, f.tovRate, f.orebPct, f.ftRate]).toEqual([null, null, null, null, null]);
+    }
   });
 
   it("a factor with nothing to divide by is null", () => {
@@ -242,6 +252,14 @@ describe("pointsFrom", () => {
     expect(from.second_chance!.home.eventIds).toEqual([events[0].eventId, events[2].eventId]);
     expect(from.fast_break!.home.value).toBe(3);
     expect(from.fast_break!.away.value).toBe(2);
+  });
+
+  it("a figure is null when no play in the game carries its qualifier", () => {
+    const plain = clocked([play("2pt", lind), play("3pt", olsson)]);
+    const from = pointsFrom(plain, gameBox(plain));
+    expect(from.paint).toBeNull();
+    expect(from.second_chance).toBeNull();
+    expect(from.fast_break).toBeNull();
   });
 
   it("points from turnovers are null when no play in the game carries the qualifier", () => {

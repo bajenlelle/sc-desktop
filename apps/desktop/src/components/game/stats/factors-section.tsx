@@ -42,13 +42,34 @@ export function FactorsSection({ match, box, onOpen }: { match: StoredMatch; box
   const tints = useMemo(() => teamTints(match.homeTeam.color, match.awayTeam.color), [match.homeTeam.color, match.awayTeam.color]);
   const home = match.homeTeam.name || "Home";
   const away = match.awayTeam.name || "Away";
-  const possessions = Math.round((factors.home.possessions + factors.away.possessions) / 2);
+  const possessions =
+    factors.home.possessions !== null && factors.away.possessions !== null
+      ? Math.round((factors.home.possessions + factors.away.possessions) / 2)
+      : null;
   const figures = POINTS_FROM.filter((k) => from[k] !== null);
+  if (possessions === null && figures.length === 0) {
+    return (
+      <section>
+        <GroupHeader title="Why it went that way" />
+        <p className="rounded-window bg-card px-4 py-3 text-subheadline text-muted-foreground ring-1 ring-separator">
+          This league's play-by-play doesn't record missed shots, so possessions and the four factors can't be counted.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section>
-      <GroupHeader title="Why it went that way" action={<span className="text-muted-foreground nums">About {possessions} possessions each</span>} />
+      <GroupHeader
+        title="Why it went that way"
+        action={possessions !== null && <span className="text-muted-foreground nums">About {possessions} possessions each</span>}
+      />
       <div className="rounded-window bg-card p-4 ring-1 ring-separator">
+        {possessions === null ? (
+          <p className="text-subheadline text-muted-foreground">
+            This league's play-by-play doesn't record missed shots, so possessions and the four factors can't be counted.
+          </p>
+        ) : (
         <div className="grid grid-cols-[3.5rem_minmax(0,1fr)_minmax(9rem,13rem)_minmax(0,1fr)_3.5rem] items-center gap-x-3 gap-y-2.5 text-sm">
           <span className="col-span-2 truncate text-right text-caption-1 text-muted-foreground">{home}</span>
           <span />
@@ -74,6 +95,7 @@ export function FactorsSection({ match, box, onOpen }: { match: StoredMatch; box
             );
           })}
         </div>
+        )}
         {figures.length > 0 && (
           <div className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-1 border-t border-separator pt-3 text-subheadline">
             <span className="text-muted-foreground">Points from</span>

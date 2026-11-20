@@ -4,17 +4,10 @@ import type { StoredMatch } from "@scoutable/shared/types/match";
 import { loadGameStats, loadSeasonPlayers, seasonOf } from "@/lib/stats-card-data";
 import type { HostedSeasonPlayer } from "@scoutable/shared/lib/hosted-stats";
 
-export interface BoxScorePerson {
-  /** Seconds on the floor, as the league's box score has them. */
-  min: number | null;
-  pm: number | null;
-  number: string | null;
-  name: string;
-  side: 1 | 2;
-}
+import type { LeaguePerson, MinutesSource } from "@scoutable/shared/lib/game-players";
 
-/** Where the table's minutes and plus-minus come from. */
-export type MinutesSource = "reading" | "box" | "stints" | "none";
+export type { MinutesSource };
+type BoxScorePerson = LeaguePerson;
 
 /**
  * Minutes and plus-minus from the league's box score, by personId (the plays

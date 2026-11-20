@@ -171,8 +171,8 @@ const isShot = (e: PlayByPlayEvent) => e.type === "2pt" || e.type === "3pt" || e
 // ---------------------------------------------------------------------------
 
 export interface TeamFactors {
-  /** FGA − OREB + TO + 0.44 × FTA. */
-  possessions: number;
+  /** FGA − OREB + TO + 0.44 × FTA; null when the source records no misses (every factor is then null too). */
+  possessions: number | null;
   /** Points per possession. */
   ppp: number | null;
   /** (FGM + 0.5 × 3PM) ÷ FGA. */
@@ -188,6 +188,11 @@ export interface TeamFactors {
 const ratio = (a: number, b: number): number | null => (b > 0 ? a / b : null);
 
 export function teamFactors(box: GameBox): { home: TeamFactors; away: TeamFactors } {
+  // A source that logs made baskets only (Profixio) has FGA = FGM: every factor would be invented.
+  if (!box.hasMisses) {
+    const none: TeamFactors = { possessions: null, ppp: null, efg: null, tovRate: null, orebPct: null, ftRate: null };
+    return { home: none, away: { ...none } };
+  }
   const of = (t: BoxTeam, other: BoxTeam): TeamFactors => {
     const c = t.totals;
     const fga = c.fg.attempts ?? 0;
@@ -238,19 +243,20 @@ function sidePoints(events: readonly PlayByPlayEvent[], keep: (e: PlayByPlayEven
   return { home: { value: out[1].value, eventIds: out[1].ids }, away: { value: out[2].value, eventIds: out[2].ids } };
 }
 
-/** A figure is null when the game can't tell it (no fives for bench, no qualifier anywhere for turnovers). */
+/** A figure is null when the game can't tell it (no fives for bench, no play anywhere with its qualifier for the rest). */
 export function pointsFrom(
   events: readonly PlayByPlayEvent[],
   box: GameBox,
 ): Record<PointsFrom, { home: BoxCell; away: BoxCell } | null> {
   const has = (e: PlayByPlayEvent, q: string) => e.qualifiers?.includes(q) ?? false;
-  const fromTurnovers = events.some((e) => has(e, QUALIFIER.turnovers));
+  // A feed that never marks a qualifier can't tell its figure: 0–0 would be a claim.
+  const marked = (q: string) => (events.some((e) => has(e, q)) ? sidePoints(events, (e) => has(e, q)) : null);
   const starters = new Set([...box.starters.home, ...box.starters.away]);
   return {
-    paint: sidePoints(events, (e) => has(e, QUALIFIER.paint)),
-    second_chance: sidePoints(events, (e) => has(e, QUALIFIER.second_chance)),
-    fast_break: sidePoints(events, (e) => has(e, QUALIFIER.fast_break)),
-    turnovers: fromTurnovers ? sidePoints(events, (e) => has(e, QUALIFIER.turnovers)) : null,
+    paint: marked(QUALIFIER.paint),
+    second_chance: marked(QUALIFIER.second_chance),
+    fast_break: marked(QUALIFIER.fast_break),
+    turnovers: marked(QUALIFIER.turnovers),
     bench: box.hasFives ? sidePoints(events, (e) => !!e.player && !starters.has(e.player.playerId)) : null,
   };
 }
