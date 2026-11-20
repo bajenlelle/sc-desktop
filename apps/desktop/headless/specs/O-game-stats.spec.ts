@@ -176,6 +176,24 @@ test("without the season the bars stay as they were", async ({ page }) => {
     .toMatchObject({ season: "failed", season_gaps: 0 });
 });
 
+// The real `season` action on staging, no mock. It spends about three Genius calls the first time a
+// competition is asked for in 12 hours, so it runs only on purpose: SEASON_LIVE=1.
+test("the real season answer draws the marks", async ({ page, browserName }) => {
+  test.skip(!process.env.SEASON_LIVE, "spends Genius quota; run with SEASON_LIVE=1");
+  test.skip(browserName !== "webkit", "one browser is enough for a live call");
+  const tracked = await recordAnalytics(page);
+  await openFirstGame(page);
+  await showStats(page);
+  await expect(page.getByRole("heading", { name: "Why it went that way", level: 2 })).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(async () => (await tracked()).find((e) => e.event === "game_stats_viewed")?.properties?.season, { timeout: 60_000 })
+    .toBe("shown");
+  await expect(page.locator("[data-season-mark]").first()).toBeVisible();
+  await expect(page.getByText("Season numbers aren't available right now.")).toHaveCount(0);
+  await page.getByRole("heading", { name: "Why it went that way", level: 2 }).scrollIntoViewIfNeeded();
+  await shot(page, `${browserName}-O-stats-season-live`);
+});
+
 test("a game without positions or fives says so instead of drawing them", async ({ page, browserName }) => {
   await openSampleGame(page);
   await showStats(page);
