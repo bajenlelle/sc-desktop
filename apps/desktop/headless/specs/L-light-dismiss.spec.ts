@@ -1,6 +1,6 @@
 /**
  * A press anywhere outside closes what is open on top of a page, the window's
- * title zone included. In the real app a press on the title bar, the tab bar
+ * title zone included. In the real app a press on the title bar
  * or a toolbar's empty part starts a window drag and the page never sees the
  * click it would have closed on; `emulateWindowDragRegions` reproduces that.
  * Reads only.
@@ -20,17 +20,15 @@ async function pressDragRegion(page: Page, at: { x: number; y: number }, what: s
   await page.mouse.click(at.x, at.y);
 }
 
-test("the game's filter closes on a press on the title zone: the toolbar, the tab bar and the sidebar's top", async ({ page }) => {
+test("the game's filter closes on a press on the title zone: the toolbar and the sidebar's top", async ({ page }) => {
   await emulateWindowDragRegions(page);
   await openLibraryGame(page, 0);
   await showGameView(page);
 
   const title = (await heading(page).boundingBox())!;
-  const tabs = (await page.getByRole("tablist", { name: "Open games" }).boundingBox())!;
   const spots: [string, { x: number; y: number }][] = [
     ["the toolbar's title", { x: title.x + title.width / 2, y: title.y + title.height / 2 }],
     ["the toolbar beside the title", { x: title.x + title.width + 60, y: title.y + title.height / 2 }],
-    ["the tab bar beside the tabs", { x: tabs.x + tabs.width + 200, y: tabs.y + tabs.height / 2 }],
   ];
   // The sidebar's top strip is the title bar's height: there only where the title bar lies over the page (macOS).
   const strip = await page.locator("aside [data-tauri-drag-region]").first().boundingBox();

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarIcon, Check, ChevronLeft, ChevronsUpDown, Film, ListPlus, Loader2, MinusCircle, Plus, VideoOff } from "lucide-react";
+import { CalendarIcon, Check, ChevronsUpDown, Film, ListPlus, Loader2, MinusCircle, Plus, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
@@ -25,6 +25,7 @@ import {
 } from "@scoutable/shared/lib/period-sync";
 import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
 import { Page, PageContent } from "@/components/shell/page";
+import { GameBackButton, GameTitle } from "@/components/game/game-toolbar-parts";
 import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -214,7 +215,7 @@ function RosterGroup({
  * (pages/game.tsx) shows it as the game page's Details view and hands it the
  * Game | Details switch for its toolbar.
  */
-export function MatchDetailPage({ viewSwitch, underTabs }: { viewSwitch?: ReactNode; underTabs?: boolean } = {}) {
+export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {}) {
   const { id } = useParams<{ id: string }>();
   const matchId = id!;
   const navigate = useNavigate();
@@ -391,14 +392,8 @@ export function MatchDetailPage({ viewSwitch, underTabs }: { viewSwitch?: ReactN
     return (
       <Page>
         <Toolbar
-          underTabs={underTabs}
           title="Game"
-          leading={
-            <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/matches")}>
-              <ChevronLeft />
-              Library
-            </Button>
-          }
+          leading={<GameBackButton matchId={matchId} />}
         />
         <PageContent width="narrow">
           {notFound ? (
@@ -541,17 +536,13 @@ export function MatchDetailPage({ viewSwitch, underTabs }: { viewSwitch?: ReactN
   return (
     <Page>
       <Toolbar
-        underTabs={underTabs}
-        title={title || storedMatch.title}
+        title={<GameTitle title={title || storedMatch.title} />}
         subtitle={[`${storedMatch.homeTeam.name} – ${storedMatch.awayTeam.name}`, date ? formatDate(parseISO(date)) : null]
           .filter(Boolean)
           .join(" · ")}
         leading={
           <>
-            <Button variant="ghost" size="sm" className="-ml-1 shrink-0 text-muted-foreground" onClick={() => navigate("/matches")}>
-              <ChevronLeft />
-              Library
-            </Button>
+            <GameBackButton matchId={matchId} />
             {viewSwitch}
           </>
         }

@@ -117,7 +117,7 @@ export function PendingInvites({
                       <DropdownMenuItem onSelect={() => void act(invite, "resend")}>Resend invite</DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        className="text-destructive focus:bg-destructive focus:text-white"
+                        className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                         onSelect={() => void act(invite, "revoke")}
                       >
                         Withdraw invite

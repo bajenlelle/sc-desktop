@@ -108,7 +108,7 @@ export function TeamPicker({ teams, suggestedIds, selectedId, onSelect }: TeamPi
                   aria-selected={selected}
                   className={cn(
                     "flex w-full cursor-default items-center gap-3 px-3 py-2 text-left text-sm outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
-                    selected && "bg-primary/12 hover:bg-primary/15",
+                    selected && "bg-row-selected hover:bg-row-selected",
                   )}
                 >
                   <TeamCrest team={team} />

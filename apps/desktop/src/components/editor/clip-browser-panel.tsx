@@ -153,9 +153,9 @@ const BrowserRow = memo(function BrowserRow({
         // The separator goes by place in the list: the first row drawn isn't always the list's first.
         index > 0 && "shadow-[inset_0_1px_0_var(--separator)]",
         isActive
-          ? "bg-primary/12"
+          ? "bg-row-selected"
           : isSelected
-            ? "bg-primary/6 hover:bg-primary/10"
+            ? "bg-fill-1 hover:bg-fill-2"
             : "hover:bg-fill-1 active:bg-fill-2",
         alreadyIn && "opacity-40",
       )}
@@ -224,7 +224,7 @@ const BrowserRow = memo(function BrowserRow({
           (labelPicker ?? (
             <button
               type="button"
-              className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100 data-[state=open]:text-primary"
+              className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground active:scale-95 data-[state=open]:opacity-100 data-[state=open]:text-primary"
               title="Labels"
               aria-label="Labels"
               onClick={() => onLabel(rowKey)}

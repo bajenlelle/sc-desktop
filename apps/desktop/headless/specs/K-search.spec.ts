@@ -39,7 +39,7 @@ const field = (page: Page) => panel(page).getByRole("combobox");
 const options = (page: Page) => panel(page).getByRole("option");
 const group = (page: Page, name: string) => panel(page).getByRole("group", { name, exact: true });
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
-const gameTabs = (page: Page) => page.getByRole("tablist", { name: "Open games" }).getByRole("tab");
+const gameTabs = (page: Page) => page.getByRole("navigation", { name: "Open games" }).locator("button[data-open-game]");
 const viewRadio = (page: Page, name: "Clips" | "Report") => page.getByRole("radiogroup", { name: "View" }).getByRole("radio", { name, exact: true });
 
 /** The select of each read only the search makes: its index of playlists, games and report drafts. */
@@ -108,8 +108,11 @@ test("Search in the sidebar opens on what was opened last, and Esc gives the foc
   await expect(field(page)).toBeFocused();
   await expect(field(page)).toHaveAttribute("placeholder", "Search playlists, reports and games");
   const recent = group(page, "Recent").getByRole("option");
-  await expect(recent.nth(0), "the playlist opened last comes first").toContainText(ALPHA);
-  await expect(recent.nth(1), "then the game opened before it").toContainText(game.title);
+  // The game is still open (the sidebar's Open games): open games come first, marked Open, then the rest by
+  // when they were opened.
+  await expect(recent.nth(0), "the open game comes first").toContainText(game.title);
+  await expect(recent.nth(0).getByText("Open", { exact: true })).toBeVisible();
+  await expect(recent.nth(1), "then the playlist opened last").toContainText(ALPHA);
   await expect(recent.nth(0)).toHaveAttribute("aria-selected", "true");
   await shot(page, `${browserName}-K-search-recent`);
 
@@ -266,7 +269,7 @@ test("Enter opens a game from the Library, and on the game page another one in a
   await chooseWithKeys(page, group(page, "Games").getByRole("option").filter({ hasText: g0.title }).first());
   await expect(page).toHaveURL(new RegExp(`/matches/${g0.id}`));
   await expect(gameTabs(page)).toHaveCount(2);
-  await expect(gameTabs(page).filter({ hasText: g0.title })).toHaveAttribute("aria-selected", "true");
+  await expect(gameTabs(page).filter({ hasText: g0.title })).toHaveAttribute("aria-current", "page");
 });
 
 test("the panel's keys stay in the panel: the game behind it neither plays nor seeks", async ({ page }) => {

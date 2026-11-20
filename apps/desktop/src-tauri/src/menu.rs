@@ -101,6 +101,32 @@ pub struct MenuHandles {
     /// The File menu, and whether Close Tab is in it now (`menu_game_tabs`).
     file: Submenu<Wry>,
     close_tab_shown: std::sync::atomic::AtomicBool,
+    /// The Window menu, and the open games listed in it now (`menu_open_games`).
+    window: Submenu<Wry>,
+    open_games: std::sync::Mutex<Vec<OpenGameItem>>,
+}
+
+/// An open game's line in the Window menu, or the separator above them.
+#[cfg(target_os = "macos")]
+enum OpenGameItem {
+    Separator(PredefinedMenuItem<Wry>),
+    Game(CheckMenuItem<Wry>),
+}
+
+/// An open game as the page reports it: the Window menu lists them, the one
+/// on screen checked.
+#[derive(serde::Deserialize)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub struct OpenGame {
+    id: String,
+    title: String,
+    shown: bool,
+}
+
+/// The Window menu's id for an open game: the page reads the game's id back from it.
+#[cfg(target_os = "macos")]
+fn open_game_menu_id(id: &str) -> String {
+    format!("open-game:{id}")
 }
 
 #[cfg(target_os = "macos")]
@@ -240,6 +266,10 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let go_organization = item("go-organization", "Organization", Some("CmdOrCtrl+6"))?;
     // The search over the space: the page opens its panel, and the same chord closes it (docs/search.md).
     let search = item("search", "Search…", Some("CmdOrCtrl+K"))?;
+    // The editor's clip, in its game at that play (Final Cut's Reveal Source); on only while the editor has one.
+    // ⌘G for Game: ⇧⌘J was taken by other apps' global keys (Notion's search), and the app has no Find Next.
+    let show_clip_in_game = item("show-clip-in-game", "Show Clip in Game", Some("CmdOrCtrl+G"))?;
+    show_clip_in_game.set_enabled(false)?;
     let go_menu = SubmenuBuilder::new(app, "Go")
         .item(&search)
         .separator()
@@ -250,12 +280,17 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .item(&go_library)
         .separator()
         .item(&go_organization)
+        .separator()
+        .item(&show_clip_in_game)
         .build()?;
 
     // -- Window ------------------------------------------------------------
-    // The game page's tabs, as Safari's Show Next/Previous Tab; on only there.
+    // The open games, as Safari's Show Next/Previous Tab; on while there is a game to go to. The games
+    // themselves are listed after them (`menu_open_games`).
     let game_tab_prev = item("game-tab-prev", "Show Previous Game Tab", Some("CmdOrCtrl+Shift+["))?;
     let game_tab_next = item("game-tab-next", "Show Next Game Tab", Some("CmdOrCtrl+Shift+]"))?;
+    game_tab_prev.set_enabled(false)?;
+    game_tab_next.set_enabled(false)?;
     let window_menu = SubmenuBuilder::new(app, "Window")
         .item(&PredefinedMenuItem::minimize(app, None)?)
         .item(&PredefinedMenuItem::maximize(app, Some("Zoom"))?)
@@ -293,6 +328,8 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         appearance,
         file: file_menu,
         close_tab_shown: std::sync::atomic::AtomicBool::new(false),
+        window: window_menu,
+        open_games: std::sync::Mutex::new(Vec::new()),
     });
     Ok(())
 }
@@ -407,6 +444,55 @@ pub fn menu_game_tabs(app: tauri::AppHandle, shown: bool) {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, shown);
+    }
+}
+
+/// The open games changed (opened, closed, renamed, another shown): the Window
+/// menu lists them after Show Next Game Tab, the one on screen checked, as a
+/// Mac app lists its open documents. Rebuilt whole: there are six at most.
+#[tauri::command]
+pub fn menu_open_games(app: tauri::AppHandle, games: Vec<OpenGame>) {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(handles) = app.try_state::<MenuHandles>() else {
+            return;
+        };
+        let Ok(mut listed) = handles.open_games.lock() else {
+            return;
+        };
+        for item in listed.drain(..) {
+            let _ = match &item {
+                OpenGameItem::Separator(s) => handles.window.remove(s),
+                OpenGameItem::Game(g) => handles.window.remove(g),
+            };
+        }
+        if games.is_empty() {
+            return;
+        }
+        // After Minimize, Zoom, a separator and the two Show items; macOS adds its window list after these.
+        let mut at = 5;
+        if let Ok(sep) = PredefinedMenuItem::separator(&app) {
+            if handles.window.insert(&sep, at).is_ok() {
+                at += 1;
+                listed.push(OpenGameItem::Separator(sep));
+            }
+        }
+        for game in games {
+            let Ok(item) = CheckMenuItemBuilder::with_id(open_game_menu_id(&game.id), &game.title)
+                .checked(game.shown)
+                .build(&app)
+            else {
+                continue;
+            };
+            if handles.window.insert(&item, at).is_ok() {
+                at += 1;
+                listed.push(OpenGameItem::Game(item));
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, games);
     }
 }
 

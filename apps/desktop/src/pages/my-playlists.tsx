@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clipWatchEffects } from "@scoutable/shared/lib/watch-queue";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ChevronLeft, Clapperboard, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { playableClips, toFeedPlaylists, sharerFilterOptions } from "@scoutable/shared/lib/playlist-feed";
@@ -291,6 +291,18 @@ export function MyPlaylistsPage() {
 
   const selected = watching ? (allPlaylists.find((p) => p.id === watching.id) ?? null) : null;
 
+  // Back from a game opened from this page (the game named under the footage): the playlist opens again.
+  const location = useLocation();
+  const pendingOpen = useRef<string | null>((location.state as { restore?: { playlistId?: string } } | null)?.restore?.playlistId ?? null);
+  useEffect(() => {
+    const id = pendingOpen.current;
+    if (loading || !id) return;
+    pendingOpen.current = null;
+    navigate(location.pathname, { replace: true, state: null });
+    openById(id, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
   const watchItems = useMemo<WatchItem[]>(() => {
     if (!selected) return [];
     const out: WatchItem[] = [];
@@ -389,7 +401,19 @@ export function MyPlaylistsPage() {
           key={selected.id}
           title={selected.name}
           items={watchItems}
-          matchTitleFor={(id) => (multiGame ? matchLookup.get(id)?.title : undefined)}
+          // A coach sees the game always, as a link into it (at the play) when it is in this space's Library.
+          matchTitleFor={(id) => (multiGame || isCoachOrAdmin ? matchLookup.get(id)?.title : undefined)}
+          onOpenGame={
+            isCoachOrAdmin
+              ? (matchId, eventId) => {
+                  if (!matchLookup.has(matchId)) return;
+                  trackEvent("game_opened_from_playlist", { via: "watch_caption", at_play: true, games: multiGame ? 2 : 1 });
+                  navigate(`/matches/${matchId}?play=${eventId}`, {
+                    state: { from: { playlistId: selected.id, title: selected.name, path: "/my-playlists" } },
+                  });
+                }
+              : undefined
+          }
           isWatched={(m, e) => isWatched(selected.id, m, e)}
           onWatched={(m, e) => recordWatched(selected.id, m, e)}
           progress={selectedProgress}

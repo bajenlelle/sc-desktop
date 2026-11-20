@@ -478,17 +478,17 @@ function ClipRow({
               }}
               className={cn(
                 "group relative flex h-7 shrink-0 cursor-default select-none items-center gap-2 rounded-md pr-2 pl-7 text-callout outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-selection",
-                selected ? "bg-selection text-selection-foreground" : "hover:bg-fill-1",
+                selected ? "bg-row-selected text-foreground" : "hover:bg-fill-1",
                 leftOut && !selected && "text-muted-foreground",
               )}
             >
               <span aria-hidden className={cn("h-3.5 w-[3px] shrink-0 rounded-full", eventColors(event).strip, leftOut && "opacity-50")} />
               <span className="min-w-0 flex-1 truncate">
-                {info.actor && <span className={selected ? "text-selection-foreground/80" : "text-muted-foreground"}>{info.actor} · </span>}
+                {info.actor && <span className={"text-muted-foreground"}>{info.actor} · </span>}
                 {eventLabel(event)}
               </span>
-              {note && <StickyNote aria-hidden className={cn("size-3 shrink-0", selected ? "text-selection-foreground/80" : "text-muted-foreground")} />}
-              <span className={cn("shrink-0 text-caption nums", selected ? "text-selection-foreground/80" : "text-muted-foreground")}>{clock(event)}</span>
+              {note && <StickyNote aria-hidden className={cn("size-3 shrink-0", "text-muted-foreground")} />}
+              <span className={cn("shrink-0 text-caption nums", "text-muted-foreground")}>{clock(event)}</span>
             </div>
           </TooltipTrigger>
         </ContextMenuTrigger>

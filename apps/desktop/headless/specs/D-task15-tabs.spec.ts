@@ -1,6 +1,6 @@
 /**
- * Group D, Task 15: open games sit in tabs above the game's toolbar and switch
- * without loading (the bar's own look and its +, drag and Close Tab are in
+ * Group D, Task 15: open games sit as rows in the sidebar and switch without
+ * loading (the rows' own look and their +, drag and Close Tab are in
  * I-game-tabs.spec.ts). Opens the test account's games from the Library inside
  * the app (no reload, so the session's caches are what a coach has), steps
  * with ⌃Tab / ⌃⇧Tab (Control in both browsers: the page reads `ctrlKey` and
@@ -11,8 +11,9 @@
 import type { Page } from "@playwright/test";
 import { expect, openLibraryGame, owned, shot, showGameView, test } from "../helpers";
 
-const tablist = (page: Page) => page.getByRole("tablist", { name: "Open games" });
-const tab = (page: Page, title: string) => tablist(page).getByRole("tab", { name: title, exact: true });
+// The open games: rows in the sidebar (components/shell/open-games.tsx).
+const tablist = (page: Page) => page.getByRole("navigation", { name: "Open games" });
+const tab = (page: Page, title: string) => tablist(page).getByRole("button", { name: title, exact: true });
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
 
 /** From here on, notes whether the game page's spinner ("Loading the game…") is ever put on the page. */
@@ -81,31 +82,28 @@ test("games open in tabs, switch without loading, and close", async ({ page, bro
   // One game: one tab.
   const g0 = await openLibraryGame(page, 0);
   await showGameView(page);
-  await expect(tablist(page).getByRole("tab")).toHaveCount(1);
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveCount(1);
 
-  // The second game is a second tab, in the bar above the toolbar's row, and the one selected.
+  // The second game is a second row, and the one selected.
   const g1 = await openLibraryGame(page, 1);
   await showGameView(page);
   await expect(tablist(page)).toBeVisible();
-  await expect(tablist(page).getByRole("tab")).toHaveCount(2);
-  await expect(tab(page, g1.title)).toHaveAttribute("aria-selected", "true");
-  const titleBox = (await heading(page).boundingBox())!;
-  const barBox = (await tablist(page).boundingBox())!;
-  expect(barBox.y + barBox.height, "the tab bar is above the toolbar's title row").toBeLessThanOrEqual(titleBox.y);
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveCount(2);
+  await expect(tab(page, g1.title)).toHaveAttribute("aria-current", "page");
   await shot(page, name("two-tabs"));
 
   const g2 = await openLibraryGame(page, 2);
   await showGameView(page);
-  await expect(tablist(page).getByRole("tab")).toHaveCount(3);
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveCount(3);
   // Strip order is the order they were opened.
-  await expect(tablist(page).getByRole("tab")).toHaveText([g0.title, g1.title, g2.title]);
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveText([g0.title, g1.title, g2.title]);
 
   // A click switches at once: the game's own title, its play list, and no spinner on the way.
   await watchForSpinner(page);
   await tab(page, g0.title).click();
   await expect(heading(page)).toHaveText(g0.title, { timeout: 5_000 });
   await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 5_000 });
-  await expect(tab(page, g0.title)).toHaveAttribute("aria-selected", "true");
+  await expect(tab(page, g0.title)).toHaveAttribute("aria-current", "page");
   await tab(page, g2.title).click();
   await expect(heading(page)).toHaveText(g2.title, { timeout: 5_000 });
   await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 5_000 });
@@ -120,7 +118,7 @@ test("games open in tabs, switch without loading, and close", async ({ page, bro
   await page.keyboard.press("Control+Shift+Tab"); // g2 → g1
   await expect(heading(page)).toHaveText(g1.title, { timeout: 5_000 });
   expect(await sawSpinner(page), "no spinner on a key switch either").toBe(false);
-  await expect(tab(page, g1.title)).toHaveAttribute("aria-selected", "true");
+  await expect(tab(page, g1.title)).toHaveAttribute("aria-current", "page");
 
   // Rename on Details, then ⌃Tab without leaving the field: the switch saves it, and the tab follows.
   const original = await titleOnServer(page, g1.id);
@@ -151,32 +149,32 @@ test("games open in tabs, switch without loading, and close", async ({ page, bro
   // The account's other games, five tabs in all (it has five games: the seventh-game eviction can't be reached).
   const g3 = await openLibraryGame(page, 3);
   const g4 = await openLibraryGame(page, 4);
-  await expect(tablist(page).getByRole("tab")).toHaveCount(5);
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveCount(5);
 
-  // At 1024 wide every tab still has room for its title.
+  // At 1024 wide the five rows are all in the sidebar.
   await page.setViewportSize({ width: 1024, height: 700 });
   await page.waitForTimeout(400);
-  const widths = await tablist(page).getByRole("tab").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
-  console.log(`[${browserName}] tab widths at 1024: ${widths.join(", ")}`);
-  for (const w of widths) expect(w, "each of five tabs is at least 100px wide at 1024").toBeGreaterThanOrEqual(100);
+  for (const box of await tablist(page).locator("button[data-open-game]").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().bottom))) {
+    expect(box, "each of five rows is inside the window").toBeLessThanOrEqual(700);
+  }
   await shot(page, name("five-tabs-1024"));
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Close another tab by its × (shown on hover) and one by a middle click: the shown game stays.
   await tab(page, g0.title).hover();
   await tablist(page).getByRole("button", { name: `Close ${g0.title}` }).click();
-  await expect(tablist(page).getByRole("tab")).toHaveCount(4);
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveCount(4);
   await tab(page, g1.title).click({ button: "middle" });
-  await expect(tablist(page).getByRole("tab")).toHaveCount(3);
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveCount(3);
   await expect(page).toHaveURL(new RegExp(`/matches/${g4.id}$`));
-  await expect(tablist(page).getByRole("tab")).toHaveText([g2.title, g3.title, g4.title]);
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveText([g2.title, g3.title, g4.title]);
   await shot(page, name("closed-two"));
 
   // Close the shown game's tab (the last one): its neighbour shows.
   await tab(page, g4.title).hover();
   await tablist(page).getByRole("button", { name: `Close ${g4.title}` }).click();
   await expect(page).toHaveURL(new RegExp(`/matches/${g3.id}$`));
-  await expect(tab(page, g3.title)).toHaveAttribute("aria-selected", "true");
-  await expect(tablist(page).getByRole("tab")).toHaveCount(2);
+  await expect(tab(page, g3.title)).toHaveAttribute("aria-current", "page");
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveCount(2);
   await shot(page, name("closed-current"));
 });

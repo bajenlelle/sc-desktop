@@ -68,7 +68,7 @@ function Chip({
       onClick={onClick}
       className={cn(
         "flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium whitespace-nowrap outline-none transition-[background-color,color,transform] duration-100 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:opacity-40 disabled:active:scale-100",
-        pressed ? "bg-selection text-selection-foreground" : "bg-card text-foreground ring-1 ring-separator hover:bg-fill-1 active:bg-fill-2",
+        pressed ? "bg-fill-3 text-foreground ring-1 ring-separator-strong hover:bg-fill-4" : "bg-card text-foreground ring-1 ring-separator hover:bg-fill-1 active:bg-fill-2",
         className,
       )}
     >
@@ -168,7 +168,7 @@ export function GameFilterBar({
               className={cn(
                 "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium outline-none transition-[background-color,transform] duration-100 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-selection",
                 sheetCount > 0
-                  ? "bg-selection text-selection-foreground"
+                  ? "bg-fill-3 text-foreground ring-1 ring-separator-strong hover:bg-fill-4"
                   : "bg-card text-foreground shadow-xs ring-1 ring-separator hover:bg-fill-1 data-[state=open]:bg-fill-2",
               )}
             >

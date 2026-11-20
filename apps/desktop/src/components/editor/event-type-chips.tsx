@@ -61,11 +61,11 @@ export function EventTypeChips({
             className={cn(
               "flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium whitespace-nowrap outline-none transition-[background-color,color,transform,box-shadow] duration-100 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-offset-1 focus-visible:ring-offset-background",
               on
-                ? "bg-selection text-selection-foreground"
+                ? "bg-fill-3 text-foreground ring-1 ring-separator-strong hover:bg-fill-4"
                 : "bg-card text-foreground ring-1 ring-separator hover:bg-fill-1 active:bg-fill-2",
             )}
           >
-            <span aria-hidden className={cn("size-1.5 rounded-full", on ? "bg-white/80" : outcomeTone(o.value))} />
+            <span aria-hidden className={cn("size-1.5 rounded-full", outcomeTone(o.value))} />
             {o.label}
           </button>
         );

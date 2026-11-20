@@ -177,29 +177,29 @@ describe("closeOtherGameTabs", () => {
 });
 
 describe("gameTabForKey", () => {
-  const strip = ["a", "b", "c"];
+  const rows = ["a", "b", "c"];
 
-  it("moves to the tab on the right and on the left", () => {
-    expect(gameTabForKey(strip, "a", "ArrowRight")).toBe("b");
-    expect(gameTabForKey(strip, "b", "ArrowLeft")).toBe("a");
+  it("moves to the row below and above", () => {
+    expect(gameTabForKey(rows, "a", "ArrowDown")).toBe("b");
+    expect(gameTabForKey(rows, "b", "ArrowUp")).toBe("a");
   });
 
   it("wraps at both ends", () => {
-    expect(gameTabForKey(strip, "c", "ArrowRight")).toBe("a");
-    expect(gameTabForKey(strip, "a", "ArrowLeft")).toBe("c");
+    expect(gameTabForKey(rows, "c", "ArrowDown")).toBe("a");
+    expect(gameTabForKey(rows, "a", "ArrowUp")).toBe("c");
   });
 
-  it("goes to the first and the last tab", () => {
-    expect(gameTabForKey(strip, "b", "Home")).toBe("a");
-    expect(gameTabForKey(strip, "b", "End")).toBe("c");
+  it("goes to the first and the last row", () => {
+    expect(gameTabForKey(rows, "b", "Home")).toBe("a");
+    expect(gameTabForKey(rows, "b", "End")).toBe("c");
   });
 
   it("leaves every other key alone", () => {
-    for (const key of ["ArrowUp", "ArrowDown", "Enter", " ", "Delete", "a"]) expect(gameTabForKey(strip, "b", key)).toBeNull();
+    for (const key of ["ArrowLeft", "ArrowRight", "Enter", " ", "Delete", "a"]) expect(gameTabForKey(rows, "b", key)).toBeNull();
   });
 
-  it("has nowhere to go from a tab that isn't in the strip", () => {
-    expect(gameTabForKey(strip, "x", "ArrowRight")).toBeNull();
+  it("has nowhere to go from a row that isn't in the list", () => {
+    expect(gameTabForKey(rows, "x", "ArrowDown")).toBeNull();
   });
 });
 
@@ -299,7 +299,7 @@ describe("parseGameTabs", () => {
     expect(ids(s)).toEqual(["a", "b", "c"]);
     expect(s.tabs[0].title).toBe("A");
     expect(s.tabs[2].date).toBe("2026-11-01");
-    // Only ids that have tabs; the ones missing are appended in strip order.
+    // Only ids that have tabs; the ones missing are appended in order.
     expect(s.recent).toEqual(["b", "a", "c"]);
   });
 

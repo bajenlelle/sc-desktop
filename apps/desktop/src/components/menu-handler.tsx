@@ -61,8 +61,8 @@ enabledIds.set("close-tab", false);
 let gameTabsShownSent: boolean | undefined;
 
 /**
- * Whether there is a tab to close: the game page has two tabs or more (components/game/game-tab-bar.tsx; with
- * one game its tab is there, but there is no other game to go to). While there is, the File menu has Close Tab
+ * Whether there is a tab to close: the game page has two open games or more (components/game/game-tab-keys.tsx;
+ * with one game it is open, but there is no other game to go to). While there is, the File menu has Close Tab
  * on ⌘W and Close Window on ⇧⌘W, as Safari does; otherwise ⌘W closes the window (src-tauri/src/menu.rs swaps
  * the two). Where there is no menu bar the same flag gates Ctrl+W.
  */
@@ -82,6 +82,31 @@ enabledIds.set("reopen-game-tab", false);
 export function setReopenGameTabEnabled(enabled: boolean) {
   if (enabledIds.get("reopen-game-tab") === enabled) return;
   setEnabled("reopen-game-tab", enabled);
+}
+
+// Until there is an open game there is none to step to or open another beside.
+enabledIds.set("game-tab-prev", false);
+enabledIds.set("game-tab-next", false);
+enabledIds.set("new-game-tab", false);
+enabledIds.set("show-clip-in-game", false);
+
+/** Whether Show Next/Previous Game Tab have a game to go to (components/game/game-tab-keys.tsx). */
+export function setGameTabStepEnabled(enabled: boolean) {
+  if (enabledIds.get("game-tab-next") === enabled) return;
+  setEnabled("game-tab-prev", enabled);
+  setEnabled("game-tab-next", enabled);
+}
+
+/** Whether New Tab has somewhere to open its picker: the game page, or the sidebar's Open games. */
+export function setNewGameTabEnabled(enabled: boolean) {
+  if (enabledIds.get("new-game-tab") === enabled) return;
+  setEnabled("new-game-tab", enabled);
+}
+
+/** Whether the editor has a clip to show in its game (Go > Show Clip in Game; pages/playlists.tsx). */
+export function setShowClipInGameEnabled(enabled: boolean) {
+  if (enabledIds.get("show-clip-in-game") === enabled) return;
+  setEnabled("show-clip-in-game", enabled);
 }
 
 /** Which page each number key opens now (`goKeyOrder`): ⌘ or Ctrl with n is the nth row the sidebar shows. */
@@ -132,6 +157,11 @@ export function MenuHandler() {
     }
 
     function runMenuAction(id: string) {
+      // The Window menu's open games: "open-game:<id>".
+      if (id.startsWith("open-game:")) {
+        window.dispatchEvent(new CustomEvent("menu-open-game", { detail: id.slice("open-game:".length) }));
+        return;
+      }
       switch (id) {
         case "settings":
           navigate("/settings");
@@ -191,6 +221,9 @@ export function MenuHandler() {
           break;
         case "reopen-game-tab":
           window.dispatchEvent(new CustomEvent("menu-reopen-game-tab"));
+          break;
+        case "show-clip-in-game":
+          window.dispatchEvent(new CustomEvent("menu-show-clip-in-game"));
           break;
         case "send-feedback":
           window.dispatchEvent(new CustomEvent("menu-send-feedback"));
@@ -289,11 +322,9 @@ export function MenuHandler() {
     setEnabled("toggle-playlist-browser", pathname === "/playlists");
     // Every player: the editor, the watch view of a shared playlist, and the game view.
     setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists" || onGame);
-    // The game page's tabs (components/game/game-tab-bar.tsx listens for "menu-game-tab").
-    setEnabled("game-tab-prev", onGame);
-    setEnabled("game-tab-next", onGame);
-    // New Tab opens the game page's picker; there is nowhere to open it from elsewhere.
-    setEnabled("new-game-tab", onGame);
+    // The open games' items follow the games themselves (components/game/game-tab-keys.tsx); Show Clip in Game
+    // is the editor's to turn on while it has a clip, and off everywhere else.
+    if (pathname !== "/playlists") setShowClipInGameEnabled(false);
     // Export is enabled by pages/playlists.tsx while a playlist is open;
     // everywhere else it must be off. On the page itself the mirror must not
     // keep a stale "off" — the page decides, through its own listener.

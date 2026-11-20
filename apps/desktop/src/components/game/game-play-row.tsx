@@ -86,9 +86,9 @@ export const GamePlayRow = memo(function GamePlayRow({
   const number = e.player?.pno ? `#${e.player.pno} ` : "";
   const quiet = "opacity-0 group-hover:opacity-100";
   // On the selection's fill, what is quiet elsewhere stays readable.
-  const secondary = selected ? "text-selection-foreground/80" : "text-muted-foreground";
-  const strong = selected ? "text-selection-foreground" : "text-foreground";
-  const quietIcon = selected ? "text-selection-foreground/80 hover:text-selection-foreground" : "text-muted-foreground hover:text-foreground";
+  const secondary = "text-muted-foreground";
+  const strong = "text-foreground";
+  const quietIcon = "text-muted-foreground hover:text-foreground";
   // The second line, in the order it is read. A feed with no game clock leaves the clock out, not a dash.
   const details: { key: string; node: ReactNode }[] = [];
   if (e.gameClockTime) details.push({ key: "clock", node: <span className="shrink-0">{formatGameClock(e.gameClockTime)}</span> });
@@ -113,7 +113,7 @@ export const GamePlayRow = memo(function GamePlayRow({
       aria-current={active || undefined}
       className={cn(
         "group relative flex min-h-11 w-full cursor-default scroll-my-16 select-none items-stretch gap-2 pr-2 text-left outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
-        selected ? "bg-selection text-selection-foreground" : "hover:bg-fill-1 active:bg-fill-2",
+        selected ? "bg-row-selected text-foreground" : "hover:bg-fill-1 active:bg-fill-2",
         outside && "opacity-50",
         menuOpen && "ring-2 ring-inset ring-selection",
       )}
@@ -152,7 +152,7 @@ export const GamePlayRow = memo(function GamePlayRow({
         </span>
       )}
       <span className="relative z-10 flex shrink-0 items-center gap-0.5" onClick={(ev) => ev.stopPropagation()}>
-        {playing && <Play aria-label="Playing" className={cn("mr-0.5 size-3.5 fill-current", selected ? "text-selection-foreground" : "text-primary")} />}
+        {playing && <Play aria-label="Playing" className="mr-0.5 size-3.5 fill-current text-primary" />}
         {labelPicker ?? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -188,7 +188,7 @@ export const GamePlayRow = memo(function GamePlayRow({
               <button
                 type="button"
                 aria-label={`In ${targetName ?? "the playlist"}. Remove`}
-                className={cn(iconButton, selected ? "text-selection-foreground" : "text-primary")}
+                className={cn(iconButton, "text-primary")}
                 onClick={() => onRemove(play)}
               >
                 {/* The add, confirmed where it was made: the check arrives, it doesn't just appear. */}
@@ -202,7 +202,7 @@ export const GamePlayRow = memo(function GamePlayRow({
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className={cn("flex size-6 shrink-0 items-center justify-center", selected ? "text-selection-foreground" : "text-muted-foreground")} aria-label={`Already in ${targetName ?? "the playlist"}`}>
+              <span className={cn("flex size-6 shrink-0 items-center justify-center", "text-muted-foreground")} aria-label={`Already in ${targetName ?? "the playlist"}`}>
                 <Check className="size-3.5" />
               </span>
             </TooltipTrigger>

@@ -8,6 +8,55 @@ import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePageScroll } from "./page";
 
+/**
+ * Whether the toolbar is in its compact form: too narrow for its actions' labels, they show their icons only
+ * (with the label as a tooltip), as a Mac toolbar switches to Icon Only rather than squeezing its title away.
+ */
+const ToolbarCompactContext = React.createContext(false);
+export function useToolbarCompact(): boolean {
+  return React.useContext(ToolbarCompactContext);
+}
+
+/**
+ * A toolbar action that keeps its label while the bar has room and drops it when the bar is compact: the
+ * render function gets `compact` to leave the label out, and the label becomes the action's tooltip. Rendered
+ * inside the toolbar, so it reads the toolbar's own width.
+ */
+export function ToolbarAction({ label, children }: { label: string; children: (compact: boolean) => React.ReactElement }) {
+  const compact = useToolbarCompact();
+  const action = children(compact);
+  if (!compact) return action;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{action}</TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** The step between compact and full, so a width at the threshold doesn't flip the bar back and forth. */
+const COMPACT_HYSTERESIS = 32;
+
+function useCompactBelow(ref: React.RefObject<HTMLElement | null>, below: number | undefined): boolean {
+  const [compact, setCompact] = React.useState(false);
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || below === undefined) {
+      setCompact(false);
+      return;
+    }
+    const measure = () => {
+      const width = el.getBoundingClientRect().width;
+      setCompact((was) => (was ? width < below + COMPACT_HYSTERESIS : width < below));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, below]);
+  return compact;
+}
+
 /** A toolbar button that shows or hides one panel, with its label and shortcut in the tooltip. */
 function PanelToggle({
   label,
@@ -87,9 +136,6 @@ export function PlaylistBrowserToggle() {
  * sidebar is hidden on macOS the bar pads for the traffic lights.
  * `principal` is the centred item (a view switcher, as in Calendar's
  * Day/Week/Month): it sits in the space between the title and the actions.
- * `underTabs` says the game page's tab bar is the row above (the tabs are the
- * page's top row, components/game/game-tab-bar.tsx): the traffic lights sit
- * in that row then, so this bar doesn't pad for them.
  */
 export function Toolbar({
   title,
@@ -98,7 +144,7 @@ export function Toolbar({
   principal,
   search,
   actions,
-  underTabs = false,
+  compactBelow,
   variant = "scroll",
   className,
 }: {
@@ -108,7 +154,8 @@ export function Toolbar({
   principal?: React.ReactNode;
   search?: React.ReactNode;
   actions?: React.ReactNode;
-  underTabs?: boolean;
+  /** Narrower than this (px), the actions show their icons only (`useToolbarCompact`). */
+  compactBelow?: number;
   variant?: "scroll" | "static";
   className?: string;
 }) {
@@ -116,15 +163,20 @@ export function Toolbar({
   const collapsed = useSidebarCollapsed();
   const material = variant === "static" || scrolled;
   const fade = variant === "scroll" && material;
+  const headerRef = React.useRef<HTMLElement | null>(null);
+  const compact = useCompactBelow(headerRef, compactBelow);
   return (
+    <ToolbarCompactContext.Provider value={compact}>
     <header
+      ref={headerRef}
       data-tauri-drag-region
+      data-compact={compact ? "true" : undefined}
       data-scrolled={scrolled ? "true" : undefined}
       className={cn(
         "z-20 flex h-[var(--toolbar-height)] shrink-0 items-center gap-3 pr-4 transition-[background-color] duration-200 select-none",
         variant === "scroll" ? "absolute inset-x-0 top-0" : "relative border-b border-separator",
         material ? "bg-material-toolbar backdrop-blur-xl" : "bg-transparent",
-        IS_MACOS && collapsed && !underTabs ? "pl-[calc(var(--traffic-lights-width)+0.75rem)]" : "pl-3",
+        IS_MACOS && collapsed ? "pl-[calc(var(--traffic-lights-width)+0.75rem)]" : "pl-3",
         className,
       )}
       style={
@@ -139,11 +191,26 @@ export function Toolbar({
       <SidebarToggle />
       <PlaylistBrowserToggle />
       {leading}
-      <div data-tauri-drag-region className="flex min-w-0 items-baseline gap-2">
-        <h1 data-tauri-drag-region className="truncate text-title-3 text-foreground">
+      {/* The title takes the room the bar has between its leading items and its actions, so the actions stay
+          put at the right and the title at the left whatever their lengths. A subtitle that is text gives way
+          before the title and is cut short as a whole. One built of parts (a count and a link, say) lays them
+          out itself in the room the title leaves it (a third at least), and a part that may be cut short
+          keeps a minimum of its own (the editor's game keeps a few letters to click); a link inside text that
+          is cut short would vanish into the "…" whole. */}
+      <div data-tauri-drag-region className="flex min-w-0 flex-1 items-baseline gap-2">
+        <h1
+          data-tauri-drag-region
+          // Beside a subtitle of parts the title leaves it a third of the room, so its link always shows.
+          className={cn("min-w-0 truncate text-title-3 text-foreground", subtitle && typeof subtitle !== "string" && "max-w-[65%]")}
+        >
           {title}
         </h1>
-        {subtitle && <span className="truncate text-subheadline text-muted-foreground nums">{subtitle}</span>}
+        {subtitle &&
+          (typeof subtitle === "string" ? (
+            <span className="min-w-0 shrink-[3] truncate text-subheadline text-muted-foreground nums">{subtitle}</span>
+          ) : (
+            <span className="flex grow items-baseline whitespace-nowrap text-subheadline text-muted-foreground nums">{subtitle}</span>
+          ))}
       </div>
       {/* Centred on the bar itself, so it never shifts when the items beside
           it come and go. Clicks around it fall through to the drag region. */}
@@ -157,5 +224,6 @@ export function Toolbar({
         <div className={cn("flex shrink-0 items-center gap-2", !search && "ml-auto")}>{actions}</div>
       )}
     </header>
+    </ToolbarCompactContext.Provider>
   );
 }

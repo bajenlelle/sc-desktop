@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { ChevronDown, ChevronLeft, ListPlus, Play, Plus, Tag, VideoOff } from "lucide-react";
+import { ChevronDown, ListPlus, Play, Plus, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, afterTimeoutPlays, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
@@ -26,7 +25,8 @@ import { Callout } from "@/components/ui/group";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
-import { recallGameView, rememberGameView } from "@/lib/game-tabs";
+import { GameBackButton, GameTitle } from "@/components/game/game-toolbar-parts";
+import { recallGamePosition, recallGameView, rememberGamePosition, rememberGameView } from "@/lib/game-tabs";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { getGameTimelineTipSeen, setGameTimelineTipSeen } from "@/lib/prefs";
@@ -67,17 +67,6 @@ function readSpeed(): number {
   }
 }
 
-const positionKey = (matchId: string) => `scoutable_game_position:${matchId}`;
-
-function readPosition(matchId: string): number | null {
-  try {
-    const v = Number(sessionStorage.getItem(positionKey(matchId)));
-    return Number.isFinite(v) && v > 0 ? v : null;
-  } catch {
-    return null;
-  }
-}
-
 /** A stage-sized panel that says why there is no footage and what to do about it. */
 function StagePanel({ title, body, action }: { title: string; body: string; action: ReactNode }) {
   return (
@@ -107,7 +96,6 @@ export function GameWatchView({
   match,
   videoStatus,
   viewSwitch,
-  underTabs,
   entry,
   startEventId,
   onOpenDetails,
@@ -117,14 +105,12 @@ export function GameWatchView({
   videoStatus: VideoFileStatus | "none";
   viewSwitch: ReactNode;
   /** The open games' tabs are the row above the toolbar (there with one game too). */
-  underTabs?: boolean;
   /** How the coach got here, for analytics. */
   entry: string;
   /** A play to open on (a link from elsewhere). */
   startEventId: number | null;
   onOpenDetails: (opts?: { openQuarters?: boolean }) => void;
 }) {
-  const navigate = useNavigate();
   const { user, activeOrgId, activeOrgIsPersonal } = useAuth();
   const video = usePersistentVideo();
   const stageHandle = useRef<PlayerStageHandle | null>(null);
@@ -330,7 +316,7 @@ export function GameWatchView({
 
   // Where the game opens, once, paused: the play a link named, else where this
   // visit's last look left it, else just before tip-off.
-  const resumeAt = useRef(readPosition(match.id));
+  const resumeAt = useRef(recallGamePosition(match.id));
   const placed = useRef(false);
   /** The period the game opened in (null before tip-off, in a break or after): arriving there isn't a crossing. */
   const placedPeriod = useRef<number | null>(null);
@@ -354,11 +340,7 @@ export function GameWatchView({
     let last = 0;
     let written = 0;
     const save = () => {
-      try {
-        if (last > 0) sessionStorage.setItem(positionKey(match.id), String(last));
-      } catch {
-        // The game opens at tip-off next time.
-      }
+      if (last > 0) rememberGamePosition(match.id, last);
     };
     const note = () => {
       if (!placed.current || video.currentTime <= 0) return;
@@ -994,14 +976,10 @@ export function GameWatchView({
     <Page>
       <Toolbar
         variant="static"
-        underTabs={underTabs}
-        title={match.title}
+        title={<GameTitle title={match.title} />}
         leading={
           <>
-            <Button variant="ghost" size="sm" className="-ml-1 shrink-0 text-muted-foreground" onClick={() => navigate("/matches")}>
-              <ChevronLeft />
-              Library
-            </Button>
+            <GameBackButton matchId={match.id} />
             {viewSwitch}
           </>
         }

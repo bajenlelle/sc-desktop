@@ -1,8 +1,8 @@
 /**
  * Fix round, change 2: a game page's "Open playlist" opens the editor with
  * the way back, "‹ {game title}" leading the toolbar, and that button
- * returns to the game as it was left (no reload, the tab bar when two games
- * are open). Arriving from the sidebar shows no such button. Makes one
+ * returns to the game as it was left (no reload, both open games still in
+ * the sidebar). Arriving from the sidebar shows no such button. Makes one
  * playlist of its own (`headless-<port> back`) and deletes it at the end.
  */
 import {
@@ -28,11 +28,11 @@ test("Open playlist leads to the editor with a way back to the game", async ({ p
   await page.goto("/matches");
   await deleteOwnedPlaylists(page, [TARGET]);
 
-  // Two games open: the way back must bring the tab bar with the game.
+  // Two games open: the way back must find both still open.
   await openLibraryGame(page, 0);
   const game = await openLibraryGame(page, 1);
-  const tablist = page.getByRole("tablist", { name: "Open games" });
-  await expect(tablist).toBeVisible();
+  const openGames = page.getByRole("navigation", { name: "Open games" });
+  await expect(openGames).toBeVisible();
   await showGameView(page);
 
   await chooseNewTarget(page, TARGET);
@@ -52,9 +52,8 @@ test("Open playlist leads to the editor with a way back to the game", async ({ p
   await expect(page.getByRole("radiogroup", { name: "View" })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("Loading the game…")).toHaveCount(0);
   await expect(page.locator("header").getByRole("heading", { level: 1 })).toHaveText(game.title);
-  await expect(tablist).toBeVisible();
-  await expect(tablist.getByRole("tab")).toHaveCount(2);
-  await expect(tablist.getByRole("tab", { name: game.title, exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(openGames.locator("button[data-open-game]")).toHaveCount(2);
+  await expect(openGames.getByRole("button", { name: game.title, exact: true })).toHaveAttribute("aria-current", "page");
   await shot(page, name("game-again"));
 
   // From the sidebar, the editor has no game behind it: no back button.

@@ -104,6 +104,7 @@ function SearchBody({ scope }: { scope: SearchScope }) {
   const { pathname } = useLocation();
   const state = useSearchIndex(scope);
   const tabs = useGameTabs(gameTabsScope(scope.userId, scope.orgId));
+  const openGames = useMemo(() => new Set(tabs.tabs.map((t) => t.id)), [tabs.tabs]);
   const [recents] = useState(() => readRecentOpens(recentOpensScope(scope.userId, scope.orgId)));
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -154,10 +155,10 @@ function SearchBody({ scope }: { scope: SearchScope }) {
       const groups = searchIndex(index, query, recents);
       return { sections: groups.map((g) => ({ label: KINDS[g.kind], items: g.items, total: g.total, mixed: false })), from: "results" };
     }
-    const recent = recentItems(index, recents);
+    const recent = recentItems(index, recents, undefined, openGames);
     if (recent.length > 0) return { sections: [{ label: "Recent", items: recent, total: recent.length, mixed: true }], from: "recent" };
     return { sections: newestItems(index).map((g) => ({ label: KINDS[g.kind], items: g.items, total: g.items.length, mixed: false })), from: "newest" };
-  }, [index, searching, query, recents]);
+  }, [index, searching, query, recents, openGames]);
   const flat = useMemo(() => sections.flatMap((s) => s.items), [sections]);
   // The list can shrink under the highlight when the index is read again.
   const at = Math.min(active, Math.max(0, flat.length - 1));
@@ -272,12 +273,15 @@ function SearchBody({ scope }: { scope: SearchScope }) {
                     onPointerMove={(e) => pointerMoved(e) && setActive(i)}
                     onClick={() => choose(item, i)}
                     // The highlight is where the keys or the pointer are, not a choice made: the app's neutral
-                    // fill, as under a hovered row and in the tab bar's game picker. The accent is kept for
+                    // fill, as under a hovered row and in the open games' picker. The accent is kept for
                     // what is selected (the open playlist, the play that is on).
                     className={cn("mx-1.5 flex h-9 cursor-default items-center gap-2.5 rounded-md px-2 text-sm text-foreground active:bg-fill-3", on && "bg-fill-2")}
                   >
                     <Icon className="size-4 shrink-0 text-primary" />
                     <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                    {item.kind === "game" && openGames.has(item.id) && (
+                      <span className="shrink-0 rounded-full bg-fill-2 px-1.5 py-px text-caption text-muted-foreground">Open</span>
+                    )}
                     {aside && <span className="max-w-[50%] shrink-0 truncate text-callout nums text-muted-foreground">{aside}</span>}
                   </div>
                 );

@@ -1,8 +1,8 @@
 /**
- * The desktop game page's tabs: the games a coach has open, in the order they
- * were opened (new ones on the right) unless the coach has dragged them into
- * another, and which were shown most recently.
- * Pure state; the desktop keeps it per user and space for the app session.
+ * The desktop's open games (its game tabs, drawn as rows in the sidebar): the
+ * games a coach has open, in the order they were opened (new ones last) unless
+ * the coach has dragged them into another, and which were shown most recently.
+ * Pure state; the desktop keeps it per user and space, across launches.
  *
  * Every function returns the state it was given when nothing changes, so a
  * store can skip notifying and React can skip rendering.
@@ -15,7 +15,7 @@ export interface GameTab {
 }
 
 export interface GameTabs {
-  /** Strip order: oldest opened on the left. */
+  /** Their order: oldest opened first. */
   tabs: GameTab[];
   /** Ids, most recently shown first. */
   recent: string[];
@@ -67,7 +67,7 @@ export function closeGameTab(state: GameTabs, id: string): { state: GameTabs; ne
 }
 
 /**
- * Puts the tabs in a new strip order (a tab was dragged). `order` is the ids
+ * Puts the tabs in a new order (a row was dragged). `order` is the ids
  * as they now stand; an id with no tab is ignored, and a tab it doesn't name
  * (opened while the drag was under way) keeps its place after the ones it
  * does. Which game was shown last doesn't change.
@@ -91,7 +91,7 @@ export interface ClosedGameTab {
 }
 
 /**
- * The tabs a change closed, each with its place in the strip before: a tab
+ * The tabs a change closed, each with its place in the order before: a tab
  * closed by the coach, or the one that made room for a seventh game. Several
  * closed at once (Close Other Tabs) count as closed one after the other from
  * the left, so a place counts only the tabs still there then: reopened the
@@ -108,7 +108,7 @@ export function closedGameTabs(before: GameTabs, after: GameTabs): ClosedGameTab
 }
 
 /**
- * Puts a closed tab back where it stood (at the end when the strip is now
+ * Puts a closed tab back where it stood (at the end when the list is now
  * shorter) and shows it. At the cap the game shown least recently makes room,
  * never the one put back. A game opened again meanwhile is only shown.
  */
@@ -130,15 +130,15 @@ export function closeOtherGameTabs(state: GameTabs, keepId: string): GameTabs {
 }
 
 /**
- * Where a key pressed on a tab moves the keyboard's focus, as tab lists do
- * (W3C's Tabs pattern): the arrows to the tab beside it, wrapping at the
- * ends, Home and End to the first and the last. Null for any other key.
+ * Where a key pressed on an open game's row moves the keyboard's focus, as a
+ * list does: ↓ and ↑ to the row beside it, wrapping at the ends, Home and End
+ * to the first and the last. Null for any other key.
  */
 export function gameTabForKey(ids: readonly string[], focusedId: string, key: string): string | null {
   const at = ids.indexOf(focusedId);
   if (at < 0 || ids.length === 0) return null;
-  if (key === "ArrowRight") return ids[(at + 1) % ids.length];
-  if (key === "ArrowLeft") return ids[(at - 1 + ids.length) % ids.length];
+  if (key === "ArrowDown") return ids[(at + 1) % ids.length];
+  if (key === "ArrowUp") return ids[(at - 1 + ids.length) % ids.length];
   if (key === "Home") return ids[0];
   if (key === "End") return ids[ids.length - 1];
   return null;
@@ -146,7 +146,7 @@ export function gameTabForKey(ids: readonly string[], focusedId: string, key: st
 
 /**
  * A game's title as its two teams, when it is the "Home vs Away" a game is
- * given: a tab then cuts each team short by itself, so two games of the same
+ * given: a row then cuts each team short by itself, so two games of the same
  * home team don't read the same. Null for a title the coach wrote.
  */
 export function tabTitleParts(title: string): { home: string; away: string } | null {
@@ -157,7 +157,7 @@ export function tabTitleParts(title: string): { home: string; away: string } | n
   return home && away ? { home, away } : null;
 }
 
-/** The tab beside `activeId` in strip order, wrapping; null with nowhere to go. */
+/** The tab beside `activeId` in the tabs' order, wrapping; null with nowhere to go. */
 export function stepGameTab(state: GameTabs, activeId: string, step: 1 | -1): string | null {
   const n = state.tabs.length;
   if (n < 2) return null;
@@ -213,7 +213,7 @@ export function reconcileGameTabs(
 /**
  * Reads stored tabs defensively: anything unreadable is no tabs, entries
  * without a string id are dropped and duplicates kept once, `recent` holds
- * exactly the open ids (missing ones appended in strip order), and more than
+ * exactly the open ids (missing ones appended in order), and more than
  * `max` tabs keep the `max` shown most recently.
  */
 export function parseGameTabs(raw: string | null, max: number = GAME_TABS_MAX): GameTabs {

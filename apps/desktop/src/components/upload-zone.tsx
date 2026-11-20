@@ -166,7 +166,7 @@ function GameRow({
       disabled={loading}
       className={cn(
         "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left outline-none transition-[background-color,transform] duration-100 active:scale-[0.995] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
-        selected ? "bg-selection/15" : "hover:bg-fill-1 active:bg-fill-2"
+        selected ? "bg-row-selected" : "hover:bg-fill-1 active:bg-fill-2"
       )}
     >
       <div className="min-w-[84px] shrink-0 text-callout text-muted-foreground nums">{date}</div>

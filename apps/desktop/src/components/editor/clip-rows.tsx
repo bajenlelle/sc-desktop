@@ -12,6 +12,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -65,7 +66,7 @@ export function ActiveRowPill() {
       layoutId="active-row"
       transition={springs.standard}
       aria-hidden
-      className="pointer-events-none absolute inset-y-0.5 inset-x-1 rounded-md bg-primary/12"
+      className="pointer-events-none absolute inset-y-0.5 inset-x-1 rounded-md bg-fill-2"
     />
   );
 }
@@ -80,7 +81,7 @@ function FocusRing({ onSelection }: { onSelection: boolean }) {
       aria-hidden
       className={cn(
         "pointer-events-none absolute inset-y-0.5 inset-x-1 z-20 rounded-md ring-2",
-        onSelection ? "ring-selection-foreground/70" : "ring-selection",
+        onSelection ? "ring-selection" : "ring-selection",
       )}
     />
   );
@@ -162,7 +163,7 @@ const rowBase =
   "group relative flex min-h-11 cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100";
 
 function rowClasses({ isSelected }: { isSelected: boolean }) {
-  return cn(rowBase, isSelected ? "bg-selection text-selection-foreground" : "hover:bg-fill-1 active:bg-fill-2");
+  return cn(rowBase, isSelected ? "bg-row-selected text-foreground" : "hover:bg-fill-1 active:bg-fill-2");
 }
 
 export function ClipRow({
@@ -185,6 +186,7 @@ export function ClipRow({
   onInsertStatsCardAbove,
   onTrim,
   onFixSync,
+  onShowInGame,
   onRemove,
   removeCount = 1,
   labelControls,
@@ -221,6 +223,8 @@ export function ClipRow({
   onTrim?: () => void;
   /** Find where the play really happens and move the game's sync (or this clip) to it. */
   onFixSync?: () => void;
+  /** The clip in its game at this play (Final Cut's Reveal Source); absent for a game the coach can't open. */
+  onShowInGame?: () => void;
   onRemove: () => void;
   /** What Remove takes: more than 1 when the row is one of several selected items, which all go. */
   removeCount?: number;
@@ -237,7 +241,7 @@ export function ClipRow({
   const assigned = labelControls ? labelControls.labels.filter((l) => labelControls.assignedIds.has(l.id)) : [];
   const visibleLabels = assigned.slice(0, 2);
   const overflow = assigned.slice(2);
-  const secondary = isSelected ? "text-selection-foreground/80" : "text-muted-foreground";
+  const secondary = "text-muted-foreground";
 
   return (
     <ContextMenu>
@@ -300,7 +304,7 @@ export function ClipRow({
           </div>
 
           <div className="relative z-10 flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-            {isActive && <Play className={cn("mr-1 size-3.5 fill-current", isSelected ? "text-selection-foreground" : "text-primary")} />}
+            {isActive && <Play className="mr-1 size-3.5 fill-current text-primary" />}
             {(preOffset !== 0 || postOffset !== 0) && (
               <span
                 className="text-caption text-orange-400"
@@ -312,7 +316,7 @@ export function ClipRow({
             {note && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <MessageSquare className={cn("size-3 shrink-0", isSelected ? "text-selection-foreground/80" : "text-primary/60")} />
+                  <MessageSquare className={cn("size-3 shrink-0", "text-primary/60")} />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-56 whitespace-pre-wrap">{note}</TooltipContent>
               </Tooltip>
@@ -323,7 +327,7 @@ export function ClipRow({
                   <button
                     type="button"
                     className={cn(
-                      "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100",
+                      "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-fill-2 hover:text-foreground active:scale-95 data-[state=open]:opacity-100",
                       REVEAL,
                     )}
                     title={labelControls.selection ? `Labels for the ${labelControls.selection.count} selected clips` : "Labels"}
@@ -358,6 +362,12 @@ export function ClipRow({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        {onShowInGame && (
+          <>
+            <ContextMenuItem onSelect={onShowInGame}>Show in game</ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
         {onTrim && <ContextMenuItem onSelect={onTrim}>Trim clip…</ContextMenuItem>}
         {onFixSync && <ContextMenuItem onSelect={onFixSync}>Fix sync…</ContextMenuItem>}
         {onInsertTextCardAbove && <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>}
@@ -366,7 +376,7 @@ export function ClipRow({
           <ContextMenuItem onSelect={onGroupSelected}>Group {selectionCount} selected items</ContextMenuItem>
         )}
         {groupPos && onUngroup && <ContextMenuItem onSelect={onUngroup}>Ungroup ({groupSize} items)</ContextMenuItem>}
-        <ContextMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
+        <ContextMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
           {removeCount > 1 ? `Remove ${removeCount} items` : "Remove from playlist"}
         </ContextMenuItem>
       </ContextMenuContent>
@@ -443,7 +453,7 @@ export function TextCardRow({
   const [draftDuration, setDraftDuration] = useState(card.durationSeconds);
   const stats = card.card ? statsSummary(card.card) : null;
   const Icon = stats ? BarChart3 : Type;
-  const secondary = isSelected ? "text-selection-foreground/80" : "text-muted-foreground";
+  const secondary = "text-muted-foreground";
 
   return (
     <ContextMenu>
@@ -473,7 +483,7 @@ export function TextCardRow({
               aria-hidden
               className={cn(
                 "flex size-6 shrink-0 items-center justify-center rounded-md",
-                isSelected ? "bg-white/20" : "bg-fill-2",
+                isSelected ? "bg-fill-4" : "bg-fill-2",
               )}
             >
               <Icon className={cn("size-3.5", secondary)} />
@@ -492,7 +502,7 @@ export function TextCardRow({
                 aria-label="Text card"
                 className={cn(
                   "min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50",
-                  isSelected ? "text-selection-foreground placeholder:text-selection-foreground/60" : "text-foreground",
+                  "text-foreground",
                 )}
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => onTextChange(card.id, e.target.value)}
@@ -514,7 +524,7 @@ export function TextCardRow({
                   type="button"
                   className={cn(
                     "inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium nums transition-[background-color,transform] duration-100 active:scale-95",
-                    isSelected ? "bg-white/20 text-selection-foreground" : "bg-fill-2 text-muted-foreground hover:bg-fill-3",
+                    isSelected ? "bg-fill-4 text-muted-foreground" : "bg-fill-2 text-muted-foreground hover:bg-fill-3",
                   )}
                   title="How long the card shows"
                   onClick={(e) => e.stopPropagation()}
@@ -560,7 +570,7 @@ export function TextCardRow({
         {onInsertTextCardAbove && <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>}
         {onInsertStatsCardAbove && <ContextMenuItem onSelect={onInsertStatsCardAbove}>Insert stats card above</ContextMenuItem>}
         {groupPos && onUngroup && <ContextMenuItem onSelect={onUngroup}>Ungroup ({groupSize} items)</ContextMenuItem>}
-        <ContextMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
+        <ContextMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
           {removeCount > 1 ? `Remove ${removeCount} items` : "Remove from playlist"}
         </ContextMenuItem>
       </ContextMenuContent>

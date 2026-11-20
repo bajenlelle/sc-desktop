@@ -222,7 +222,7 @@ export function PurchaseSheet({
                       disabled={busy !== null}
                       onClick={() => void choose(o)}
                       className={cn(
-                        "flex w-full items-start gap-3 bg-card px-4 py-3 text-left transition-colors hover:bg-primary/10 focus-visible:bg-primary/10 focus-visible:outline-none disabled:opacity-60",
+                        "flex w-full items-start gap-3 bg-card px-4 py-3 text-left transition-colors hover:bg-fill-1 focus-visible:bg-fill-1 focus-visible:outline-none disabled:opacity-60",
                         o.kind === "pro" && "bg-primary/5",
                       )}
                     >

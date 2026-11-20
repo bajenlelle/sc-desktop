@@ -57,6 +57,7 @@
   --color-separator-strong: var(--separator-strong);
   --color-selection: var(--selection);
   --color-selection-foreground: var(--selection-foreground);
+  --color-row-selected: var(--row-selected);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
@@ -175,6 +176,11 @@
   --selection: var(--primary);
   --selection-foreground: var(--primary-foreground);
   --selection-inactive: var(--fill-3);
+  /* What is chosen or where you are in a list or the sidebar (the page, an open game, a playlist, selected
+     clips, the play on screen): a neutral fill, as Mail, Notes and Music mark it, with the text in its own
+     colour. Menus, pickers and pressed chips are neutral too. The accent (--selection) is kept for controls:
+     checkboxes, switches, focus rings, a calendar's chosen day. */
+  --row-selected: var(--fill-3);
   /* Status colours: the same in every theme (like the system colours), tuned
      per mode so text stays legible. Amber is a warning, never a hover. */
   --success: oklch(0.56 0.14 152);
@@ -243,6 +249,11 @@
   --selection: var(--primary);
   --selection-foreground: var(--primary-foreground);
   --selection-inactive: var(--fill-3);
+  /* What is chosen or where you are in a list or the sidebar (the page, an open game, a playlist, selected
+     clips, the play on screen): a neutral fill, as Mail, Notes and Music mark it, with the text in its own
+     colour. Menus, pickers and pressed chips are neutral too. The accent (--selection) is kept for controls:
+     checkboxes, switches, focus rings, a calendar's chosen day. */
+  --row-selected: var(--fill-3);
   --success: oklch(0.76 0.15 152);
   --success-foreground: oklch(0.18 0.02 240);
   --warning: oklch(0.8 0.14 72);
@@ -264,9 +275,17 @@ html[data-platform="macos"] {
 }
 html[data-platform="macos"] body { background: transparent; }
 html[data-window-fullscreen="true"] { --titlebar-inset: 0px; --traffic-lights-width: 0px; }
+/* A selected row with lines drawn behind it (the playlist tree's folder guides): the same neutral fill on an
+   opaque base of the page's background, so a guide stops at the row instead of showing through it. */
+.bg-row-selected-solid {
+  background: linear-gradient(var(--row-selected), var(--row-selected)), var(--background);
+}
+
 html[data-window-inactive="true"] {
   --selection: var(--selection-inactive);
   --selection-foreground: var(--foreground);
+  /* A step lighter while the window is in the background, as a Mac list's selection goes paler. */
+  --row-selected: var(--fill-2);
 }
 
 @media (prefers-reduced-transparency: reduce) {

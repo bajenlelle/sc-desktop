@@ -33,7 +33,8 @@ while the last one is still leaving. A chord held down opens it once.
 ## What it shows
 
 **Before a query:** *Recent*, up to eight things opened last on this computer,
-newest first, each with its kind to the right. On a computer where nothing
+newest first, each with its kind to the right; the games open in the sidebar
+come first, marked "Open". On a computer where nothing
 has been opened yet it lists the three newest of each kind instead.
 
 **With a query:** groups in the sidebar's order, *Playlists*, *Reports*,
@@ -95,9 +96,9 @@ under any dialog (`lib/key-scope.ts`). A video behind it keeps playing.
 
 - **Playlist:** the Playlists page with it selected, on its clips.
 - **Report:** the Playlists page with it selected, in its Report view.
-- **Game:** the game page. A game that already has a tab goes to that tab
-  with what the tab remembers; on the game page the switch replaces the
-  history entry, as the tabs do.
+- **Game:** the game page. A game that is open (the sidebar's Open games) goes
+  back to it with what it remembers, and is marked "Open"; on the game page the
+  switch replaces the history entry, as a switch between open games does.
 
 A playlist or report is asked for through the Playlists page's router state
 (`restore`, `view`). The page read that state only as it was built, and a
