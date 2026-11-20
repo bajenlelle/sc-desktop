@@ -160,6 +160,15 @@ export type AnalyticsEvent =
   | "device_removed" // per-device Remove, from profile or the gate screen
   | "device_gate_resolved" // gate unblocked after removing a device
   | "device_gate_signed_out" // user bailed out of the gate via sign out
+  // App updates (desktop; lib/updates.ts). Every event carries from_version: the version the
+  // update was offered to or started from. Installing ends the app, so how it went is told by
+  // the next start (lib/update-outcome.ts).
+  | "update_offered" // version, via (startup | recheck | manual): the sidebar card showed a release
+  | "update_dismissed" // version: the card was closed
+  | "update_install_started" // version, retry (Try again after a failure)
+  | "update_install_failed" // version, stage (download | install | relaunch | after_restart: the next start still ran the old version), error; after_restart also seconds
+  | "update_installed" // version (the one now running), seconds (from the install to this start)
+  | "update_check_failed" // via (startup | recheck | manual), error: a check didn't reach the update server
   // Monetization funnel
   | "upgrade_gate_hit"
   | "upgrade_clicked"

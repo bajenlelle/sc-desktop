@@ -22,6 +22,15 @@ export function resetUser() {
   posthog.reset()
 }
 
-export function trackEvent(event: AnalyticsEvent, properties?: Record<string, unknown>) {
-  posthog.capture(event, properties)
+/**
+ * `instantly` sends the event on its own right away instead of with the next
+ * batch (every few seconds): for an event the app may not outlive, like the
+ * click that installs an update.
+ */
+export function trackEvent(
+  event: AnalyticsEvent,
+  properties?: Record<string, unknown>,
+  options?: { instantly?: boolean },
+) {
+  posthog.capture(event, properties, options?.instantly ? { send_instantly: true } : undefined)
 }

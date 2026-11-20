@@ -17,7 +17,15 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sentry } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
-import { silentUpdateCheck, UPDATE_FOUND_EVENT } from "@/lib/updates";
+import { shortError } from "@scoutable/shared/lib/update-outcome";
+import {
+  clearPendingUpdate,
+  markUpdatePending,
+  silentUpdateCheck,
+  trackUpdate,
+  UPDATE_FOUND_EVENT,
+  type UpdateCheckVia,
+} from "@/lib/updates";
 import { shipScheduler } from "@/lib/background-ship";
 
 /**
@@ -72,7 +80,16 @@ export async function installUpdate() {
   if (!update || busy) return;
   busy = true;
   progressAcc = INITIAL_DOWNLOAD_PROGRESS;
+  // Sent at once: on a fast connection Windows ends the app (the install
+  // below) before the next batch of events would leave.
+  trackUpdate(
+    "update_install_started",
+    { version: update.version, retry: state.status === "error" },
+    { instantly: true },
+  );
   setState({ status: "downloading", progress: INITIAL_DOWNLOAD_PROGRESS, error: null });
+  // How far it got, for the failure event.
+  let stage: "download" | "install" | "relaunch" = "download";
   try {
     await update.download((event) => {
       if (event.event === "Finished") return;
@@ -81,7 +98,12 @@ export async function installUpdate() {
       progressAcc = next;
       if (downloadProgressLabel(next) !== downloadProgressLabel(prev)) setState({ progress: next });
     });
+    stage = "install";
     setState({ status: "installing" });
+    // The install can end this process, so leave a note for the next start to
+    // report how it went. First thing here, so the webview has what time
+    // there is to save it.
+    await markUpdatePending(update.version);
     // Stop what ffmpeg is doing first (a background send's cut, an export), as
     // quitting would: on Windows the install below ends the process without
     // the app's exit handler, and a running ffmpeg.exe locks the file the
@@ -92,11 +114,16 @@ export async function installUpdate() {
     // On Windows (NSIS) the line above never returns — the plugin exits the
     // process and the installer relaunches the app itself. From here on is
     // the macOS path: the .app was swapped in place, restart into it.
+    stage = "relaunch";
     await relaunch();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("Update failed:", msg);
     Sentry.captureException(e);
+    // A failed relaunch leaves the new app in place: keep the note, so the
+    // start the coach does by hand still reports the install.
+    if (stage !== "relaunch") clearPendingUpdate();
+    trackUpdate("update_install_failed", { version: update.version, stage, error: shortError(e) });
     void invoke("resume_exports").catch(() => {});
     setState({ status: "error", error: msg });
     busy = false; // allow "Try again"
@@ -109,14 +136,19 @@ export async function installUpdate() {
 let dismissedVersion: string | null = null;
 
 export function dismissUpdate() {
-  if (state.update) dismissedVersion = state.update.version;
+  if (state.update) {
+    dismissedVersion = state.update.version;
+    trackUpdate("update_dismissed", { version: state.update.version });
+  }
   // Release the Rust-side updater resource, not just the JS handle.
   state.update?.close().catch(() => {});
   setState({ update: null, status: "idle", error: null });
 }
 
 /** Shows a found update in the card, releasing the one it replaces. */
-function showUpdate(update: Update) {
+function showUpdate(update: Update, via: UpdateCheckVia) {
+  // One offer per version the card shows: asking again while it is up isn't a new one.
+  if (state.update?.version !== update.version) trackUpdate("update_offered", { version: update.version, via });
   if (state.update && state.update !== update) state.update.close().catch(() => {});
   setState({ update, status: "idle", error: null });
 }
@@ -128,16 +160,16 @@ function showUpdate(update: Update) {
  */
 export function UpdateChecker() {
   useEffect(() => {
-    silentUpdateCheck().then((u) => {
-      if (u) showUpdate(u);
+    silentUpdateCheck("startup").then((u) => {
+      if (u) showUpdate(u, "startup");
     });
     const recheck = window.setInterval(() => {
       // Nothing to ask while the card is up or an install is running.
       if (state.update || busy) return;
-      silentUpdateCheck().then((u) => {
+      silentUpdateCheck("recheck").then((u) => {
         if (!u) return;
         if (shouldOfferFoundUpdate({ found: u.version, showing: state.update !== null || busy, dismissed: dismissedVersion })) {
-          showUpdate(u);
+          showUpdate(u, "recheck");
         } else {
           u.close().catch(() => {});
         }
@@ -153,7 +185,7 @@ export function UpdateChecker() {
         found.close().catch(() => {});
         return;
       }
-      showUpdate(found);
+      showUpdate(found, "manual");
     };
     window.addEventListener(UPDATE_FOUND_EVENT, onFound);
     return () => {
