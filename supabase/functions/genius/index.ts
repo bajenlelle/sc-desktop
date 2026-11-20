@@ -9,6 +9,10 @@
 //   { action: "match", competitionId, matchId }    → actions + players, cached
 //                                                    forever (COMPLETE matches
 //                                                    are immutable upstream)
+//   { action: "season", competitionId }            → every game's per-team
+//                                                    totals and the standings
+//                                                    (season-payload.ts), 12h
+//                                                    TTL, stale on failure
 //   { action: "competitions" }                     → raw competition list,
 //                                                    platform-admin only; the
 //                                                    once-a-season maintenance
@@ -36,6 +40,7 @@ import {
   trimPerson,
   type PersonRow,
 } from "../../../packages/shared/lib/genius-roster.ts";
+import { seasonPayload } from "../../../packages/shared/lib/season-payload.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -52,6 +57,7 @@ const R2_BUCKET = Deno.env.get("R2_BUCKET") ?? "";
 
 const GENIUS_BASE = "https://api.wh.geniussports.com/v1/basketball";
 const FIXTURES_TTL_MS = 6 * 60 * 60 * 1000;
+const SEASON_TTL_MS = 12 * 60 * 60 * 1000;
 const PAGE_LIMIT = 500; // Warehouse max per page
 
 // The league catalogue, and the single source of what this function will
@@ -351,6 +357,40 @@ async function loadFixtures(
     if (!cached) throw e;
     console.error("[genius] fixture refresh failed, serving stale:", e instanceof Error ? e.message : String(e));
     return { fixtures: (cached.payload as Json[]) ?? [], fresh: false };
+  }
+}
+
+/**
+ * A competition's season (season-payload.ts) from the cache, rebuilt from
+ * upstream when older than the TTL: every page of the per-team game
+ * statistics, the standings and the fixture list (its own 6 h cache). About
+ * three calls a refresh. Stale data is served over an upstream error.
+ */
+async function loadSeason(admin: SupabaseClient, competitionId: number): Promise<Json> {
+  const { data: cached } = await admin
+    .from("genius_season_cache")
+    .select("payload, fetched_at")
+    .eq("competition_id", competitionId)
+    .maybeSingle();
+  if (cached && Date.now() - new Date(cached.fetched_at).getTime() <= SEASON_TTL_MS) return cached.payload as Json;
+
+  try {
+    const [{ fixtures }, rows, standings] = await Promise.all([
+      loadFixtures(admin, competitionId),
+      geniusAll(`/statistics/teammatch/competitions/${competitionId}`),
+      geniusAll(`/competitions/${competitionId}/standings`),
+    ]);
+    const fetchedAt = new Date().toISOString();
+    const payload = seasonPayload(rows, fixtures, standings, fetchedAt);
+    const { error: upsertError } = await admin
+      .from("genius_season_cache")
+      .upsert({ competition_id: competitionId, payload, fetched_at: fetchedAt }, { onConflict: "competition_id" });
+    if (upsertError) console.error("[genius] season cache upsert failed:", upsertError.message);
+    return payload;
+  } catch (e) {
+    if (!cached) throw e;
+    console.error("[genius] season refresh failed, serving stale:", e instanceof Error ? e.message : String(e));
+    return cached.payload as Json;
   }
 }
 
@@ -768,6 +808,12 @@ Deno.serve(async (req) => {
         }
       }
       return ok({ fixtures: fixtures.map(trimFixture) });
+    }
+
+    // The Stats view's season context: what a game is compared with. Any
+    // signed-in user; the catalogue check above guards the competition.
+    if (payload.action === "season") {
+      return ok(await loadSeason(admin, competitionId));
     }
 
     if (payload.action === "match") {
