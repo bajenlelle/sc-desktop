@@ -624,9 +624,8 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
   second chance, fast break, turnovers and bench); Players (both teams, home
   first; starters then bench; Game | Season); Shots (a half court per team,
   basket at the top, a dot per field goal, made filled, missed a ring; at
-  the rim, paint, mid-range and threes as makes of attempts, rim and paint by
-  the feed's own areas (`underbasket`, `inthepaint`) so the paint's short
-  twos aren't called mid-range; one player at a time); Lineups
+  the rim (within 2 m of the basket), mid-range and threes as makes of
+  attempts; one player at a time); Lineups
   (fives by time on the floor, the five longest of at least two minutes,
   "Show all").
 - **Small-sample honesty**: one player's shooting is makes of attempts, never
@@ -657,9 +656,13 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
   and tested in `game-players.ts`.
 - **Which view a game opens on is unchanged**: Game when its video plays here
   and it is synced, else Details. `?view=stats` names Stats.
-- **Tunable**: `RIM_RADIUS_M` (1.25 m, FIBA's no-charge arc) and the key's
-  measures only zone a shot the feed gives no area; not yet checked against a
-  real game's positions.
+- **At the rim is 2 m** (`RIM_RADIUS_M`), read off staging's 36 Genius games
+  and 3,094 twos on 2026-11-20: inside 2 m half to two thirds went in and
+  about 80 % were lay-ups, dunks or tip-ins; from 2 m out about a third went
+  in, mostly jump shots. The feed's own areas weren't used: its `inthepaint`
+  (median 1.8 m) and `underbasket` (0.8 m) overlap too much to tell apart, and
+  Leonard found a separate Paint zone hardly differed from the rim. The same
+  look found exactly five a side on 16,396 of 16,422 plays with fives.
 - **Analytics**: `game_stats_viewed` (entry, has_shots, has_lineups,
   minutes_source), `game_stats_plays_opened` (kind, stat, plays),
   `game_stats_season_shown`; `game_view_filtered` gains `picked`.

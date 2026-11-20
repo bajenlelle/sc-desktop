@@ -12,29 +12,21 @@ export const COURT_LENGTH_M = 28;
 export const COURT_WIDTH_M = 15;
 export const BASKET_FROM_BASELINE_M = 1.575;
 /**
- * For a shot the feed gives no area: this close to the basket counts as at
- * the rim (FIBA's no-charge arc). The feed's own area names come first.
+ * Twos this close to the basket count as at the rim. Read off staging's 36
+ * Genius games, 3,094 twos (2026-11-20): inside 2 m, 50–68 % went in and
+ * about 80 % were lay-ups, dunks or tip-ins; from 2 m out, 31–38 % and mostly
+ * jump shots. Lay-ups reach about 2.1 m. The feed's own areas don't draw this
+ * line: its `inthepaint` has a median of 1.8 m, its `underbasket` 0.8 m.
  */
-export const RIM_RADIUS_M = 1.25;
-/** The key (FIBA): 4.9 wide, 5.8 deep from the baseline. A shot with no area inside it is in the paint. */
-export const KEY_WIDTH_M = 4.9;
-export const KEY_DEPTH_M = 5.8;
+export const RIM_RADIUS_M = 2;
 
-/** Rim and paint follow the feed's `underbasket` and `inthepaint`, so the paint's short twos aren't called mid-range. */
-export type ShotZone = "rim" | "paint" | "mid" | "three";
+export type ShotZone = "rim" | "mid" | "three";
 
-export const SHOT_ZONES: readonly ShotZone[] = ["rim", "paint", "mid", "three"];
+export const SHOT_ZONES: readonly ShotZone[] = ["rim", "mid", "three"];
 
-function zoneOf(type: "2pt" | "3pt", area: string | null | undefined, x: number, y: number): ShotZone {
+function zoneOf(type: "2pt" | "3pt", x: number, y: number): ShotZone {
   if (type === "3pt") return "three";
-  const named = area?.toLowerCase();
-  if (named === "underbasket") return "rim";
-  if (named === "inthepaint") return "paint";
-  if (named) return "mid";
-  if (metresFromBasket(x, y) <= RIM_RADIUS_M) return "rim";
-  const fromBaseline = (x / 100) * COURT_LENGTH_M;
-  const fromMiddle = Math.abs((y / 100 - 0.5) * COURT_WIDTH_M);
-  return fromBaseline <= KEY_DEPTH_M && fromMiddle <= KEY_WIDTH_M / 2 ? "paint" : "mid";
+  return metresFromBasket(x, y) <= RIM_RADIUS_M ? "rim" : "mid";
 }
 
 export interface ChartShot {
@@ -64,7 +56,7 @@ export function chartShot(e: PlayByPlayEvent): ChartShot | null {
   const far = e.x > 50;
   const x = far ? 100 - e.x : e.x;
   const y = far ? 100 - e.y : e.y;
-  const zone = zoneOf(e.type, e.area, x, y);
+  const zone = zoneOf(e.type, x, y);
   return { eventId: e.eventId, personId: e.player?.playerId ?? null, side, made: e.isSuccessful === 1, x, y, zone };
 }
 

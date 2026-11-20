@@ -35,17 +35,15 @@ describe("chartShot", () => {
     expect(chartShot(shot("3pt", 30, 20))!.zone).toBe("three");
   });
 
-  it("zones read the feed's area first: under the basket is the rim, in the paint is the paint", () => {
-    // From the Genius sample: a layup 2 m out the feed calls "inthepaint", and its own "underbasket".
-    expect(chartShot(shot("2pt", 13, 51, { area: "inthepaint", subType: "layup" }))!.zone).toBe("paint");
-    expect(chartShot(shot("2pt", 9, 56, { area: "underbasket" }))!.zone).toBe("rim");
-    expect(chartShot(shot("2pt", 30, 20, { area: "outsideleft" }))!.zone).toBe("mid");
-    expect(chartShot(shot("3pt", 24, 88, { area: "outsideright" }))!.zone).toBe("three");
+  it("the rim reaches 2 m from the basket: the staging data's break between lay-ups and jump shots", () => {
+    // 12.4 % of the court's length is 1.9 m past the basket; 13.2 % is 2.1 m.
+    expect(chartShot(shot("2pt", 12.4, 50))!.zone).toBe("rim");
+    expect(chartShot(shot("2pt", 13.2, 50))!.zone).toBe("mid");
   });
 
-  it("a shot with no area is in the paint when it is inside the key", () => {
-    expect(chartShot(shot("2pt", 15, 50))!.zone).toBe("paint");
-    expect(chartShot(shot("2pt", 15, 30))!.zone).toBe("mid");
+  it("the feed's area names don't decide the zone: they overlap too much to tell rim from paint", () => {
+    expect(chartShot(shot("2pt", 9, 56, { area: "inthepaint" }))!.zone).toBe("rim");
+    expect(chartShot(shot("2pt", 20, 50, { area: "underbasket" }))!.zone).toBe("mid");
   });
 
   it("a play with no position has no chart shot", () => {
@@ -80,6 +78,6 @@ describe("zoneCells", () => {
     expect(z.rim.eventIds).toHaveLength(3);
     expect(z.three).toMatchObject({ value: 1, attempts: 1 });
     expect(z.mid).toMatchObject({ value: 0, attempts: 0 });
-    expect(z.paint).toMatchObject({ value: 0, attempts: 0 });
+    expect(Object.keys(z)).toEqual(["rim", "mid", "three"]);
   });
 });
