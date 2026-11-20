@@ -333,7 +333,12 @@ export function GameWatchView({
     const to = Math.min(at, Math.max(0, duration - 1));
     const opened = momentAt(timeline, to, PERIOD_LEAD_SECONDS);
     placedPeriod.current = opened.phase === "live" ? opened.period : null;
-    video.currentTime = to;
+    // A linked play is held as the current one through its lead-in, as a click on its row holds it: the play the
+    // coach asked for is what is lit and named, not the one before it.
+    if (linked) playback.seekTo(to, { hold: linked });
+    else video.currentTime = to;
+    // `playback` is stable enough: the placement runs once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [footage, duration, startEventId, playByEvent, firstBandStart, timeline, video]);
 
   // Remember where the coach was, for coming back from Details or the editor.

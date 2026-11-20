@@ -94,6 +94,19 @@ test("Stats reads the game, and a number opens its plays in the Game view", asyn
   await expect(playRows(page)).toHaveCount(attempts);
 });
 
+test("plays opened from Stats start on the first of them, held as the current play through its lead-in", async ({ page }) => {
+  await openSampleGame(page);
+  await showStats(page);
+  // The second player's shots: their first attempt is not the game's first play.
+  const fg = page.getByRole("button", { name: /: shots, \d+\/[1-9]\d*, show plays$/ }).nth(1);
+  await fg.scrollIntoViewIfNeeded();
+  await fg.click();
+  await expect(page.getByRole("radiogroup", { name: "View" }).getByRole("radio", { name: "Game" })).toHaveAttribute("aria-checked", "true");
+  const rows = playRows(page);
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  await expect(rows.first(), "the shot it opened on is the current play, before it happens").toHaveAttribute("aria-current", "true");
+});
+
 test("a game without positions or fives says so instead of drawing them", async ({ page, browserName }) => {
   await openSampleGame(page);
   await showStats(page);
