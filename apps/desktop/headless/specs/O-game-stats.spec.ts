@@ -29,6 +29,20 @@ test("Stats reads the game, and a number opens its plays in the Game view", asyn
   await factors.scrollIntoViewIfNeeded();
   await shot(page, name("factors"));
 
+  // Players: both teams, with the league's minutes; Season swaps in the league's averages.
+  const players = page.getByRole("heading", { name: "Players", level: 2 });
+  await players.scrollIntoViewIfNeeded();
+  await expect(page.getByRole("columnheader", { name: "PTS" }).first()).toBeVisible();
+  await expect(page.getByRole("row", { name: /^Totals/ })).toHaveCount(2);
+  await shot(page, name("players"));
+  const numbers = page.getByLabel("Numbers");
+  await numbers.getByRole("radio", { name: "Season" }).click();
+  await expect(page.getByRole("columnheader", { name: "PPG" }).first()).toBeVisible({ timeout: 30_000 });
+  await shot(page, name("players-season"));
+  await numbers.getByRole("radio", { name: "Game" }).click();
+  await expect(page.getByRole("columnheader", { name: "PTS" }).first()).toBeVisible();
+  await page.evaluate(() => document.querySelector("[data-page-scroller]")?.scrollTo(0, 0));
+
   // A quarter's figure: the home team's points in Q1.
   const quarter = page.getByRole("button", { name: /: points in Q1, \d+, show plays$/ }).first();
   const label = (await quarter.getAttribute("aria-label"))!;

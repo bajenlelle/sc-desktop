@@ -1,9 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { ChartColumn } from "lucide-react";
 import { gameFlow } from "@scoutable/shared/lib/game-flow";
 import { gameShots } from "@scoutable/shared/lib/game-shots";
 import { gameBox } from "@scoutable/shared/lib/game-box";
 import { FactorsSection } from "./factors-section";
+import { PlayersSection } from "./players-section";
+import type { MinutesSource } from "./use-game-box-score";
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { EmptyState } from "@/components/empty-state";
 import { Page, PageContent } from "@/components/shell/page";
@@ -55,11 +57,16 @@ export function GameStatsView({
     return () => scroller.removeEventListener("scroll", save);
   }, [match.id]);
 
-  useEffect(() => {
-    trackEvent("game_stats_viewed", { entry, has_shots: shots.hasPositions, has_lineups: hasFives, plays: match.events.length });
-    // Once per visit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Once per visit, when the players' table knows where its minutes come from.
+  const viewed = useRef(false);
+  const onMinutesSource = useCallback(
+    (source: MinutesSource) => {
+      if (viewed.current || source === "reading") return;
+      viewed.current = true;
+      trackEvent("game_stats_viewed", { entry, has_shots: shots.hasPositions, has_lineups: hasFives, plays: match.events.length, minutes_source: source });
+    },
+    [entry, shots.hasPositions, hasFives, match.events.length],
+  );
 
   const open: OpenPlays = (set, meta) => {
     trackEvent("game_stats_plays_opened", { kind: meta.kind, stat: meta.stat ?? null, plays: set.eventIds.length });
@@ -94,6 +101,7 @@ export function GameStatsView({
           <>
             <ScoreSection match={match} flow={flow} onOpen={open} />
             <FactorsSection match={match} box={box} onOpen={open} />
+            <PlayersSection match={match} box={box} flow={flow} onOpen={open} onMinutesSource={onMinutesSource} />
           </>
         )}
       </PageContent>
