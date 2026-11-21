@@ -417,6 +417,7 @@ export function OrganizationPage() {
     setDeletingTeam(true);
     try {
       await deleteTeam(team.id);
+      window.dispatchEvent(new CustomEvent("org-setup-changed"));
       toast.success("Team deleted");
       setDeleteTeamTarget(null);
       await load(activeOrgId ?? undefined);

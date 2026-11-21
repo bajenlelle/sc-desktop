@@ -32,6 +32,8 @@ export function CreateTeamDialog({ open, onClose, onCreated, orgId }: CreateTeam
     setCreating(true);
     try {
       await createTeam(name.trim(), season.trim() || undefined, orgId);
+      // Getting started's "Create your first team" step reads its progress again on this.
+      window.dispatchEvent(new CustomEvent("org-setup-changed"));
       toast.success("Team created");
       setName("");
       setSeason("");

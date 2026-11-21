@@ -6,10 +6,12 @@
  * The test account dismissed its checklist long ago, so the page is told otherwise: the profile read answers
  * with no dismissal, and the dismissal the app writes is answered here and never reaches staging (a reload
  * then reads it back, as the server would). The space's reads are trimmed to no playlists and only the sample
- * game, so the checklist has steps left and the import step (which writes nothing) is open. Nothing is written.
+ * game, so the checklist has steps left and the import step (which writes nothing) is open. For a club admin's
+ * steps the account's own space is told it is a club it administers (as in L-shared-invite.spec.ts), and the team
+ * it creates is answered here. Nothing is written.
  */
 import type { Page, Route } from "@playwright/test";
-import { expect, shot, test, waitForQuiet } from "../helpers";
+import { expect, owned, shot, test, waitForQuiet } from "../helpers";
 
 /** What the profile read is answered with, over the account's own row; the app's writes of these land here. */
 interface ProfileAnswers {
@@ -143,3 +145,49 @@ test("it never opens by itself", async ({ page }) => {
   await expect(popover(page)).toBeHidden();
   await expect(page.getByText("Welcome to Scoutable")).toHaveCount(0);
 });
+
+test("a club admin's first team ticks its step at once", async ({ page, browserName }) => {
+  // The account's own space as a club it administers, with no teams yet. The team the dialog creates is
+  // answered here and read back from then on; the sample-game seeding for the club is answered here too.
+  const teams: Record<string, unknown>[] = [];
+  await page.route("**/rpc/get_my_orgs*", async (route: Route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const response = await route.fetch();
+    const rows = (await response.json()) as Record<string, unknown>[];
+    await route.fulfill({ response, json: rows.map((r) => ({ ...r, is_personal: false, role: "admin" })) });
+  });
+  await page.route("**/rpc/seed_demo_match*", (route) => route.fulfill({ status: 200, json: null }));
+  await page.route("**/rest/v1/teams*", async (route: Route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({ status: 200, json: teams });
+  });
+  await page.route("**/rpc/create_team_for_org*", async (route: Route) => {
+    const body = (route.request().postDataJSON() ?? {}) as { team_name?: string; team_season?: string | null; p_org_id?: string | null };
+    const id = "00000000-0000-4000-8000-0000000007ea";
+    teams.push({ id, org_id: body.p_org_id, name: body.team_name, sport: "basketball", season: body.team_season ?? null, created_at: new Date().toISOString() });
+    await route.fulfill({ status: 200, json: id });
+  });
+  await waitForQuiet(page);
+  await page.goto("/matches");
+  await expect(card(page)).toContainText("Create your first team", { timeout: 30_000 });
+  const before = (await card(page).innerText()).match(/(\d+) of (\d+)/);
+  expect(before, "the card shows its progress").not.toBeNull();
+
+  await card(page).click();
+  await popover(page).getByRole("button", { name: /^Create your first team/ }).click();
+  await expect(page).toHaveURL(/\/organization$/);
+  const dialog = page.getByRole("dialog", { name: "New team" });
+  await expect(dialog).toBeVisible({ timeout: 30_000 });
+  await dialog.getByLabel("Name", { exact: true }).fill(owned("team"));
+  await dialog.getByRole("button", { name: "Create team" }).click();
+  await expect(dialog).toBeHidden();
+  expect(teams, "the team was created (here, not on staging)").toHaveLength(1);
+
+  // The card stays mounted all session: it reads the club's setup again without a reload.
+  await expect(card(page), "the step is done").not.toContainText("Create your first team");
+  await expect(card(page)).toContainText(`${Number(before![1]) + 1} of ${before![2]}`);
+  await card(page).click();
+  await expect(popover(page).getByRole("button", { name: /^Create your first team/ }), "ticked in the checklist").toBeDisabled();
+  await shot(page, `${browserName}-L-getting-started-team-ticked`);
+});
+
