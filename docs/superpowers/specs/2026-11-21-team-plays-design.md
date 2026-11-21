@@ -187,9 +187,26 @@ changes at once. The page keeps each view's scroll for the visit.
   uses (`game-box.ts`, `game-shots.ts`), so a count always equals the plays
   Watch opens: each count carries its plays as `matchId:eventId` keys.
 - **Made of attempted**, never a percentage, for threes and shot zones.
-- **The picked set** is a named set of `matchId:eventId` keys, kept with the
-  other filters (Add clips' `ClipFilters` gains it, as `GameFilters.picked`
-  did for one game). A filter narrows within it; the pill clears it.
+- **The picked set** is a definition, not a frozen list (my call, after the
+  builder check; it is what the mockup does): what Watch asked for, as a
+  kind (one of the key stats, a shot zone, a player, all plays) and a side.
+  Its plays (`matchId:eventId` keys) are worked out from it over the games
+  shown, so a count on Season and the pill always agree, and the router state
+  carries the definition. Add clips' `ClipFilters` gains it, as
+  `GameFilters.picked` did for one game. A filter narrows within it; the pill
+  clears it.
+- **Flipping With the ball / Without the ball with a pill showing** (my call):
+  a key stat swaps to its counterpart on the other side ("Turnovers · 41"
+  becomes "Turnovers forced · 44"; threes and threes against them; offensive
+  rebounds and offensive rebounds against them). A shot zone or a player's
+  plays has no counterpart: the flip clears the pill and lists the other
+  side's plays. "All plays" stays all plays.
+- **No cap on games** (my call): Plays lists every one of the team's games the
+  coach has, however many (the coach's own team page can hold 25 or more), so
+  "In your N games" always equals what Watch opens. The Games picker starts
+  with all of them ticked and can untick any; it has none of Add clips' limit
+  of 10. The list is windowed, and games are read a few at a time, newest
+  first.
 - **The target playlist** is remembered per team on this device, as the Game
   view remembers it per game. Adds to a playlist players already have go out
   by themselves, as from the Game view (`background-ship.ts`).
