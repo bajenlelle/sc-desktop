@@ -65,12 +65,8 @@ async function openAfresh(page: Page, id: string): Promise<void> {
   await row.click();
 }
 
-test("a playlist whose plays can't be read says so and keeps its clips", async ({ page }) => {
-  await newPlaylistWithClips(page, NAME, { count: 3 });
-  const id = await playlistIdNamed(page, NAME);
-  await failPlaysReads(page);
-  await openAfresh(page, id);
-
+/** The open playlist says its plays couldn't be read, shows no clips and offers nothing to play, export or share. */
+async function expectPlaysFailed(page: Page): Promise<void> {
   await expect(page.getByText(FAILED, { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
   await expect(page.getByText("No clips yet")).toHaveCount(0);
@@ -81,6 +77,24 @@ test("a playlist whose plays can't be read says so and keeps its clips", async (
   const share = page.getByRole("button", { name: "Share", exact: true });
   if ((await share.count()) > 0) await expect(share).toBeDisabled();
   expect(await playlistClips(page, NAME), "the server still holds the three clips").toHaveLength(3);
+}
+
+test("a playlist whose plays can't be read says so and keeps its clips", async ({ page }) => {
+  await newPlaylistWithClips(page, NAME, { count: 3 });
+  const id = await playlistIdNamed(page, NAME);
+  await failPlaysReads(page);
+  await openAfresh(page, id);
+  await expectPlaysFailed(page);
+});
+
+test("reopened as the page loads, a playlist whose plays can't be read says the same", async ({ page }) => {
+  await newPlaylistWithClips(page, NAME, { count: 3 });
+  await failPlaysReads(page);
+  await waitForQuiet(page);
+  // The playlist made above is the one opened last: Playlists opens it again by itself.
+  await page.goto("/playlists");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(NAME, { timeout: 30_000 });
+  await expectPlaysFailed(page);
 });
 
 test("Try again shows loading rows, then the clips", async ({ page }) => {

@@ -898,8 +898,10 @@ export function PlaylistsPage() {
         setFolders(sorted);
         let restored: Playlist | null = null;
         // Nothing asked for: the playlist opened last in this space, in its editor (a report opened
-        // last opens its playlist). One deleted since, or not in this space, opens nothing.
-        const restoreId = restore?.playlistId ?? (createNew ? null : lastOpenedPlaylist(
+        // last opens its playlist). One deleted since, or not in this space, opens nothing. An ask
+        // that came while this load was on its way (⌘N, the search; done once it lands) wins too.
+        const asked = createNew || lateCreateRef.current || lateRestoreRef.current !== null;
+        const restoreId = restore?.playlistId ?? (asked ? null : lastOpenedPlaylist(
           readRecentOpens(recentOpensScope(user?.id, activeOrgId)),
           new Set(loadedPlaylists.map((p) => p.id)),
         ));
@@ -5704,6 +5706,11 @@ export function PlaylistsPage() {
   // A card (text or stats) is on the stage, not footage: the video's errors are about a clip, not about it.
   const cardOnStage = !!stageCard;
 
+  // The active game's file not looked for yet (a playlist opened as the page loads, before the probe
+  // above answers): no controls until it is known to be there, as when it is opened from the list later.
+  const activeMatchUrl = activeMatchId ? matchLookup.get(activeMatchId)?.videoUrl : undefined;
+  const activeFileUnprobed =
+    !cardOnStage && !!activeMatchUrl && isLocalPath(activeMatchUrl) && !videoStatusByMatch.has(activeMatchId!);
   const playerStack = localVideoUrl || stageCard ? (
       <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
         {/* Stage: in fullscreen it fills the layer; every overlay's coordinate
@@ -5761,7 +5768,7 @@ export function PlaylistsPage() {
             speed={playbackSpeed}
             onSpeedChange={setPlaybackSpeed}
             interactive={!cropMode && !draw.session}
-            hideChrome={(!playerFs.active && !!stageCard) || !!draw.session}
+            hideChrome={(!playerFs.active && !!stageCard) || !!draw.session || activeFileUnprobed}
             playback={stageCard ? { paused: cardPaused, toggle: toggleCard } : undefined}
             trimBar={
               trim ? (

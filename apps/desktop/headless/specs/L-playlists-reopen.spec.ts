@@ -6,7 +6,7 @@
  * them. The keys are driven as the Windows build reads them (the native menu is mocked here).
  */
 import type { Page, Route } from "@playwright/test";
-import { createPlaylist, deleteOwnRowsNamed, expect, goViaSidebar, openPlaylists, owned, shot, test, toastWith } from "../helpers";
+import { createPlaylist, deleteOwnRowsNamed, expect, goViaSidebar, openPlaylists, owned, shot, test, toastWith, waitForQuiet } from "../helpers";
 
 test.use({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36" });
 
@@ -19,6 +19,8 @@ const nameField = (page: Page) => page.locator("input:focus");
 /** Creates ALPHA, opens it from the list on a fresh Playlists page, and returns its id. */
 async function openAlpha(page: Page): Promise<string> {
   const id = await createPlaylist(page, ALPHA);
+  // createPlaylist may have loaded the app first: let its reads end before the full load below.
+  await waitForQuiet(page);
   await page.goto("/playlists");
   const row = page.locator(`[data-playlist-id="${id}"]`).first();
   await expect(row, "the spec's playlist is listed").toBeVisible({ timeout: 30_000 });
@@ -59,7 +61,8 @@ test("a deleted remembered playlist opens nothing, quietly", async ({ page }) =>
   await goViaSidebar(page, "Library");
   await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
   await goViaSidebar(page, "Playlists");
-  await openPlaylists(page);
+  await expect(page).toHaveURL(/\/playlists$/);
+  await expect(page.locator("[data-playlist-id]").first(), "the list has loaded").toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Select a playlist", { exact: true })).toBeVisible();
   await expect(heading(page)).toHaveText("Playlists");
   await page.waitForTimeout(500);
@@ -82,6 +85,28 @@ test("a fresh page asked to create doesn't reopen the last one", async ({ page }
   await expect(nameField(page), "the new playlist's name is asked for").toHaveValue("New Playlist", { timeout: 30_000 });
   await expect(heading(page), "the playlist opened last stays closed").toHaveText("Playlists");
   await nameNewPlaylist(page);
+});
+
+test("New playlist while Playlists is still loading doesn't reopen the last one", async ({ page }) => {
+  await openAlpha(page);
+  await goViaSidebar(page, "Library");
+  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  // The page's read of its list held back, so the ask comes while it loads.
+  await page.route("**/rest/v1/playlists*", async (route) => {
+    if (route.request().method() === "GET" && route.request().url().includes("playlist_clips")) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    await route.fallback();
+  });
+  await goViaSidebar(page, "Playlists");
+  await expect(heading(page)).toHaveText("Playlists");
+  await expect(page.getByRole("button", { name: "New Playlist", exact: true }), "the list is still loading").toBeHidden();
+  await page.keyboard.press("Control+n");
+  await expect(nameField(page), "the new playlist's name is asked for").toHaveValue("New Playlist", { timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "New Playlist", exact: true }), "the list has loaded").toBeVisible();
+  await expect(heading(page), "the playlist opened last stays closed").toHaveText("Playlists");
+  await nameNewPlaylist(page);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
 test("another space doesn't reopen this space's playlist", async ({ page }) => {
