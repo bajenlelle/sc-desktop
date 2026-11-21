@@ -143,9 +143,17 @@ describe("leagueTables", () => {
     expect(leagueTables(one, [fx(100, 1, 2, { poolNumber: 10, phaseName: "SBL Herr" })], new Set(), new Set())[0].title).toBeNull();
   });
 
-  it("puts teams without a standing last", () => {
+  it("lists the standings' teams only: no extra table for an opponent the standings leave out", () => {
     const l = leagueSeason(payload([g(100, tg(5), tg(1))], [st(1, 10)]));
-    expect(leagueTables(l, [fx(100, 5, 1)], new Set(), new Set()).flatMap((t) => t.rows.map((r) => r.teamId))).toEqual([1, 5]);
+    const tables = leagueTables(l, [fx(100, 5, 1)], new Set(), new Set());
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toMatchObject({ title: null });
+    expect(tables[0].rows.map((r) => r.teamId)).toEqual([1]);
+  });
+
+  it("lists every team by its fixtures when there are no standings", () => {
+    const l = leagueSeason(payload([g(100, tg(5), tg(1))]));
+    expect(leagueTables(l, [fx(100, 5, 1)], new Set(), new Set()).flatMap((t) => t.rows.map((r) => r.teamId)).sort()).toEqual([1, 5]);
   });
 });
 

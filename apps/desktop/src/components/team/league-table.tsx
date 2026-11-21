@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { LeagueTable as Table, LeagueTableRow } from "@scoutable/shared/lib/team-schedule";
 import { cn } from "@/lib/utils";
@@ -50,6 +50,7 @@ const ppp = (v: number | null) => (v === null ? "–" : v.toFixed(2));
 
 /** One group's table: a row per team in standings order; a header sorts its column; a row opens the team. */
 export function LeagueTable({ table, competitionId }: { table: Table; competitionId: number }) {
+  const navigate = useNavigate();
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean } | null>(null);
   const rows = sort
     ? [...table.rows].sort((a, b) => (sort.desc ? valueOf(b, sort.key) - valueOf(a, sort.key) : valueOf(a, sort.key) - valueOf(b, sort.key)))
@@ -78,13 +79,22 @@ export function LeagueTable({ table, competitionId }: { table: Table; competitio
           </thead>
           <tbody className="divide-y divide-separator border-t border-separator">
             {rows.map((r) => (
-              <tr key={r.teamId} className="group relative transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2">
+              // The whole row opens the team on a click; the name is the link the keyboard and VoiceOver use.
+              // (A link stretched over the row with ::after doesn't work: WebKit ignores position: relative on <tr>.)
+              <tr
+                key={r.teamId}
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("a, button")) return;
+                  navigate(`/teams/${competitionId}/${r.teamId}`, { state: { from: "teams" } });
+                }}
+                className="cursor-default transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2"
+              >
                 <td className="py-2 pl-4 text-right text-muted-foreground nums">{r.position ?? "–"}</td>
                 <td className="py-2 pr-3 pl-3">
                   <Link
                     to={`/teams/${competitionId}/${r.teamId}`}
                     state={{ from: "teams" }}
-                    className="flex min-w-0 items-center gap-2 outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-selection"
+                    className="flex min-w-0 items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-selection"
                   >
                     {r.logoUrl ? <img src={r.logoUrl} alt="" className="size-5 shrink-0 object-contain" /> : <span aria-hidden className="size-5 shrink-0" />}
                     <span className="truncate font-medium text-foreground">{r.name || `Team ${r.teamId}`}</span>

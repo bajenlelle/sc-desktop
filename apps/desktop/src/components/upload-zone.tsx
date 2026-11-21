@@ -381,6 +381,8 @@ export function UploadZone({
 
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([]);
   const [scheduleStatus, setScheduleStatus] = useState<"loading" | "idle" | "error">("loading");
+  /** Which league/season/stage `scheduleGames` was read for, so a pick never matches against another stage's games. */
+  const [scheduleFor, setScheduleFor] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedGame, setSelectedGame] = useState<ScheduleGame | null>(null);
   const [fetchStatus, setFetchStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -455,10 +457,12 @@ export function UploadZone({
     let cancelled = false;
     setScheduleStatus("loading");
     setScheduleGames([]);
+    const loadedFor = `${selectedLeague.id}/${selectedSeason.id}/${selectedStage.id}`;
     getLeagueSchedule(selectedLeague, selectedSeason, selectedStage)
       .then((games) => {
         if (cancelled) return;
         setScheduleGames(games);
+        setScheduleFor(loadedFor);
         setScheduleStatus("idle");
       })
       .catch((err) => {
@@ -490,13 +494,15 @@ export function UploadZone({
   }, [initialPick, leagueList]);
   useEffect(() => {
     if (!initialPick || pickDone.current || scheduleStatus === "loading") return;
-    if (selectedLeague?.id !== initialPick.leagueId || selectedSeason?.id !== initialPick.seasonId) return;
+    if (selectedLeague?.id !== initialPick.leagueId || selectedSeason?.id !== initialPick.seasonId || !selectedStage) return;
+    // Only the schedule read for this very selection: one loaded before the pick applied is another stage's.
+    if (scheduleFor !== `${selectedLeague.id}/${selectedSeason.id}/${selectedStage.id}` && scheduleStatus !== "error") return;
     pickDone.current = true;
     const game = scheduleGames.find((g) => g.uuid === String(initialPick.matchId));
     if (game) void handleSelectGame(game);
     // handleSelectGame reads the selection just set; it isn't a dependency of when to pick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPick, scheduleStatus, scheduleGames, selectedLeague, selectedSeason]);
+  }, [initialPick, scheduleStatus, scheduleGames, scheduleFor, selectedLeague, selectedSeason, selectedStage]);
 
   // Duplicate detection: same fixture (stable league uuid) in this space.
   useEffect(() => {

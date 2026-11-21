@@ -23,6 +23,18 @@ test("the league table lists every team and opens one", async ({ page, browserNa
   await expect(page).toHaveURL(/\/teams\/\d+\/1$/);
 });
 
+test("a click anywhere on a team's row opens that team, not another", async ({ page }) => {
+  await mockLeague(page, madeUpLeague());
+  await page.goto("/teams");
+  const beta = teamRow(page, "Beta");
+  await expect(beta).toBeVisible({ timeout: 30_000 });
+  await beta.getByRole("cell").filter({ hasText: "5–1" }).click(); // the W–L cell, away from the name
+  await expect(page).toHaveURL(/\/teams\/\d+\/2$/);
+  await page.goBack();
+  await teamRow(page, "Alfa").getByRole("cell").first().click(); // the place, at the row's far left
+  await expect(page).toHaveURL(/\/teams\/\d+\/1$/);
+});
+
 test("Teams is a row in the sidebar", async ({ page }) => {
   await mockLeague(page, madeUpLeague());
   await page.goto("/");
@@ -188,6 +200,14 @@ test("a team page says how it was opened", async ({ page }) => {
   await page.getByRole("button", { name: /· 2026\/27/ }).click();
   await page.getByRole("menuitemradio").nth(1).click();
   await expect.poll(async () => (await tracked()).some((e) => e.event === "teams_league_changed")).toBe(true);
+});
+
+test("a game with play-by-play offers Import even when the league isn't in the catalogue", async ({ page }) => {
+  await mockLeague(page, madeUpLeague());
+  await page.goto("/teams/99999/1"); // a competition the league catalogue doesn't list
+  const games = page.getByRole("region", { name: "Games" });
+  await expect(games.getByRole("link", { name: "Import" }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(games.getByText("No play-by-play")).toHaveCount(0);
 });
 
 test("a failed read and an older function say so", async ({ page }) => {

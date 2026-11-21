@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { TeamGameRow } from "@scoutable/shared/lib/team-schedule";
 import { Button } from "@/components/ui/button";
 import { GroupHeader } from "@/components/ui/group";
@@ -42,6 +42,7 @@ export function TeamGamesSection({
 }) {
   const [all, setAll] = useState(false);
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const upcoming = rows.filter((r) => r.status === "upcoming").slice(0, NEXT);
   const played = rows.filter((r) => r.status === "played").reverse();
   const shown = [...upcoming, ...(all ? played : played.slice(0, FIRST_PLAYED))];
@@ -82,7 +83,21 @@ export function TeamGamesSection({
               const gameId = library.get(r.matchId);
               const pick = !gameId && r.importable ? importPick(r) : null;
               return (
-                <tr key={r.matchId} className={cn("relative", gameId && "transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2")}>
+                // A game in the library: the whole row opens it on a click (WebKit ignores position: relative on <tr>,
+                // so no link stretched over the row); "In your library" is the link the keyboard uses.
+                <tr
+                  key={r.matchId}
+                  onClick={
+                    gameId
+                      ? (e) => {
+                          if ((e.target as HTMLElement).closest("a, button")) return;
+                          onAction?.("open_game");
+                          navigate(`/matches/${gameId}?view=stats`);
+                        }
+                      : undefined
+                  }
+                  className={cn(gameId && "cursor-default transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2")}
+                >
                   <td className="w-24 py-2 pl-4 text-muted-foreground nums">{r.status === "upcoming" ? gameDay(r.at) : playedDay(r.at)}</td>
                   <td className="py-2 pr-3">
                     <span className="flex min-w-0 items-center gap-2">
@@ -91,7 +106,7 @@ export function TeamGamesSection({
                         to={`/teams/${competitionId}/${r.opponentId}`}
                         state={{ from: "team", back: { label: teamName, path: pathname } }}
                         onClick={() => onAction?.("open_team")}
-                        className="relative z-10 truncate rounded text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+                        className="truncate rounded text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
                       >
                         {r.opponentName}
                       </Link>
@@ -107,16 +122,17 @@ export function TeamGamesSection({
                       <Link
                         to={`/matches/${gameId}?view=stats`}
                         onClick={() => onAction?.("open_game")}
-                        className="text-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-selection"
+                        className="rounded text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
                       >
                         In your library
                       </Link>
-                    ) : pick ? (
+                    ) : r.importable ? (
+                      // Without a pick (a league the catalogue doesn't list) the import page opens as it does from the sidebar.
                       <Link
                         to="/upload"
-                        state={{ pick }}
+                        state={pick ? { pick } : undefined}
                         onClick={() => onAction?.("import")}
-                        className="relative z-10 rounded text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+                        className="rounded text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
                       >
                         Import
                       </Link>

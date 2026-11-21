@@ -72,6 +72,16 @@ describe("leagueSeason", () => {
     expect(l.swing.own.pace).not.toBeNull();
   });
 
+  it("takes its teams from the standings when there are standings: no stray group for a finals or scheduled opponent", () => {
+    const p = payload(
+      [g(100, tg(1), tg(2)), g(101, tg(1), tg(8), "FINALS"), g(102, 1, 9)],
+      [st(1, 10), st(2, 10, 2)],
+    );
+    const l = leagueSeason(p);
+    expect([...l.teams.keys()].sort()).toEqual([1, 2]);
+    expect(l.groups.map((x) => x.group)).toEqual([10]);
+  });
+
   it("ties values that differ only by rounding in the sums", () => {
     // 0.1 + 0.2 sums differently from 0.3: the same numbers reached two ways must share a place.
     const p = payload([g(100, tg(1, { pts: 0.1 + 0.2, fga: 1, oreb: 0, tov: 0, fta: 0 }), tg(2, { pts: 0.3, fga: 1, oreb: 0, tov: 0, fta: 0 }))], two);

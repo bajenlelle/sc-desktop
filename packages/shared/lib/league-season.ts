@@ -127,13 +127,17 @@ function swingOf(byTeam: Map<number, Side[]>): Record<End, Record<ProfileKey, nu
 export function leagueSeason(payload: SeasonPayload): LeagueSeason {
   const byTeam = sidesByTeam(payload);
 
+  // The standings are the competition's teams when there are any: a finals or
+  // scheduled opponent without a row would otherwise become a group of its own.
   const ids = new Set<number>();
   for (const s of payload.standings) ids.add(s.teamId);
-  for (const game of payload.games) {
-    ids.add(game.homeTeamId);
-    ids.add(game.awayTeamId);
+  if (ids.size === 0) {
+    for (const game of payload.games) {
+      ids.add(game.homeTeamId);
+      ids.add(game.awayTeamId);
+    }
+    for (const id of byTeam.keys()) ids.add(id);
   }
-  for (const id of byTeam.keys()) ids.add(id);
 
   const profiles = new Map<number, TeamProfile>();
   for (const teamId of ids) {
