@@ -150,8 +150,9 @@ dot is too small to carry it), as mobile already decided.
   also on screen shows the selection fill and the ▶.
 - **In the target playlist:** a grey ✓ in the playlist slot, always visible.
   Just after an add it arrives in the accent (the game view's `added` state,
-  with its spring) and settles to grey. Clicking ✓ removes it from the target,
-  with the collect toast's Undo, as in the game view today. In Add clips the
+  with its spring) and settles to grey; that ✓ removes it from the target on
+  click, with the collect toast's Undo. A play that was in the target before
+  (not added from this view) has a static ✓, as in the game view today. In Add clips the
   ✓ replaces today's 40 % dimming: a play already in the playlist keeps full
   contrast, says so with the ✓, and can't be ticked (as today).
 - **Can't play here** (Teams: the game's video is missing or unsynced; game
