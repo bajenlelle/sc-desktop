@@ -7,6 +7,7 @@ import { usePlayerAccess } from "@/lib/player-access";
 import { canExport } from "@scoutable/shared/lib/player-access";
 import { dismissOnboardingChecklist, getOrgContextForOrg, listOrgSetupInvites, setDeclaredRole } from "@/lib/profile-db";
 import { hasSharedAnyPlaylist } from "@/lib/playlists-db";
+import { PLAYLISTS_CHANGED } from "@/lib/playlist-events";
 import { deriveOrgSetupProgress, type OrgSetupProgress } from "@scoutable/shared/lib/org-setup";
 import { getHasExported } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
@@ -14,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import type { Playlist, StoredMatch } from "@/types/match";
 
-interface Step {
+export interface Step {
   key: string;
   title: string;
   hint?: string;
@@ -25,8 +26,27 @@ interface Step {
   locked?: boolean;
 }
 
+/** Everything the Getting started checklist shows and does, for its card and its popover. */
+export interface Checklist {
+  /** Not dismissed, not finished, and the user can act in this space. */
+  show: boolean;
+  steps: Step[];
+  doneCount: number;
+  /** The first step that is neither done nor locked. */
+  next: Step | null;
+  welcome: string;
+  /** OAuth signups skip the signup form's role question: it is asked here. */
+  askRole: boolean;
+  declareRole(role: "coach" | "player"): void;
+  isClubAdmin: boolean;
+  dismiss(): void;
+  /** Goes to the step's page, when it has one and isn't done. */
+  open(step: Step): void;
+}
+
 /**
- * First-session "Getting started" checklist on the Overview page.
+ * The first-session "Getting started" checklist, shown from the sidebar's
+ * card (components/shell/getting-started-card.tsx).
  *
  * Every step is derived from real data (playlists, matches, shares) rather
  * than stored per-step, so it stays honest across devices; only the export
@@ -34,13 +54,7 @@ interface Step {
  * user dismisses it or finishes everything; existing accounts were
  * backfilled as dismissed, so only new signups ever see it.
  */
-export function GettingStarted({
-  matches,
-  playlists,
-}: {
-  matches: StoredMatch[];
-  playlists: Playlist[];
-}) {
+export function useChecklist(matches: StoredMatch[], playlists: Playlist[]): Checklist {
   const navigate = useNavigate();
   const { user, profile, activeOrg, activeOrgId, activeOrgIsPersonal, activeOrgPlan, activeOrgRole, myOrgs, reloadProfile } = useAuth();
   const { access: playerAccess, playerMode } = usePlayerAccess();
@@ -60,13 +74,19 @@ export function GettingStarted({
     !hidden && canActHere && profile != null && profile.onboardingChecklistDismissedAt == null;
 
   // The club-space final step ("share with your team") is the one signal not
-  // already loaded on Home. Deliberately NOT org-scoped: it answers "has
-  // this coach ever shared anything", a one-time checklist boolean.
+  // in the games and playlists handed in. Deliberately NOT org-scoped: it
+  // answers "has this coach ever shared anything", a one-time checklist
+  // boolean. Read again when a playlist is shared (or made, or filled).
   useEffect(() => {
     if (!show || activeOrgIsPersonal) return;
-    hasSharedAnyPlaylist()
-      .then(setHasSharedOut)
-      .catch(() => {});
+    const load = () => {
+      hasSharedAnyPlaylist()
+        .then(setHasSharedOut)
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener(PLAYLISTS_CHANGED, load);
+    return () => window.removeEventListener(PLAYLISTS_CHANGED, load);
   }, [show, activeOrgIsPersonal]);
 
   useEffect(() => {
@@ -106,7 +126,7 @@ export function GettingStarted({
   // a declared-player invited as club coach should read coach copy there.
   const isPlayer = activeOrgIsPersonal && profile?.declaredRole === "player";
 
-  function handleDeclareRole(role: "coach" | "player") {
+  function declareRole(role: "coach" | "player") {
     setDeclaredRole(role)
       .then(() => reloadProfile())
       .catch((err) => console.error("[onboarding] failed to save role:", err));
@@ -219,15 +239,13 @@ export function GettingStarted({
     setHidden(true);
   }, [show, allDone]);
 
-  if (!show) return null;
-
-  function handleDismiss() {
+  function dismiss() {
     setHidden(true);
     trackEvent("onboarding_dismissed", { done_count: doneCount });
     dismissOnboardingChecklist().catch(() => {});
   }
 
-  function handleStep(step: Step) {
+  function open(step: Step) {
     if (!step.to || step.done) return;
     trackEvent("onboarding_step_clicked", { step: step.key });
     navigate(step.to, step.toState ? { state: step.toState } : undefined);
@@ -246,8 +264,28 @@ export function GettingStarted({
       ? `You're an admin of ${activeOrg?.orgName ?? "your organization"}. Set up your club so coaches and players can get going.${demoNote}`
       : `You've joined ${activeOrg?.orgName ?? "your organization"}. Here's how to get going.${demoNote}`;
 
+  return {
+    show,
+    steps,
+    doneCount,
+    next: steps.find((s) => !s.done && !s.locked) ?? null,
+    welcome,
+    askRole: profile?.declaredRole == null,
+    declareRole,
+    isClubAdmin,
+    dismiss,
+    open,
+  };
+}
+
+/**
+ * The checklist itself: welcome, the role question, progress, the steps and
+ * the dismiss ×. `onNavigate` runs after a step has gone to its page.
+ */
+export function ChecklistBody({ checklist, onNavigate }: { checklist: Checklist; onNavigate(): void }) {
+  const { steps, doneCount, welcome } = checklist;
   return (
-    <section className="rounded-window bg-card ring-1 ring-separator">
+    <div>
       <div className="flex items-start justify-between gap-4 px-5 pt-4">
         <div>
           <h2 className="text-title-3 text-foreground">Welcome to Scoutable</h2>
@@ -255,7 +293,7 @@ export function GettingStarted({
         </div>
         <button
           type="button"
-          onClick={handleDismiss}
+          onClick={checklist.dismiss}
           className="-mr-2 -mt-1 flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-2 hover:text-foreground active:scale-95 focus-visible:ring-2 focus-visible:ring-selection"
           title="Dismiss. You can always find these actions in the sidebar"
           aria-label="Dismiss"
@@ -265,7 +303,7 @@ export function GettingStarted({
       </div>
 
       {/* OAuth signups skip the signup form's role question — ask once here. */}
-      {profile?.declaredRole == null && (
+      {checklist.askRole && (
         <div className="mx-5 mt-4 flex flex-col gap-2 rounded-lg bg-fill-1 p-3">
           <span className="text-callout font-medium text-foreground">What describes you best?</span>
           <div className="grid grid-cols-2 gap-2">
@@ -278,7 +316,7 @@ export function GettingStarted({
               <button
                 key={role}
                 type="button"
-                onClick={() => handleDeclareRole(role)}
+                onClick={() => checklist.declareRole(role)}
                 className="rounded-md bg-card px-3 py-2 text-left ring-1 ring-separator outline-none transition-[background-color,transform,box-shadow] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
               >
                 <span className="text-sm font-medium text-foreground">{label}</span>
@@ -303,7 +341,10 @@ export function GettingStarted({
             <li key={step.key}>
               <button
                 type="button"
-                onClick={() => handleStep(step)}
+                onClick={() => {
+                  checklist.open(step);
+                  onNavigate();
+                }}
                 disabled={!clickable}
                 className={cn(
                   "flex min-h-9 w-full items-center gap-3 rounded-md px-3 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
@@ -342,6 +383,6 @@ export function GettingStarted({
           );
         })}
       </ul>
-    </section>
+    </div>
   );
 }

@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { sidebarPages, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
 import { useHeadingToGame } from "@/components/game/use-game-tab-actions";
 import { gameTabsScope, useGameTabs } from "@/lib/game-tabs";
+import { GettingStartedCard } from "./getting-started-card";
 import { OpenGames } from "./open-games";
 import { SpaceSwitcher } from "./space-switcher";
 import { UserMenu } from "./user-menu";
@@ -193,6 +194,8 @@ export function Sidebar() {
         )}
 
         <div className="mt-auto flex flex-col gap-2 p-2">
+          {/* New signups' checklist, until it's done or dismissed (getting-started-card.tsx). */}
+          {ready && <GettingStartedCard />}
           <UpdateCard />
           {user && <UserMenu user={user} />}
         </div>

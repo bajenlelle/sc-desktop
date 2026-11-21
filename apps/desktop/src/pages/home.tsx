@@ -8,7 +8,6 @@ import { Toolbar } from "@/components/shell/toolbar";
 import { MatchRow } from "@/components/match-row";
 import { gameTabsScope, useGameTabs } from "@/lib/game-tabs";
 import { EmptyState } from "@/components/empty-state";
-import { GettingStarted } from "@/components/getting-started";
 import { NextActionHero } from "@/components/home/next-action-hero";
 import { TeamEngagement } from "@/components/home/team-engagement";
 import { HomeReports } from "@/components/home/home-reports";
@@ -101,7 +100,6 @@ function CoachHomePage() {
   // Bumped by the playlist-exported event so the hero advances past "export".
   const [exportTick, setExportTick] = useState(0);
 
-  const showChecklist = profile?.onboardingChecklistDismissedAt == null;
   const isClubSpace = !activeOrgIsPersonal;
 
   function goNewPlaylist() {
@@ -232,7 +230,7 @@ function CoachHomePage() {
   const noGames = !loading && matches.length === 0;
   const noPlaylists = !loading && playlists.length === 0;
 
-  // Player voice only in the personal space — same rule as GettingStarted:
+  // Player voice only in the personal space — same rule as the Getting started checklist:
   // in a club space the membership role decides the copy.
   const playerVoice = activeOrgIsPersonal && profile?.declaredRole === "player";
   // Club players in their personal space get the road back: coach shares
@@ -281,11 +279,8 @@ function CoachHomePage() {
             </p>
           )}
 
-          {!loading && <GettingStarted matches={matches} playlists={playlists} />}
-
-          {/* One next action at every lifecycle stage — suppressed while the
-              checklist is up (they'd say the same thing twice). */}
-          {!loading && !showChecklist && (
+          {/* One next action at every lifecycle stage. */}
+          {!loading && (
             <NextActionHero
               hero={hero}
               playerVoice={playerVoice}

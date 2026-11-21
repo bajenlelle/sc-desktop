@@ -151,6 +151,7 @@ export type AnalyticsEvent =
   | "notification_permission_denied"
   | "notification_opened"
   // Onboarding
+  | "checklist_opened"
   | "onboarding_step_clicked"
   | "onboarding_dismissed"
   | "onboarding_completed"
