@@ -20,6 +20,7 @@ import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { springs } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { ActiveRowPill, REVEAL } from "@/components/plays/play-row";
 
 export interface LabelRowControls {
   labels: Label[];
@@ -56,20 +57,7 @@ export interface RowDragProps {
   onPointerDown: (e: React.PointerEvent) => void;
 }
 
-/**
- * The one highlight that follows the playing item: a single element that
- * springs from row to row rather than a class that appears and vanishes.
- */
-export function ActiveRowPill() {
-  return (
-    <motion.div
-      layoutId="active-row"
-      transition={springs.standard}
-      aria-hidden
-      className="pointer-events-none absolute inset-y-0.5 inset-x-1 rounded-md bg-fill-2"
-    />
-  );
-}
+export { ActiveRowPill };
 
 /**
  * Where the keys act while the list is driven from the keyboard: an inset
@@ -87,8 +75,6 @@ function FocusRing({ onSelection }: { onSelection: boolean }) {
   );
 }
 
-/** Hover-only row buttons also show for the focused row and for keyboard focus. */
-const REVEAL = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-data-[focused]:opacity-100";
 
 function GroupRail({ pos }: { pos: GroupRunInfo["pos"] }) {
   return (
