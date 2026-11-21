@@ -60,6 +60,16 @@ const menu = (page: Page, event: "menu-new-game-tab" | "menu-reopen-game-tab" | 
 const focusedRow = (page: Page) =>
   page.evaluate(() => (document.activeElement?.hasAttribute("data-open-game") ? (document.activeElement.getAttribute("aria-label") ?? "") : null));
 
+test("Import game sits under the pages and above the open games, wherever they leave it", async ({ page }) => {
+  await openGames(page, 2);
+  const importGame = page.locator("aside").getByRole("link", { name: "Import game", exact: true });
+  const pages = await boxOf(mainNav(page), "the pages");
+  const action = await boxOf(importGame, "Import game");
+  const games = await boxOf(nav(page), "the open games");
+  expect(action.y, "Import game is under the pages").toBeGreaterThanOrEqual(pages.y + pages.height - 1);
+  expect(action.y + action.height, "Import game is above the open games").toBeLessThanOrEqual(games.y + 1);
+});
+
 test("the open games are sidebar rows, the game on screen selected, with no tab bar over the page", async ({ page, browserName }) => {
   const [g0] = await openGames(page, 1);
   await expect(heading(page)).toHaveText(g0.title);

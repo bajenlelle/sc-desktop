@@ -200,14 +200,9 @@ export function Sidebar() {
           </nav>
         )}
 
-        {/* The games open on this computer, from any page (components/shell/open-games.tsx). */}
-        {ready && <OpenGames />}
-
-        {/* The teams visited, after the games (components/shell/open-teams.tsx). */}
-        {ready && <OpenTeams />}
-
-        {/* The one action a coach reaches for from any page, under the list as in Reminders' "Add List":
-            the same link as the Library's Import game button (the import page gates licenses and roles). */}
+        {/* The one action a coach reaches for from any page, under the pages and above the open games and
+            teams, so it stays in one place however many are open: the same link as the Games page's Import
+            game button (the import page gates licenses and roles). */}
         {ready && isCoachOrAdmin && (
           <div className="mt-2 px-2">
             <Button variant="ghost" size="sm" asChild className="w-full justify-start px-2 has-[>svg]:px-2">
@@ -218,6 +213,12 @@ export function Sidebar() {
             </Button>
           </div>
         )}
+
+        {/* The games open on this computer, from any page (components/shell/open-games.tsx). */}
+        {ready && <OpenGames />}
+
+        {/* The teams visited, after the games (components/shell/open-teams.tsx). */}
+        {ready && <OpenTeams />}
 
         <div className="mt-auto flex flex-col gap-2 p-2">
           {/* New signups' checklist, until it's done or dismissed (getting-started-card.tsx). */}
