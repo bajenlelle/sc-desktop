@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { noteOpened, parseRecentOpens, RECENT_OPENS_MAX, type RecentOpen } from "../recent-opens";
+import { lastOpenedPlaylist, noteOpened, parseRecentOpens, RECENT_OPENS_MAX, type RecentOpen } from "../recent-opens";
 
 describe("noteOpened", () => {
   it("puts what was just opened first", () => {
@@ -75,5 +75,36 @@ describe("parseRecentOpens", () => {
   it("never returns more than the limit", () => {
     const raw = Array.from({ length: RECENT_OPENS_MAX + 5 }, (_, i) => ({ kind: "game", id: `g${i}`, at: i }));
     expect(parseRecentOpens(raw)).toHaveLength(RECENT_OPENS_MAX);
+  });
+});
+
+describe("lastOpenedPlaylist", () => {
+  const ids = new Set(["p1", "p2"]);
+
+  it("takes the newest playlist, skipping newer games and teams", () => {
+    const opens: RecentOpen[] = [
+      { kind: "game", id: "g1", at: 400 },
+      { kind: "team", id: "t1", at: 300 },
+      { kind: "playlist", id: "p2", at: 200 },
+      { kind: "playlist", id: "p1", at: 100 },
+    ];
+    expect(lastOpenedPlaylist(opens, ids)).toBe("p2");
+  });
+
+  it("counts a report as its playlist", () => {
+    expect(lastOpenedPlaylist([{ kind: "report", id: "p1", at: 100 }], ids)).toBe("p1");
+  });
+
+  it("skips an id that is not a playlist any more", () => {
+    const opens: RecentOpen[] = [
+      { kind: "playlist", id: "gone", at: 200 },
+      { kind: "playlist", id: "p1", at: 100 },
+    ];
+    expect(lastOpenedPlaylist(opens, ids)).toBe("p1");
+  });
+
+  it("is null when nothing is left or the list is empty", () => {
+    expect(lastOpenedPlaylist([{ kind: "playlist", id: "gone", at: 100 }], ids)).toBeNull();
+    expect(lastOpenedPlaylist([], ids)).toBeNull();
   });
 });
