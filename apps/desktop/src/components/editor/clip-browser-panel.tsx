@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ChevronDown, Play, Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
+import { ChevronDown, Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
 import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels";
 import {
   eventColors,
@@ -44,7 +44,6 @@ import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
-import { LabelChip } from "@/components/labels/LabelChip";
 import { PLAY_ROW_HEIGHT, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot } from "@/components/plays/play-row";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import { FilterPresetsMenu } from "@/components/filter-presets-menu";

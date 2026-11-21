@@ -204,9 +204,9 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
       <span className={cn(cell, "shrink-0 whitespace-nowrap text-muted-foreground nums", clock === "with-period" ? "w-16" : "w-10", faded)}>{clockText}</span>
       {team && <span className={cn(cell, "w-8 shrink-0 truncate text-muted-foreground", faded)}>{teamCode(e) ?? ""}</span>}
       {pill && <span className={cn(cell, "shrink-0")}>{pill}</span>}
-      <span className={cn(cell, "flex w-24 shrink-0 items-center gap-1.5 @max-[400px]/row:w-[7px]", faded)} title={what}>
+      <span className={cn(cell, "flex w-24 shrink-0 items-center gap-1.5 @max-[370px]/row:w-[7px]", faded)} title={what}>
         <EventDot event={e} />
-        <span className="truncate text-muted-foreground @max-[400px]/row:hidden">{what}</span>
+        <span className="truncate text-muted-foreground @max-[370px]/row:hidden">{what}</span>
       </span>
       <span className={cn(cell, "flex min-w-0 flex-1 items-center gap-1.5", faded)}>
         <span className={cn("min-w-0 truncate", strong && "font-medium")}>{who}</span>
