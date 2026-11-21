@@ -399,7 +399,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
 
           {p.isExporting ? (
             // Progress with its own stop control, like a download in Safari.
-            <div className="flex h-8 items-center gap-2 rounded-md bg-card pr-1 pl-2.5 text-sm shadow-xs ring-1 ring-separator">
+            <div className="flex h-8 items-center gap-2 rounded-md bg-fill-2 pr-1 pl-2.5 text-sm">
               <Loader2 className="size-4 animate-spin text-muted-foreground" />
               <span className="nums">{p.exportProgress ? exportProgressLabel(p.exportProgress) : "Exporting…"}</span>
               {p.exportProgress && <ProgressBar percent={exportProgressPercent(p.exportProgress)} className="w-16" />}
