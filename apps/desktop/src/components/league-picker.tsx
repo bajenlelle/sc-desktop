@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
+import { quietControl, quietState } from "@/components/ui/filter-button";
 import { SearchField } from "@/components/ui/search-field";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -74,13 +75,14 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
         <button
           type="button"
           className={cn(
-            "flex h-7 items-center gap-1.5 rounded-md bg-card pr-1.5 pl-2.5 text-sm shadow-xs ring-1 ring-separator outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.98] data-[state=open]:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
+            quietControl,
+            quietState(!!value),
             className,
           )}
         >
           {value && <span aria-hidden>{countryFlag(value.country)}</span>}
           <span className="truncate">{value?.name ?? "Choose a league"}</span>
-          <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+          <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
         </button>
       </PopoverTrigger>
       <PopoverContent

@@ -8,6 +8,7 @@
  */
 import { useMemo, useState } from "react";
 import { Check, Trophy } from "lucide-react";
+import { FilterButton } from "@/components/ui/filter-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { trackEvent } from "@/lib/analytics";
@@ -44,13 +45,7 @@ export function LeadersPopover({
     // Modal, so its list scrolls inside the Add clips sheet (see components/ui/popover.tsx).
     <Popover modal>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex h-9 items-center gap-1.5 rounded-md bg-card px-3 text-sm text-foreground shadow-xs ring-1 ring-separator outline-none transition-[background-color,transform] duration-150 hover:bg-fill-1 active:scale-[0.98] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection data-[state=open]:bg-fill-2"
-        >
-          <Trophy className="size-3.5 text-muted-foreground" aria-hidden />
-          Leaders
-        </button>
+        <FilterButton icon={<Trophy aria-hidden />} label="Leaders" />
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0">
         <div className="border-b border-separator px-3 py-2">
@@ -69,7 +64,7 @@ export function LeadersPopover({
               className={cn(
                 "rounded-full px-2.5 py-1 text-xs font-medium transition-[background-color,color,transform] duration-100 active:scale-95",
                 m.id === metric
-                  ? "bg-fill-3 text-foreground ring-1 ring-separator-strong hover:bg-fill-4"
+                  ? "bg-fill-3 text-foreground hover:bg-fill-4"
                   : "bg-fill-1 text-muted-foreground hover:bg-fill-2 hover:text-foreground",
               )}
             >

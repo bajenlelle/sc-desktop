@@ -58,7 +58,7 @@ export function PlaylistFilterBar({
     onChange({ ...filters, [key]: next });
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-window bg-card p-2 ring-1 ring-separator">
+    <div className="flex flex-wrap items-center gap-1">
       {options.players.length > 1 && (
         <MultiSelectDropdown
           placeholder="Player"

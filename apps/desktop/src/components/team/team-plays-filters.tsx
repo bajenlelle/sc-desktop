@@ -5,11 +5,12 @@ import type { Label } from "@scoutable/shared/types/labels";
 import type { PlaysSide, TeamGame } from "@scoutable/shared/lib/team-video";
 import { EventTypeChips } from "@/components/editor/event-type-chips";
 import { FilterPresetsMenu } from "@/components/filter-presets-menu";
-import { Button } from "@/components/ui/button";
+import { quietControl, quietState } from "@/components/ui/filter-button";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { useFilterPresets } from "@/lib/use-filter-presets";
+import { cn } from "@/lib/utils";
 import { gameTitle } from "./team-play-list";
 
 /** Timeouts aren't plays to watch: the list holds none. */
@@ -21,13 +22,13 @@ function GamesPicker({ games, unticked, onChange }: { games: readonly TeamGame[]
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5 font-normal">
-          <span className="text-muted-foreground">Games</span>
-          <span className="nums">
+        <button type="button" className={cn(quietControl, quietState(ticked < games.length))}>
+          <span>Games</span>
+          <span className="nums text-foreground">
             {ticked} of {games.length}
           </span>
-          <ChevronDown className="size-3 text-muted-foreground" />
-        </Button>
+          <ChevronDown className="size-3 opacity-70" aria-hidden />
+        </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="max-h-80 w-80 overflow-y-auto p-1">
         <ul aria-label="Games">

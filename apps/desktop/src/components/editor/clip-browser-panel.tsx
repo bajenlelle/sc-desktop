@@ -1190,7 +1190,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
 
       {/* Filters */}
       <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-5 pb-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="-ml-2 flex flex-wrap items-center gap-1">
           <GamePicker matches={matches} items={playlist.items} value={gameIds} onChange={handleGameChange} quickTeam={quickTeam} />
           <MultiSelectDropdown options={SHOT_TYPE_OPTIONS} selected={filters.shotTypes} onChange={setGroup("shotTypes")} placeholder="Shot type" />
           <MultiSelectDropdown options={SITUATION_OPTIONS} selected={filters.situations} onChange={setGroup("situations")} placeholder="Situation" />
