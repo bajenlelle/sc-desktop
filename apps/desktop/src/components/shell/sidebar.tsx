@@ -15,7 +15,10 @@ import { cn } from "@/lib/utils";
 import { sidebarPages, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
 import { useHeadingToGame } from "@/components/game/use-game-tab-actions";
 import { gameTabsScope, useGameTabs } from "@/lib/game-tabs";
+import { teamTabOfPath } from "@scoutable/shared/lib/team-tabs";
+import { useTeamTabs } from "@/lib/team-tabs";
 import { OpenGames } from "./open-games";
+import { OpenTeams } from "./open-teams";
 import { SpaceSwitcher } from "./space-switcher";
 import { UserMenu } from "./user-menu";
 
@@ -84,6 +87,10 @@ export function Sidebar() {
   const ready = !!user && !profileLoading;
   // A game that is open is selected as its own row under Open games, not as the Library.
   const openGames = useGameTabs(gameTabsScope(user?.id, activeOrgId));
+  // So is a team that is open, under Open teams, not as Teams.
+  const openTeams = useTeamTabs(gameTabsScope(user?.id, activeOrgId));
+  const shownTeam = teamTabOfPath(pathname);
+  const teamsActive = pathname.startsWith("/teams") && !(shownTeam && openTeams.tabs.some((t) => t.id === shownTeam));
   const shownGame = /^\/matches\/([^/]+)$/.exec(pathname)?.[1];
   // A switch on its way to an open game selects that game's row from the click, not the Library meanwhile.
   const headingTo = useHeadingToGame();
@@ -119,7 +126,7 @@ export function Sidebar() {
       case "go-library":
         return <NavItem key={page} to="/matches" icon={Film} label="Library" active={libraryActive} />;
       case "go-teams":
-        return <NavItem key={page} to="/teams" icon={Shield} label="Teams" active={pathname.startsWith("/teams")} />;
+        return <NavItem key={page} to="/teams" icon={Shield} label="Teams" active={teamsActive} />;
     }
   };
 
@@ -178,6 +185,9 @@ export function Sidebar() {
 
         {/* The games open on this computer, from any page (components/shell/open-games.tsx). */}
         {ready && <OpenGames />}
+
+        {/* The teams visited, after the games (components/shell/open-teams.tsx). */}
+        {ready && <OpenTeams />}
 
         {/* The one action a coach reaches for from any page, under the list as in Reminders' "Add List":
             the same link as the Library's Import game button (the import page gates licenses and roles). */}
