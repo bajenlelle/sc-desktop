@@ -45,6 +45,7 @@ import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
 import { LabelChip } from "@/components/labels/LabelChip";
+import { PLAY_ROW_HEIGHT, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot } from "@/components/plays/play-row";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import { LeadersPopover } from "@/components/leaders-popover";
@@ -73,7 +74,6 @@ const BROWSER_TYPE_OPTIONS = EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeo
 // ---------------------------------------------------------------------------
 
 /** Every row is this tall, so the list can draw only the rows near the view (lib/use-list-window.ts). */
-const BROWSER_ROW_HEIGHT = 45;
 
 /** A clip with no labels: one array for every such row, so the row's memo holds. */
 const NO_LABELS: Label[] = [];
@@ -136,9 +136,6 @@ const BrowserRow = memo(function BrowserRow({
   /** The Tag button: opens the label picker on this row. */
   onLabel: (rowKey: string) => void;
 }) {
-  const colors = eventColors(event);
-  const visible = assignedLabels.slice(0, 2);
-  const overflow = assignedLabels.slice(2);
   return (
     <div
       role="row"
@@ -148,91 +145,52 @@ const BrowserRow = memo(function BrowserRow({
       aria-current={isActive ? "true" : undefined}
       onClick={(e) => onPress(event, matchId, e)}
       className={cn(
-        // One height for every row, whatever it holds: the list is windowed by it (BROWSER_ROW_HEIGHT).
-        "group relative box-border flex h-[45px] cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100",
+        // One height for every row, whatever it holds: the list is windowed by it (PLAY_ROW_HEIGHT).
+        playRowClass({ selected: isActive }),
+        "box-border",
         // The separator goes by place in the list: the first row drawn isn't always the list's first.
         index > 0 && "shadow-[inset_0_1px_0_var(--separator)]",
-        isActive
-          ? "bg-row-selected"
-          : isSelected
-            ? "bg-fill-1 hover:bg-fill-2"
-            : "hover:bg-fill-1 active:bg-fill-2",
-        alreadyIn && "opacity-40",
+        !isActive && isSelected && "bg-fill-1 hover:bg-fill-2",
       )}
     >
-      <div className={cn("w-[3px] shrink-0 self-stretch", colors.strip)} aria-hidden />
-      <div className="flex w-8 shrink-0 items-center justify-center" onClick={(e) => e.stopPropagation()}>
-        {alreadyIn ? (
-          <Check className="size-3.5 text-muted-foreground" aria-label="Already in this playlist" />
-        ) : (
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() => {}}
-            // No focus on press: a focused checkbox counts as a text field
-            // for the sheet's keys, and they would stop after a tick.
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle(rowKey, e);
-            }}
-            aria-label="Select"
-            className="size-3.5 rounded accent-primary"
-          />
-        )}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col justify-center py-1.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium", colors.badge)}>
-            {eventLabel(event)}
-          </span>
-          <span className="truncate text-sm font-medium">{playerName(event)}</span>
-          {visible.map((l) => (
-            <LabelChip key={l.id} label={l} className="shrink-0 whitespace-nowrap" />
-          ))}
-          {overflow.length > 0 && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="text-xs text-muted-foreground">+{overflow.length}</span>
-              </TooltipTrigger>
-              <TooltipContent>{overflow.map((l) => l.name).join(", ")}</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-        <div className="flex min-w-0 items-center gap-1 text-subheadline nums text-muted-foreground">
-          <span className="shrink-0">Q{event.period}</span>
-          <span aria-hidden>·</span>
-          <span className="shrink-0">{formatGameClock(event.gameClockTime)}</span>
-          {event.eventTeam?.teamName && (
-            <>
-              <span aria-hidden>·</span>
-              <span className="truncate">{event.eventTeam.teamName}</span>
-            </>
-          )}
-          {showGame && (
-            <>
-              <span aria-hidden>·</span>
-              <span className="truncate">{matchTitle}</span>
-            </>
-          )}
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-        {isActive && <Play className="mr-1 size-3.5 fill-current text-primary" />}
-        {/* A plain button until it is pressed: the picker itself is mounted on one row at a time. */}
-        {canLabel &&
-          (labelPicker ?? (
-            <button
-              type="button"
-              className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground active:scale-95 data-[state=open]:opacity-100 data-[state=open]:text-primary"
-              title="Labels"
-              aria-label="Labels"
-              onClick={() => onLabel(rowKey)}
-            >
-              <Tag className="size-3.5" />
-            </button>
-          ))}
-      </div>
+      <PlayRowCells
+        event={event}
+        clock="with-period"
+        now={isActive}
+        strong={isActive}
+        team={false}
+        labels={assignedLabels}
+        context={showGame ? matchTitle : undefined}
+        lead={
+          <div className="relative z-10 flex w-7 shrink-0 items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            {/* A play already in the playlist has its ✓ at the row's end instead: it can't be ticked again. */}
+            {!alreadyIn && (
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => {}}
+                // No focus on press: a focused checkbox counts as a text field
+                // for the sheet's keys, and they would stop after a tick.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggle(rowKey, e);
+                }}
+                aria-label="Select"
+                className="size-3.5 rounded accent-primary"
+              />
+            )}
+          </div>
+        }
+        actions={
+          <>
+            {/* A plain button until it is pressed: the picker itself is mounted on one row at a time. */}
+            {canLabel &&
+              (labelPicker ?? <RowLabelButton title="Labels" aria-label="Labels" onClick={() => onLabel(rowKey)} />)}
+            <RowPlaylistSlot status={alreadyIn ? "in" : "empty"} targetName="this playlist" />
+          </>
+        }
+      />
     </div>
   );
 });
@@ -594,7 +552,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   // Five games are some 1,800 plays: only the rows near the view are drawn.
   const { scrollRef: listScrollRef, range: listRange, reveal: revealRow } = useListWindow({
     count: filtered.length,
-    rowHeight: BROWSER_ROW_HEIGHT,
+    rowHeight: PLAY_ROW_HEIGHT,
   });
 
   // Keep ref for the key handler (avoids stale closures)

@@ -249,7 +249,8 @@ export async function readSheetRows(sheet: Locator): Promise<Map<string, SheetRo
       els.map((el) => ({
         key: el.getAttribute("data-row-key")!,
         text: el.textContent ?? "",
-        badge: el.querySelector("span.rounded-full")?.textContent ?? "",
+        // The event's word: its cell carries it as a title (the row's first), whether or not the row is wide enough to show it.
+        badge: el.querySelector("span[title]")?.getAttribute("title") ?? "",
       })),
     );
     for (const { key, ...row } of seen) if (!rows.has(key)) rows.set(key, row);
