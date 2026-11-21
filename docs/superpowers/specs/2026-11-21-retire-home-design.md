@@ -262,7 +262,7 @@ Existing accounts were backfilled as dismissed, so only new signups see it.
   the game view's Collect), and a playlist shared (which re-reads
   `hasSharedAnyPlaylist`). Reuse events that already exist for these.
 - **Collapsed sidebar:** the card is hidden with the rest of the sidebar.
-  The first-launch auto-open only happens with the sidebar shown.
+  The card never opens by itself, collapsed or not.
 
 ## Where the rest of Home goes
 
