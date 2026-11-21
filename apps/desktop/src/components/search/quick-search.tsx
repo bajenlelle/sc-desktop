@@ -13,7 +13,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { AnimatePresence, motion } from "framer-motion";
-import { FileText, Film, ListVideo, Search } from "lucide-react";
+import { FileText, Film, ListVideo, Search, Shield } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   isSearchQuery,
@@ -38,12 +38,12 @@ import {
   useSearchIndex,
   type SearchScope,
 } from "@/lib/quick-search-store";
-import { readRecentOpens, recentOpensScope } from "@/lib/recent-opens";
+import { readRecentOpens, recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { cn } from "@/lib/utils";
 
-const ICON: Record<SearchKind, React.ComponentType<{ className?: string }>> = { playlist: ListVideo, report: FileText, game: Film };
-const KIND: Record<SearchKind, string> = { playlist: "Playlist", report: "Report", game: "Game" };
-const KINDS: Record<SearchKind, string> = { playlist: "Playlists", report: "Reports", game: "Games" };
+const ICON: Record<SearchKind, React.ComponentType<{ className?: string }>> = { playlist: ListVideo, report: FileText, game: Film, team: Shield };
+const KIND: Record<SearchKind, string> = { playlist: "Playlist", report: "Report", game: "Game", team: "Team" };
+const KINDS: Record<SearchKind, string> = { playlist: "Playlists", report: "Reports", game: "Games", team: "Teams" };
 
 interface Section {
   label: string;
@@ -61,6 +61,7 @@ function detailOf(item: SearchItem): string {
     const status = reportStatusLabel(item.report);
     return item.report.playlistName !== item.title ? `${item.report.playlistName} · ${status}` : status;
   }
+  if (item.kind === "team") return item.league;
   const date = item.date ? formatDate(item.date) : "";
   if (!item.archived) return date;
   return date ? `Archived · ${date}` : "Archived";
@@ -178,6 +179,11 @@ function SearchBody({ scope }: { scope: SearchScope }) {
       const onGame = /^\/matches\/[^/]+$/.test(pathname);
       const hasTab = tabs.tabs.some((t) => t.id === item.id);
       navigate(`/matches/${item.id}`, { replace: onGame, state: { via: hasTab ? "search_tab" : "search" } });
+      return;
+    }
+    if (item.kind === "team") {
+      rememberOpened(recentOpensScope(scope.userId, scope.orgId), "team", item.id);
+      navigate(`/teams/find/${item.id}`, { state: { from: "search" } });
       return;
     }
     navigate("/playlists", { state: { restore: { playlistId: item.id }, view: item.kind === "report" ? "report" : "clips" } });

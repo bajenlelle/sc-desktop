@@ -1,4 +1,5 @@
 import { useId, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { clockSeconds, flowChart, periodLengthSeconds, type GameFlow } from "@scoutable/shared/lib/game-flow";
 import { periodLabel } from "@scoutable/shared/lib/events";
 import { quarterPoints } from "@scoutable/shared/lib/game-box";
@@ -22,12 +23,15 @@ export function ScoreSection({
   match,
   flow,
   season,
+  competitionId = null,
   onOpen,
 }: {
   match: StoredMatch;
   flow: GameFlow;
   /** Each team's place in today's table, under the score, when the season is in. */
   season: SeasonContext | null;
+  /** The game's competition: with the season in, each team's name opens its page (docs/teams.md). */
+  competitionId?: number | null;
   onOpen: OpenPlays;
 }) {
   const quarters = useMemo(() => quarterPoints(match.events), [match.events]);
@@ -72,7 +76,17 @@ export function ScoreSection({
                 <th scope="row" className="py-1.5 pr-2 text-left font-normal">
                   <span className="flex min-w-0 items-center gap-2">
                     <span aria-hidden className="size-2 shrink-0 rounded-full ring-1 ring-inset ring-black/10" style={{ backgroundColor: t.tint }} />
-                    <span className="truncate">{t.name}</span>
+                    {competitionId && season ? (
+                      <Link
+                        to={`/teams/${competitionId}/${t.side === 1 ? season.home.teamId : season.away.teamId}`}
+                        state={{ from: "game", back: { label: match.title, path: `/matches/${match.id}?view=stats` } }}
+                        className="truncate rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+                      >
+                        {t.name}
+                      </Link>
+                    ) : (
+                      <span className="truncate">{t.name}</span>
+                    )}
                   </span>
                 </th>
                 {quarters.map((q) => {

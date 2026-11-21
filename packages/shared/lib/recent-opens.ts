@@ -5,8 +5,8 @@
  * desktop keeps the list per user and space (apps/desktop/src/lib/recent-opens.ts).
  */
 
-/** The kinds of thing the search finds. A report is its playlist's: its id is the playlist's id. */
-export type OpenKind = "playlist" | "report" | "game";
+/** The kinds of thing the search finds. A report is its playlist's: its id is the playlist's id. A team's id is its league_teams id. */
+export type OpenKind = "playlist" | "report" | "game" | "team";
 
 export interface RecentOpen {
   kind: OpenKind;
@@ -18,7 +18,7 @@ export interface RecentOpen {
 /** How many are remembered: more than the search shows, so a deleted one doesn't leave a gap. */
 export const RECENT_OPENS_MAX = 20;
 
-const KINDS: readonly string[] = ["playlist", "report", "game"];
+const KINDS: readonly string[] = ["playlist", "report", "game", "team"];
 
 /** The list with `what` first: one entry per thing, the oldest forgotten past `max`. */
 export function noteOpened(list: readonly RecentOpen[], what: { kind: OpenKind; id: string }, now: number, max = RECENT_OPENS_MAX): RecentOpen[] {

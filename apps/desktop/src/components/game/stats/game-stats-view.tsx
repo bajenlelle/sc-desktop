@@ -3,7 +3,7 @@ import { ChartColumn } from "lucide-react";
 import { gameFlow } from "@scoutable/shared/lib/game-flow";
 import { gameShots } from "@scoutable/shared/lib/game-shots";
 import { gameBox, teamFactors } from "@scoutable/shared/lib/game-box";
-import { seasonGaps } from "@scoutable/shared/lib/season-context";
+import { seasonGaps, seasonMatchOf } from "@scoutable/shared/lib/season-context";
 import { FactorsSection } from "./factors-section";
 import { LineupsSection } from "./lineups-section";
 import { PlayersSection } from "./players-section";
@@ -140,7 +140,13 @@ export function GameStatsView({
           />
         ) : (
           <>
-            <ScoreSection match={match} flow={flow} season={season.context} onOpen={open} />
+            <ScoreSection
+              match={match}
+              flow={flow}
+              season={season.context}
+              competitionId={seasonMatchOf(match, leagues)?.competitionId ?? null}
+              onOpen={open}
+            />
             <FactorsSection match={match} box={box} season={season} onOpen={open} />
             <PlayersSection match={match} box={box} flow={flow} boxScore={boxScore} leagues={leagues} onOpen={open} />
             <ShotsSection match={match} shots={shots} people={people} onOpen={open} />

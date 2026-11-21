@@ -4,7 +4,7 @@
  * mocked with, so nothing depends on real standings.
  */
 import type { Page } from "@playwright/test";
-import { expect, mockLeague, mockRoster, shot, test, withAppModule } from "../helpers";
+import { expect, mockLeague, mockRoster, recordAnalytics, shot, test, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const teamRow = (page: Page, name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
@@ -77,20 +77,20 @@ test("a team the season doesn't list says so", async ({ page }) => {
 });
 
 /** One of the test account's own Genius games, in the space the app opens on. */
-async function aLibraryGame(page: Page): Promise<{ id: string; sourceGameId: number }> {
+async function aLibraryGame(page: Page): Promise<{ id: string; sourceGameId: number; title: string }> {
   await page.goto("/matches");
   await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
-  const game = await withAppModule<null, { id: string; sourceGameId: number } | null>(
+  const game = await withAppModule<null, { id: string; sourceGameId: number; title: string } | null>(
     page,
     "/src/lib/supabase/client.ts",
     `
     const c = mod.createClient();
     const { data: { user } } = await c.auth.getUser();
-    const { data, error } = await c.from("matches").select("id, source_game_id, org_id").eq("user_id", user.id);
+    const { data, error } = await c.from("matches").select("id, source_game_id, org_id, title").eq("user_id", user.id);
     if (error) throw new Error("headless: " + error.message);
     const space = Object.keys(localStorage).map((k) => localStorage.getItem(k)).find((v) => v && data.some((m) => m.org_id === v));
     const row = data.find((m) => /^\\d+$/.test(m.source_game_id ?? "") && (!space || m.org_id === space));
-    return row ? { id: row.id, sourceGameId: Number(row.source_game_id) } : null;
+    return row ? { id: row.id, sourceGameId: Number(row.source_game_id), title: row.title } : null;
   `,
     null,
   );
@@ -139,6 +139,55 @@ test("a team without a roster says so", async ({ page }) => {
   await page.goto("/teams");
   await page.getByRole("link", { name: "Alfa", exact: true }).click();
   await expect(page.getByRole("region", { name: "Players" }).getByText("No roster for this team yet.")).toBeVisible({ timeout: 30_000 });
+});
+
+test("a game's team name opens the team, and Back returns to the game", async ({ page }) => {
+  const mine = await aLibraryGame(page);
+  // One answer for both pages: the made-up season lists the library game as Alfa's, so its Stats view reads it too.
+  await mockLeague(page, madeUpLeague({ libraryGame: mine.sourceGameId }));
+  await page.goto(`/matches/${mine.id}?view=stats`);
+  const home = page.getByRole("rowheader").getByRole("link").first();
+  await expect(home).toBeVisible({ timeout: 30_000 });
+  await home.click();
+  await expect(page).toHaveURL(/\/teams\/\d+\/1$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Alfa" })).toBeVisible({ timeout: 30_000 });
+  // Back names the game it returns to (the sidebar's Open games has a row of that name too).
+  await page.getByRole("button", { name: mine.title, exact: true }).filter({ has: page.locator("svg.lucide-chevron-left") }).click();
+  await expect(page).toHaveURL(new RegExp(`/matches/${mine.id}`));
+});
+
+test("a stable team id finds this season's page", async ({ page }) => {
+  await page.goto("/teams");
+  await expect(page.getByRole("heading", { level: 1, name: "Teams" })).toBeVisible({ timeout: 30_000 });
+  const teams = await withAppModule<null, { id: string }[]>(
+    page,
+    "/src/lib/my-team.tsx",
+    "return (await mod.teamCatalog()).slice(0, 1).map((t) => ({ id: t.id }));",
+    null,
+  );
+  await page.goto(`/teams/find/${teams[0].id}`);
+  await expect(page).toHaveURL(/\/teams\/\d+\/\d+$/, { timeout: 30_000 });
+  await page.goto("/teams/find/00000000-0000-0000-0000-000000000000");
+  await expect(page.getByText("This team isn't in a league we follow.")).toBeVisible({ timeout: 30_000 });
+});
+
+test("a team page says how it was opened", async ({ page }) => {
+  const tracked = await recordAnalytics(page);
+  await mockLeague(page, madeUpLeague());
+  await page.goto("/teams");
+  await page.getByRole("link", { name: "Alfa", exact: true }).click();
+  await expect(page.getByRole("region", { name: "What stands out" })).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => (await tracked()).filter((e) => e.event === "team_page_viewed").length).toBe(1);
+  const shown = await page.getByRole("region", { name: "What stands out" }).getByRole("listitem").count();
+  expect(shown).toBeGreaterThan(0);
+  const viewed = (await tracked()).find((e) => e.event === "team_page_viewed")!;
+  expect(viewed.properties).toMatchObject({ games: 6, library_games: 0, keys: shown, own_team: false, from: "teams" });
+  await page.getByRole("region", { name: "Games" }).getByRole("button", { name: "Show all 6" }).click();
+  await expect.poll(async () => (await tracked()).some((e) => e.event === "team_page_action" && e.properties?.action === "show_all_games")).toBe(true);
+  await page.goto("/teams");
+  await page.getByRole("button", { name: /· 2026\/27/ }).click();
+  await page.getByRole("menuitemradio").nth(1).click();
+  await expect.poll(async () => (await tracked()).some((e) => e.event === "teams_league_changed")).toBe(true);
 });
 
 test("a failed read and an older function say so", async ({ page }) => {
