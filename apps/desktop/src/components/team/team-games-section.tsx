@@ -80,7 +80,7 @@ export function TeamGamesSection({
               <th className="py-2 text-left font-normal" title="Points per possession, scored and allowed">
                 Per possession
               </th>
-              <th className="py-2 pr-4 text-right font-normal">Your library</th>
+              <th className="py-2 pr-4 text-right font-normal">Imported</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-separator border-t border-separator">
@@ -89,7 +89,7 @@ export function TeamGamesSection({
               const pick = !gameId && r.importable ? importPick(r) : null;
               return (
                 // A game in the library: the whole row opens it on a click (WebKit ignores position: relative on <tr>,
-                // so no link stretched over the row); "In your library" is the link the keyboard uses.
+                // so no link stretched over the row); "Imported" is the link the keyboard uses.
                 <tr
                   key={r.matchId}
                   onClick={
@@ -129,7 +129,7 @@ export function TeamGamesSection({
                         onClick={() => onAction?.("open_game")}
                         className="rounded text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
                       >
-                        In your library
+                        Imported
                       </Link>
                     ) : r.importable ? (
                       // Without a pick (a league the catalogue doesn't list) the import page opens as it does from the sidebar.

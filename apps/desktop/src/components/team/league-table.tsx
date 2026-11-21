@@ -10,7 +10,7 @@ const COLUMNS: { key: SortKey; label: string; title: string; align: "left" | "ri
   { key: "record", label: "W–L", title: "Won and lost", align: "left" },
   { key: "scores", label: "Scores", title: "Points scored per possession this season", align: "right" },
   { key: "allows", label: "Allows", title: "Points allowed per possession this season", align: "right" },
-  { key: "library", label: "In your library", title: "This team's games in your library", align: "right" },
+  { key: "library", label: "Imported", title: "This team's games you have imported", align: "right" },
 ];
 
 const valueOf = (r: LeagueTableRow, key: SortKey): number => {
