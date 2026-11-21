@@ -35,6 +35,28 @@ test("a click anywhere on a team's row opens that team, not another", async ({ p
   await expect(page).toHaveURL(/\/teams\/\d+\/1$/);
 });
 
+test("nothing on a team page is positioned against something outside its scroller", async ({ page }) => {
+  // An absolutely positioned element whose containing block is outside the page's scroller (an sr-only <thead> did
+  // this) left part of the page unpainted after an elastic scroll in the real app. The bounce can't be driven here,
+  // so this checks the cause.
+  await mockLeague(page, madeUpLeague());
+  await page.goto("/teams");
+  await page.getByRole("link", { name: "Alfa", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Games" })).toBeVisible({ timeout: 30_000 });
+  const escaping = await page.evaluate(() => {
+    const scroller = document.querySelector("[data-page-scroller]")!;
+    return Array.from(scroller.querySelectorAll<HTMLElement>("*"))
+      .filter((el) => {
+        const position = getComputedStyle(el).position;
+        if (position !== "absolute" && position !== "fixed") return false;
+        const parent = el.offsetParent;
+        return !parent || !scroller.contains(parent);
+      })
+      .map((el) => `${el.tagName.toLowerCase()}.${el.className}`);
+  });
+  expect(escaping).toEqual([]);
+});
+
 test("Teams is a row in the sidebar", async ({ page }) => {
   await mockLeague(page, madeUpLeague());
   await page.goto("/");

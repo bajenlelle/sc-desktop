@@ -69,16 +69,21 @@ export function TeamGamesSection({
       />
       <div className="overflow-hidden rounded-window bg-card ring-1 ring-separator">
         <table className="w-full border-collapse text-sm">
-          <thead className="sr-only">
-            <tr>
-              <th>Date</th>
-              <th>Opponent</th>
-              <th>Result</th>
-              <th>Points per possession, scored and allowed</th>
-              <th>In your library</th>
+          {/* A visible header, not an sr-only one: an absolutely positioned <thead> with no positioned container is
+              placed against the page shell, outside the scroller, and WebKit then leaves part of the page unpainted
+              after an elastic scroll (seen only here, 2026-11-21). */}
+          <thead>
+            <tr className="text-caption-1 text-muted-foreground">
+              <th className="py-2 pl-4 text-left font-normal">Date</th>
+              <th className="py-2 pr-3 text-left font-normal">Opponent</th>
+              <th className="py-2 text-left font-normal">Result</th>
+              <th className="py-2 text-left font-normal" title="Points per possession, scored and allowed">
+                Per possession
+              </th>
+              <th className="py-2 pr-4 text-right font-normal">Your library</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-separator">
+          <tbody className="divide-y divide-separator border-t border-separator">
             {shown.map((r) => {
               const gameId = library.get(r.matchId);
               const pick = !gameId && r.importable ? importPick(r) : null;
