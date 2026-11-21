@@ -169,7 +169,8 @@ playlists, and share them with teams; players watch on web/mobile.
   season (what stands out, how it plays at both ends, players, games), placed
   within its group, and which of its games the coach has; and its Plays: the
   team's plays across the coach's own games, counted beside the season, played
-  on from one game into the next and collected as in the game view.
+  on from one game into the next and collected as in the game view; and the
+  sidebar's Open teams, the teams visited, a click apart.
 - `docs/search.md`: the desktop's search over a space (⌘K): what it finds, how it
   orders it, what it reads and when.
 - `docs/maintenance.md`: the bug pipeline, and every secret: where it lives

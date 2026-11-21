@@ -25,14 +25,17 @@ import { TeamHeader } from "@/components/team/team-header";
 import { TeamKeysSection } from "@/components/team/team-keys-section";
 import { TeamProfileSection } from "@/components/team/team-profile-section";
 import { Button } from "@/components/ui/button";
+import { teamTabId } from "@scoutable/shared/lib/team-tabs";
 import { trackEvent } from "@/lib/analytics";
+import { gameTabsScope } from "@/lib/game-tabs";
+import { rememberTeamLeft, rememberTeamTab } from "@/lib/team-tabs";
 import { useLeague } from "@/lib/use-league";
 import { useLeagues } from "@/lib/use-leagues";
 import { useLibraryGames } from "@/lib/use-library-games";
 import { useMyTeamIds } from "@/lib/use-my-team-ids";
 
 /** Where the page was opened from, as the links that open it say (team_page_viewed's `from`). */
-export type TeamPageFrom = "teams" | "game" | "search" | "team" | "other";
+export type TeamPageFrom = "teams" | "game" | "search" | "team" | "open_teams" | "other";
 
 /**
  * What a link to a team's page carries: where it came from, where Back goes
@@ -156,7 +159,15 @@ export function TeamPage() {
   const [playsShown, setPlaysShown] = useState(view === "plays");
   if (view === "plays" && !playsShown) setPlaysShown(true);
   const teamKey = `${competitionId}:${teamId}`;
-  const { activeOrgId, activeOrgIsPersonal } = useAuth();
+  const { user, activeOrgId, activeOrgIsPersonal } = useAuth();
+  // An open team in the sidebar once its name is known, and how it was left, so its row opens it that way.
+  const tabScope = gameTabsScope(user?.id, activeOrgId);
+  useEffect(() => {
+    if (competitionId && name) rememberTeamTab(tabScope, teamTabId(competitionId, teamId), name);
+  }, [tabScope, competitionId, teamId, name]);
+  useEffect(() => {
+    if (competitionId) rememberTeamLeft(teamTabId(competitionId, teamId), location.search, location.state);
+  }, [competitionId, teamId, location.search, location.state]);
   // Collecting from the team's games, into a target remembered per team.
   const collectScope = useMemo<CollectScope>(
     () => ({

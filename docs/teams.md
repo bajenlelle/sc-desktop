@@ -149,6 +149,34 @@ it, and playback skips it.
   "None of their games are imported yet."; a filter menu's type-ahead keeps
   its letters (Plays' keys ignore keys inside a menu, list box or dialog).
 
+## Open teams
+
+A coach scouting two or three opponents goes back and forth between them, so
+every team whose page is visited becomes a row under **Open teams** in the
+sidebar, after Open games (`apps/desktop/src/components/shell/open-teams.tsx`).
+
+- The rows are the open games' own (`components/shell/open-tab-rows.tsx`, which
+  Open games draws too): a row opens on the click and can be dragged into
+  another order; its ×, a middle click, Delete and its menu (Close Tab, Close
+  Other Tabs) close it; ↓ and ↑ move between rows. The team on screen is the
+  selected row, and the Teams row is not.
+- A row opens its team as it was left: Season or Plays, the side and the pick
+  (the page's search and router state, kept in memory for the app session).
+  The scroll is not kept.
+- Closing the team on screen goes to the next open team (the one after it,
+  else before), and closing the last goes to Teams. A team that isn't on
+  screen just leaves the list.
+- Six at most, by the open games' rules (`packages/shared/lib/game-tabs.ts`):
+  the team shown least recently makes room, without a notice, since every team
+  is one click away under Teams. A team joins the list once its name is known,
+  so a team the season doesn't list never does.
+- Kept per user and space across launches (localStorage
+  `scoutable_team_tabs:<user>:<space>`, `apps/desktop/src/lib/team-tabs.ts`)
+  and forgotten on sign-out. Ids are `<competition>:<team>`
+  (`packages/shared/lib/team-tabs.ts`).
+- No + and no keys of their own: Teams is the row above, and ⌘T, ⌘W, ⌃Tab and
+  Reopen Closed Tab stay the games'.
+
 ## Data
 
 Two answers of the `genius` function, both already cached server-side, read
@@ -182,16 +210,18 @@ isn't an open; league, season, games, library_games, keys, own_team, from), `tea
 show_all_games, watch_all, watch_key with `key`, watch_shots with `zone`,
 watch_player), `team_plays_viewed` (games, plays, from: switch, watch_all,
 key, shots, player; side), `teams_league_changed`, and
-`search_result_opened` with kind `team`. Collecting from Plays sends the game
+`search_result_opened` with kind `team`. Open teams: `team_page_viewed` with
+from `open_teams`, `team_tab_closed` (via, tabs) and `team_tabs_reordered` (tabs). Collecting from Plays sends the game
 view's events with surface `team_plays`.
 
 ## Checking it
 
 - `packages/shared`: `npm test` (`league-season`, `team-keys`, `team-schedule`,
   `team-players`, `team-copy`, `teams-league`, `league-players-db`,
-  `team-video`).
+  `team-video`, `team-tabs`).
 - Headless: `P-teams` runs on a made-up league (`headless/team-league.ts`,
-  answered by `mockLeague`), plus `K-search`, `F-go-keys` and `O-game-stats`.
+  answered by `mockLeague`), and `Q-open-teams` with `I-game-tabs` (the rows
+  Open games shares), plus `K-search`, `F-go-keys` and `O-game-stats`.
   The Plays tests map the test account's first Library game onto Alfa and
   answer its reads with the test video (`patchGameReads` `videoUrl`); nothing
   is written to the account but the playlist they make and delete.

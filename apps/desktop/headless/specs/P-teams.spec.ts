@@ -163,7 +163,7 @@ test("an opponent's name opens that team", async ({ page }) => {
   await page.getByRole("link", { name: "Alfa", exact: true }).click();
   await page.getByRole("region", { name: "Games" }).getByRole("link", { name: "Beta", exact: true }).first().click();
   await expect(page.getByRole("heading", { level: 1, name: "Beta" })).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Alfa" }).click(); // Back goes to the team it came from
+  await page.getByRole("main").getByRole("button", { name: "Alfa" }).click(); // Back goes to the team it came from (the sidebar's Open teams has an Alfa too)
   await expect(page.getByRole("heading", { level: 1, name: "Alfa" })).toBeVisible();
 });
 
