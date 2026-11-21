@@ -3383,10 +3383,12 @@ export function PlaylistsPage() {
     newItems.splice(itemsInsertIndex, 0, newClip);
     const target = selected;
     trackEvent("clip_added_to_playlist", { playlist_id: target.id, match_id: matchId });
-    announcePlaylistsChanged();
     // Shipping is armed once the row exists, so updateClipR2Url has something to patch.
     void commitItemsEdit(target, newItems, "Add clip").then((ok) => {
-      if (ok) queuePendingShip(target);
+      if (ok) {
+        queuePendingShip(target);
+        announcePlaylistsChanged();
+      }
     });
   }
 
@@ -5086,9 +5088,11 @@ export function PlaylistsPage() {
     setAnchorKey(keys[0]);
     const noun = `${pasted.length} item${pasted.length !== 1 ? "s" : ""}`;
     pasted.filter(isClipItem).forEach((c) => trackEvent("clip_added_to_playlist", { playlist_id: pl.id, match_id: c.matchId }));
-    if (pasted.some(isClipItem)) announcePlaylistsChanged();
     void commitItemsEdit(pl, items, `Paste ${noun}`, `${noun} pasted`).then((ok) => {
-      if (ok && pasted.some(isClipItem)) queuePendingShip({ ...pl, items });
+      if (ok && pasted.some(isClipItem)) {
+        queuePendingShip({ ...pl, items });
+        announcePlaylistsChanged();
+      }
     });
     return true;
   }
