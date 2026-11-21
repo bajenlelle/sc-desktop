@@ -4,7 +4,7 @@
  * mocked with, so nothing depends on real standings.
  */
 import type { Page } from "@playwright/test";
-import { expect, mockLeague, mockRoster, recordAnalytics, shot, test, withAppModule } from "../helpers";
+import { delayPlaysReads, expect, mockLeague, mockRoster, patchGameReads, recordAnalytics, shot, test, waitForQuiet, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const teamRow = (page: Page, name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
@@ -201,6 +201,10 @@ test("a stable team id finds this season's page", async ({ page }) => {
   );
   await page.goto(`/teams/find/${teams[0].id}`);
   await expect(page).toHaveURL(/\/teams\/\d+\/\d+$/, { timeout: 30_000 });
+  // The real team's page reads its players from Genius's hosted pages and its plays: a load cutting those off is a
+  // WebKit page error ("… due to access control checks"), so the next load waits for them.
+  await expect(page.getByRole("region", { name: "Players" }).locator(".animate-pulse")).toHaveCount(0, { timeout: 30_000 });
+  await waitForQuiet(page);
   await page.goto("/teams/find/00000000-0000-0000-0000-000000000000");
   await expect(page.getByText("This team isn't in a league we follow.")).toBeVisible({ timeout: 30_000 });
 });
@@ -270,4 +274,86 @@ test("a team with none of your games shows no video lines", async ({ page }) => 
   await expect(page.getByText(/^In your/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Watch all/ })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Their shots in your games" })).toHaveCount(0);
+});
+
+/** Alfa's page with the test account's library game as one of Alfa's games. */
+async function alfaWithALibraryGame(page: Page): Promise<void> {
+  const mine = await aLibraryGame(page);
+  await mockLeague(page, madeUpLeague({ libraryGame: mine.sourceGameId }));
+  await openTeam(page, "Alfa");
+  await expect(page.getByRole("button", { name: /^Watch all \d+ plays$/ })).toBeVisible({ timeout: 30_000 });
+}
+
+test("Watch on a key opens Plays with its plays picked", async ({ page, browserName }) => {
+  await alfaWithALibraryGame(page);
+  const line = page.getByRole("region", { name: "What stands out" }).getByText(/^In your game: \d+ of \d+ threes$/);
+  const [, made, attempts] = (await line.innerText()).match(/: (\d+) of (\d+)/)!;
+  await page.getByRole("region", { name: "What stands out" }).getByRole("button", { name: /^Watch/ }).click();
+  await expect(page).toHaveURL(/view=plays/);
+  await expect(page.getByRole("radio", { name: "Plays" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("group", { name: "Picked plays" })).toHaveText(`Threes · ${made} of ${attempts}`);
+  await expect(page.getByText(new RegExp(`^${attempts} plays? in 1 game$`))).toBeVisible();
+  await shot(page, `${browserName}-P-team-plays`);
+});
+
+test("flipping the side swaps a key's pill and clears a zone's", async ({ page }) => {
+  await alfaWithALibraryGame(page);
+  await page.getByRole("region", { name: "What stands out" }).getByRole("button", { name: /^Watch/ }).click();
+  await expect(page.getByRole("group", { name: "Picked plays" })).toContainText("Threes ·");
+  await page.getByRole("radio", { name: "Without the ball" }).click();
+  await expect(page.getByRole("group", { name: "Picked plays" })).toContainText("Threes against them ·");
+  await page.getByRole("radio", { name: "Season" }).click();
+  await page.getByRole("button", { name: "Watch their shots: At the rim" }).click();
+  await expect(page.getByRole("group", { name: "Picked plays" })).toContainText("At the rim ·");
+  await page.getByRole("radio", { name: "Without the ball" }).click();
+  await expect(page.getByRole("group", { name: "Picked plays" })).toHaveCount(0);
+  await expect(page.getByText(/^\d+ plays? in 1 game$/)).toBeVisible();
+});
+
+test("Plays with none of their games offers their latest game", async ({ page }) => {
+  await mockLeague(page, madeUpLeague());
+  await openTeam(page, "Beta");
+  await page.getByRole("radio", { name: "Plays" }).click();
+  await expect(page.getByText("None of their games are in your library.")).toBeVisible();
+  await page.getByRole("link", { name: /^Import their latest game: / }).click();
+  await expect(page).toHaveURL(/\/upload$/);
+});
+
+test("a game without its video is dimmed and says what to do", async ({ page }) => {
+  await patchGameReads(page, { videoUrl: null });
+  await alfaWithALibraryGame(page);
+  await page.getByRole("radio", { name: "Plays" }).click();
+  await expect(page.getByText("This game's video isn't on this computer.")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("link", { name: "Locate video" })).toBeVisible();
+});
+
+test("a pick that matches nothing says so", async ({ page }) => {
+  await alfaWithALibraryGame(page);
+  await page.getByRole("radio", { name: "Plays" }).click();
+  // A reload whose router state names a player in none of the games (one who left, say).
+  await page.evaluate(() => {
+    const s = history.state as { usr?: Record<string, unknown> } | null;
+    history.replaceState({ ...s, usr: { ...(s?.usr ?? {}), pick: { kind: "player", personId: 999999, name: "Nobody" }, side: "with" } }, "");
+  });
+  await page.reload();
+  await expect(page.getByRole("group", { name: "Picked plays" })).toHaveText("Nobody · 0", { timeout: 30_000 });
+  await expect(page.getByText("No plays match.")).toBeVisible();
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(page.getByText(/^\d+ plays in 1 game$/)).toBeVisible();
+});
+
+test("another team while plays are reading shows only its own games", async ({ page }) => {
+  const mine = await aLibraryGame(page);
+  await mockLeague(page, madeUpLeague({ libraryGame: mine.sourceGameId }));
+  const release = await delayPlaysReads(page, 4000);
+  await openTeam(page, "Alfa");
+  await page.getByRole("radio", { name: "Plays" }).click();
+  await page.getByRole("button", { name: "Teams" }).click();
+  await page.getByRole("link", { name: "Beta", exact: true }).click();
+  await page.getByRole("radio", { name: "Plays" }).click();
+  await expect(page.getByText("None of their games are in your library.")).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(5000); // past Alfa's held read
+  await expect(page.getByText("None of their games are in your library.")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Plays" })).toHaveCount(0);
+  await release();
 });

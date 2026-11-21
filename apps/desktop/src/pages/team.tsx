@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChevronLeft, Shield } from "lucide-react";
 import { teamKeys, type TeamKey } from "@scoutable/shared/lib/team-keys";
-import { keyStatOf, teamLibraryGames, teamVideo, type PlaysPick, type PlaysSide } from "@scoutable/shared/lib/team-video";
+import { flipPick, keyStatOf, teamLibraryGames, teamVideo, type PlaysPick, type PlaysSide } from "@scoutable/shared/lib/team-video";
+import { TeamPlaysView, type LatestImport } from "@/components/team/team-plays-view";
+import { TeamViewSwitch, type TeamView } from "@/components/team/team-view-switch";
+import { playedDay } from "@/components/team/dates";
+import { useClipLabels } from "@/lib/use-clip-labels";
+import { useAuth } from "@/lib/auth-context";
+import { cn } from "@/lib/utils";
 import type { ShotZone } from "@scoutable/shared/lib/game-shots";
 import { TeamShotsSection } from "@/components/team/team-shots-section";
 import { useTeamPlays } from "@/lib/use-team-plays";
@@ -35,7 +41,17 @@ export interface TeamPageState {
   back?: { label: string; path: string };
   pick?: PlaysPick | null;
   side?: PlaysSide;
+  /** How Plays was opened, for team_plays_viewed. */
+  playsFrom?: PlaysFrom;
 }
+
+type PlaysFrom = "switch" | "watch_all" | "key" | "shots" | "player";
+const PLAYS_FROM: Record<"watch_all" | "watch_key" | "watch_shots" | "watch_player", PlaysFrom> = {
+  watch_all: "watch_all",
+  watch_key: "key",
+  watch_shots: "shots",
+  watch_player: "player",
+};
 
 function Skeleton() {
   return (
@@ -113,7 +129,7 @@ export function TeamPage() {
   const watch = useCallback(
     (pick: PlaysPick | null, side: PlaysSide, a: "watch_all" | "watch_key" | "watch_shots" | "watch_player", extra: Record<string, string> = {}) => {
       trackEvent("team_page_action", { action: a, ...extra });
-      navigate(`${location.pathname}?view=plays`, { state: { ...state, pick, side } satisfies TeamPageState });
+      navigate(`${location.pathname}?view=plays`, { state: { ...state, pick, side, playsFrom: PLAYS_FROM[a] } satisfies TeamPageState });
     },
     [navigate, location.pathname, state],
   );
@@ -124,6 +140,49 @@ export function TeamPage() {
     },
     [watch],
   );
+  // Season | Plays: the view is in the URL; what Plays shows (side, pick) rides in the router state, so a reload keeps it.
+  const [searchParams] = useSearchParams();
+  const view: TeamView = searchParams.get("view") === "plays" ? "plays" : "season";
+  const side: PlaysSide = state.side ?? "with";
+  const pick = state.pick ?? null;
+  const setView = (v: TeamView) =>
+    navigate(`${location.pathname}${v === "plays" ? "?view=plays" : ""}`, { replace: true, state: { ...state, playsFrom: v === "plays" ? "switch" : state.playsFrom } satisfies TeamPageState });
+  const setPlays = (next: Pick<TeamPageState, "side" | "pick">) =>
+    navigate(`${location.pathname}?view=plays`, { replace: true, state: { ...state, ...next } satisfies TeamPageState });
+  // Plays is mounted the first time it is shown and kept: switching back keeps its filters and its scroll, as Season keeps its own.
+  const [playsShown, setPlaysShown] = useState(view === "plays");
+  if (view === "plays" && !playsShown) setPlaysShown(true);
+  const [current, setCurrent] = useState<string | null>(null);
+  const teamKey = `${competitionId}:${teamId}`;
+  const [currentFor, setCurrentFor] = useState(teamKey);
+  if (currentFor !== teamKey) {
+    setCurrentFor(teamKey);
+    setCurrent(null);
+  }
+  const { activeOrgId } = useAuth();
+  const labelGames = useMemo(() => teamGames.map((g) => g.gameId), [teamGames]);
+  const clipLabels = useClipLabels(playsShown ? activeOrgId : null, labelGames, "team_plays");
+  // The empty Plays view's one action: their latest played game that can be imported and isn't in the library.
+  const latestImport = useMemo<LatestImport | null>(() => {
+    const r = [...rows].reverse().find((x) => x.status === "played" && x.importable && !library.games.has(x.matchId));
+    if (!r) return null;
+    const p = importPick(r);
+    return { label: `${r.home ? "vs" : "at"} ${r.opponentName}, ${playedDay(r.at)}`, state: p ? { pick: p } : null };
+  }, [rows, library.games, importPick]);
+
+  // Once per open of Plays, when its games are read.
+  const playsViewedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (view !== "plays" || plays.status === "reading" || playsViewedFor.current === location.key) return;
+    playsViewedFor.current = location.key;
+    trackEvent("team_plays_viewed", {
+      games: plays.games.length,
+      plays: video ? video.all[side] : 0,
+      from: state.playsFrom ?? "switch",
+      side,
+    });
+  }, [view, plays.status, plays.games.length, location.key, video, side, state.playsFrom]);
+
   const where = useMemo(() => {
     if (!league || league.groups.length < 2 || !profile) return null;
     const i = league.groups.findIndex((g) => g.group === profile.group);
@@ -134,14 +193,36 @@ export function TeamPage() {
     <Page>
       <Toolbar
         leading={
-          <Button variant="ghost" size="sm" className="-ml-1 min-w-0 shrink text-muted-foreground" onClick={() => navigate(back.path)}>
-            <ChevronLeft className="shrink-0" />
-            <span className="max-w-48 truncate">{back.label}</span>
-          </Button>
+          <>
+            <Button variant="ghost" size="sm" className="-ml-1 min-w-0 shrink text-muted-foreground" onClick={() => navigate(back.path)}>
+              <ChevronLeft className="shrink-0" />
+              <span className="max-w-48 truncate">{back.label}</span>
+            </Button>
+            {profile && <TeamViewSwitch value={view} onChange={setView} />}
+          </>
         }
         title={name || (status === "ready" ? "Team" : "")}
         subtitle={seasonLabel}
       />
+      {playsShown && profile && (
+        <div className={cn("flex min-h-0 flex-1 flex-col pt-[var(--toolbar-height)]", view !== "plays" && "pointer-events-none invisible absolute inset-0")}>
+          <TeamPlaysView
+            key={teamKey}
+            orgId={activeOrgId}
+            plays={plays}
+            side={side}
+            onSide={(s) => setPlays({ side: s, pick: flipPick(pick, s) })}
+            pick={pick}
+            onClearPick={() => setPlays({ pick: null })}
+            latestImport={latestImport}
+            current={current}
+            onPlay={setCurrent}
+            labels={clipLabels.labels}
+            labelsOf={clipLabels.labelsOf}
+          />
+        </div>
+      )}
+      <div className={cn("flex min-h-0 flex-1 flex-col", view === "plays" && profile && "pointer-events-none invisible absolute inset-0")}>
       <PageContent width="wide">
         {status === "failed" ? (
           <EmptyState
@@ -190,6 +271,7 @@ export function TeamPage() {
           </div>
         )}
       </PageContent>
+      </div>
     </Page>
   );
 }
