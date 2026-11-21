@@ -104,6 +104,9 @@ shared plays cache; a read for a team the page has left never lands.
   made of attempted by zone, each zone with Watch. Only games with shot
   positions count, so dots and zones agree; older games are named in a line;
 - Players gains "In your games" (games, Watch) or "Not in your games".
+- a game whose plays couldn't be read is said after the coverage line ("Couldn't
+  read the plays of 1 of your 3 games.") with Try again, which reads every game
+  not read yet; the counts leave it out.
 
 Every count is the length of what its Watch opens (`pickKeys`), counted by
 the Stats view's own rules (`gameBox`, `gameShots`).
@@ -141,7 +144,10 @@ it, and playback skips it.
   game ("Import their latest game: at Beta, 22 Nov").
 - Plays is mounted the first time it shows and kept: switching back and forth
   keeps each view's scroll and Plays' filters, and nothing plays while Season
-  shows. The views cross-fade (150 ms; none with reduced motion).
+  shows. Plays fades in the first time it shows (150 ms; none with reduced
+  motion). Until the coach's library is read, Plays shows its skeleton, never
+  "None of their games are in your library."; a filter menu's type-ahead keeps
+  its letters (Plays' keys ignore keys inside a menu, list box or dialog).
 
 ## Data
 
@@ -171,8 +177,8 @@ migration and no new Genius calls.
 
 ## Analytics
 
-`team_page_viewed` (league, season, games, library_games, keys, own_team,
-from), `team_page_action` (open_game, import, open_team, show_all_players,
+`team_page_viewed` once per open (a mount: switching views, sides or picks
+isn't an open; league, season, games, library_games, keys, own_team, from), `team_page_action` (open_game, import, open_team, show_all_players,
 show_all_games, watch_all, watch_key with `key`, watch_shots with `zone`,
 watch_player), `team_plays_viewed` (games, plays, from: switch, watch_all,
 key, shots, player; side), `teams_league_changed`, and
