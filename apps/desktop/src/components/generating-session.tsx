@@ -42,7 +42,7 @@ export function GeneratingSession({
 }) {
   const steps: { label: string; state: StepState }[] = [
     { label: `Game data: ${eventCount} event${eventCount === 1 ? "" : "s"}`, state: "done" },
-    { label: isUpdate ? "Updating your library" : "Saving to your library", state: phase === "saving" ? "active" : "done" },
+    { label: isUpdate ? "Updating the game" : "Saving the game", state: phase === "saving" ? "active" : "done" },
     { label: "Ready to scout", state: phase === "done" ? "done" : "pending" },
   ];
 

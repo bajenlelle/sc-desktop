@@ -110,7 +110,7 @@ export function GameTabPicker({
             Loading games…
           </p>
         ) : rows.length === 0 ? (
-          <p className="px-3 pb-3 text-callout text-muted-foreground">{search.trim() ? "No game of that name." : "No games in the Library yet."}</p>
+          <p className="px-3 pb-3 text-callout text-muted-foreground">{search.trim() ? "No game of that name." : "No games yet."}</p>
         ) : (
           <div className="max-h-72 overflow-y-auto px-1 pb-1">
             {rows.map((game, i) => (

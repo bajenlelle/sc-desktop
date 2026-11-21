@@ -159,10 +159,23 @@ the task's report. The harness itself is typechecked with
 `npx tsc --noEmit -p headless/tsconfig.json` in `apps/desktop` (the app's
 `npx tsc --noEmit`, and so check.yml, covers only `src`).
 
-The smoke spec (`specs/smoke.spec.ts`) is the harness's own proof: Library
+The smoke spec (`specs/smoke.spec.ts`) is the harness's own proof: the Games page
 lists games, the first game's Game view draws its play list and timeline, a
 playlist's Add clips lists events. It reads only. It needs the test account
 to have at least one game and one playlist.
+
+## A second space
+
+The test account is in one space. A spec that switches spaces calls
+`addSecondSpace(page)` in `headless/helpers.ts` before the page loads: the
+read of the account's orgs (`get_my_orgs`) gets a club it coaches added
+(`OTHER_SPACE`), the read of its team answers says it skipped the team
+question there, and the account's own space stays the open one.
+`switchSpace(page, OTHER_SPACE.name)` then switches through the sidebar's
+space menu. Every write that names the club (the sample-game seeding, any
+other) is answered in the browser and never reaches staging; it returns them
+so a spec can check nothing else was written. The club's reads go to staging,
+which has nothing of it, so the club is an empty space.
 
 ## The Add clips list
 
@@ -200,6 +213,6 @@ picks them from the game's sync point). Both WebKit and Chrome play it through
 `/@fs`.
 
 A spec that only needs footage to move through, and writes nothing, can open
-the sample game instead (the Library row marked "Sample game"): its video
+the sample game instead (the Games row marked "Sample game"): its video
 plays from the network in both browsers, about twenty minutes of it, with no
 link to make or restore (`specs/H-game-player.spec.ts`).

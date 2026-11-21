@@ -73,8 +73,8 @@ async function chooseWithKeys(page: Page, option: Locator): Promise<void> {
 
 /** Two of the Library's games whose titles no other listed game has, without opening them. */
 async function twoGames(page: Page): Promise<{ id: string; title: string }[]> {
-  await goViaSidebar(page, "Library");
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   const rows = page.locator('a[href^="/matches/"]');
   await expect(rows.first()).toBeVisible({ timeout: 30_000 });
   const all = await rows.evaluateAll((as) =>
@@ -99,8 +99,8 @@ test("Search in the sidebar opens on what was opened last, and Esc gives the foc
   await page.locator(`[data-playlist-id="${alphaId}"]`).first().click();
   await expect(heading(page)).toHaveText(ALPHA);
 
-  await goViaSidebar(page, "Home");
-  await expect(heading(page)).toHaveText("Home");
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   // With the keyboard, so the button holds the focus in WebKit too (a click doesn't focus a button there).
   await searchButton(page).focus();
   await page.keyboard.press("Enter");
@@ -171,12 +171,12 @@ test("typing finds games and playlists by name in the sidebar's order, and never
   expect(reads.length - typed, "typing reads nothing").toBe(0);
 });
 
-test("Enter opens a playlist from Home, and another one in place on the Playlists page", async ({ page }) => {
+test("Enter opens a playlist from Games, and another one in place on the Playlists page", async ({ page }) => {
   const tracked = await recordAnalytics(page);
   await createPlaylist(page, ALPHA);
   await createPlaylist(page, BETA);
-  await goViaSidebar(page, "Home");
-  await expect(heading(page)).toHaveText("Home");
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
 
   await openSearch(page);
   await field(page).pressSequentially(ALPHA);
@@ -213,7 +213,7 @@ test("Enter opens a playlist from Home, and another one in place on the Playlist
   expect(picks[2]).toMatchObject({ kind: "playlist", from: "recent", position: 1, query_length: 0 });
 });
 
-test("a report opens in its Report view, from Home and in place, and its playlist opens on the clips", async ({ page }) => {
+test("a report opens in its Report view, from Games and in place, and its playlist opens on the clips", async ({ page }) => {
   const id = await createPlaylist(page, ALPHA);
   // A draft of the spec's own, under a title of its own; it goes with its playlist.
   await withAppModule(
@@ -222,8 +222,8 @@ test("a report opens in its Report view, from Home and in place, and its playlis
     `await mod.saveReportDraft(arg.id, { v: 1, title: arg.title, opponent: null, intro: "", sections: [], placements: {}, order: [] });`,
     { id, title: REPORT },
   );
-  await goViaSidebar(page, "Home");
-  await expect(heading(page)).toHaveText("Home");
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
 
   await openSearch(page);
   await field(page).pressSequentially(REPORT);
@@ -249,7 +249,7 @@ test("a report opens in its Report view, from Home and in place, and its playlis
   await expect(viewRadio(page, "Report")).toBeChecked();
 });
 
-test("Enter opens a game from the Library, and on the game page another one in a tab", async ({ page }) => {
+test("Enter opens a game from Games, and on the game page another one in a tab", async ({ page }) => {
   const [g0, g1] = await twoGames(page);
   await openSearch(page);
   await field(page).pressSequentially(g0.title);
@@ -291,8 +291,8 @@ test("the panel's keys stay in the panel: the game behind it neither plays nor s
 
 test("the panel fits the smallest window, light and dark", async ({ page, browserName }) => {
   await page.setViewportSize({ width: 1024, height: 640 });
-  await goViaSidebar(page, "Library");
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   await openSearch(page);
   await field(page).pressSequentially("a");
   await expect(options(page).first()).toBeVisible({ timeout: 15_000 });
@@ -313,8 +313,8 @@ test("the panel fits the smallest window, light and dark", async ({ page, browse
 test("a pointer at rest leaves the highlight to the keys when they scroll the list", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 640 });
   for (const name of [ALPHA, BETA, GAMMA]) await createPlaylist(page, name);
-  await goViaSidebar(page, "Library");
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   await openSearch(page);
   await expect(options(page).first()).toBeVisible({ timeout: 15_000 });
   // The letter that finds the most: a list longer than the panel.
@@ -351,8 +351,8 @@ test("a pointer at rest leaves the highlight to the keys when they scroll the li
 });
 
 test("a press on the panel beside its rows leaves the keys in the field", async ({ page }) => {
-  await goViaSidebar(page, "Library");
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   await openSearch(page);
   await expect(options(page).first()).toBeVisible({ timeout: 15_000 });
   // A group's heading.
@@ -397,7 +397,7 @@ test("a playlist the page can't read leaves its list as it was", async ({ page }
 });
 
 test("a team is found by name and opens its page", async ({ page }) => {
-  await goViaSidebar(page, "Home");
+  await goViaSidebar(page, "Games");
   const teams = await withAppModule<null, { id: string; name: string }[]>(
     page,
     "/src/lib/my-team.tsx",
@@ -423,8 +423,8 @@ test.describe("where there is no menu bar", () => {
   test("Ctrl+K opens and closes the search, from a text field too, and is left alone over a sheet", async ({ page }) => {
     const tracked = await recordAnalytics(page);
     const alphaId = await createPlaylist(page, ALPHA);
-    await goViaSidebar(page, "Library");
-    await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+    await goViaSidebar(page, "Games");
+    await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
     await page.keyboard.press("Control+k");
     await expect(panel(page)).toBeVisible();
     await expect(field(page)).toBeFocused();
@@ -450,8 +450,8 @@ test.describe("where there is no menu bar", () => {
     await expect(sheet).toBeVisible();
   });
   test("the chord pressed again while the panel is leaving opens a new one that has the keys", async ({ page }) => {
-    await goViaSidebar(page, "Library");
-    await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+    await goViaSidebar(page, "Games");
+    await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
     const own = page.getByPlaceholder("Search games");
     await own.click();
     await page.keyboard.press("Control+k");
@@ -483,13 +483,15 @@ test.describe("where there is no menu bar", () => {
   });
 
   test("a number key under the open panel goes to its page, and the panel closes", async ({ page }) => {
-    await goViaSidebar(page, "Library");
-    await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+    await goViaSidebar(page, "Games");
+    await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
     await page.keyboard.press("Control+k");
     await expect(field(page)).toBeFocused();
     await field(page).pressSequentially("ab");
     await page.keyboard.press("Control+1");
-    await expect(heading(page)).toHaveText("Home", { timeout: 15_000 });
+    // The first row: Playlists (which may reopen the playlist opened last, so its URL, not its title).
+    await expect(page).toHaveURL(/\/playlists$/, { timeout: 15_000 });
+    await expect(page.getByRole("navigation", { name: "Main" }).locator('a[aria-current="page"]')).toHaveText("Playlists");
     await expect(panel(page), "the panel doesn't stay over the page that opened").toBeHidden();
   });
 

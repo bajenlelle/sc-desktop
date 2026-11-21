@@ -403,7 +403,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
               body="It may have been deleted, or it belongs to another space."
               action={
                 <Button variant="outline" size="sm" onClick={() => navigate("/matches")}>
-                  Back to Library
+                  Back to Games
                 </Button>
               }
             />

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clipWatchEffects } from "@scoutable/shared/lib/watch-queue";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ChevronLeft, Clapperboard, Loader2, X } from "lucide-react";
+import { ChevronLeft, Clapperboard, Loader2, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { playableClips, toFeedPlaylists, sharerFilterOptions } from "@scoutable/shared/lib/playlist-feed";
 import { collectReferencedPlays, mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
@@ -28,6 +28,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
 import { trackEvent } from "@/lib/analytics";
+import { announcePlaylistsChanged } from "@/lib/playlist-events";
 import {
   getMyTeamPlaylists,
   getMyDirectPlaylists,
@@ -109,13 +110,13 @@ function WelcomeCallout() {
 }
 
 export function MyPlaylistsPage() {
-  const { activeOrgId, activeOrgIsPersonal, profileLoading, myOrgs, setActiveOrg } = useAuth();
+  const { activeOrgId, activeOrgIsPersonal, activeOrgCanManage, profileLoading, myOrgs, setActiveOrg } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (profileLoading) return;
-    // No shared-with-me feed exists in a personal space: back to Home. It
-    // must stay "/" — this also fires while "Open my space" switches spaces
+    // No shared-with-me feed exists in a personal space: back to where the app
+    // opens (pages/start.tsx). It must stay "/" — this also fires while "Open my space" switches spaces
     // and navigates there itself.
     if (activeOrgIsPersonal) navigate("/", { replace: true });
   }, [activeOrgIsPersonal, profileLoading, navigate]);
@@ -357,7 +358,10 @@ export function MyPlaylistsPage() {
     const before = { teams: new Set(target.teamIds ?? []), users: new Set(target.userIds ?? []) };
     const addedTeams = teamIds.filter((id) => !before.teams.has(id)).length;
     const addedUsers = userIds.filter((id) => !before.users.has(id)).length;
-    if (addedTeams + addedUsers > 0) trackEvent("playlist_shared", { team_count: addedTeams, user_count: addedUsers });
+    if (addedTeams + addedUsers > 0) {
+      trackEvent("playlist_shared", { team_count: addedTeams, user_count: addedUsers });
+      announcePlaylistsChanged();
+    }
     setPlaylists((prev) => prev.map((p) => (p.id === target.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p)));
     // The dashboard derives its recipient rows from this state, so the
     // entry carries teamShares/userShares too (unknown timestamps are null).
@@ -467,6 +471,22 @@ export function MyPlaylistsPage() {
     </>
   );
 
+  // Staff who manage the club can invite its players from here (it was Home's "Invite players").
+  const invitePlayers =
+    isCoachOrAdmin && activeOrgCanManage && !activeOrgIsPersonal ? (
+      <Button variant="ghost" size="sm" onClick={() => navigate("/organization", { state: { invite: true, inviteRole: "player" } })}>
+        <UserPlus />
+        Invite players
+      </Button>
+    ) : null;
+  const toolbarActions =
+    invitePlayers || feedFilterButtons ? (
+      <>
+        {feedFilterButtons}
+        {invitePlayers}
+      </>
+    ) : undefined;
+
   return (
     <Page>
       <Toolbar
@@ -485,7 +505,7 @@ export function MyPlaylistsPage() {
           ) : undefined
         }
         search={search}
-        actions={feedFilterButtons || undefined}
+        actions={toolbarActions}
       />
       <PageContent width="medium">
         {loading ? (

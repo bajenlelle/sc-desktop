@@ -1393,7 +1393,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                     <p className="text-sm font-medium text-white">This game's video file can't be found</p>
                     <p className="max-w-xs text-xs text-white/70">
                       It may have been moved or renamed, or it's on another computer.
-                      Open the game in the Library and use Locate file to point at it.
+                      Open the game and use Locate file to point at it.
                     </p>
                   </div>
                 )}

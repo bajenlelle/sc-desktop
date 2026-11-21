@@ -2,16 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
+import { announcePlaylistsChanged } from "@/lib/playlist-events";
 import { afterSyncChange, CLIPS_PATCHED_EVENT, isSyncRefreshRunning, type ClipPatch } from "@/lib/sync-change";
 import { describeShift, SyncFixPanel } from "@/components/editor/sync-fix-sheet";
 import { joinNames, quartersMoved, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
 import { sameSyncPoint, videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { Sentry } from "@/lib/sentry";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3,
   ChevronDown,
   ChevronRight,
+  Film,
   Folder,
   FolderOpen,
   FolderPlus,
@@ -156,7 +158,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { toast } from "sonner";
-import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
+import { readRecentOpens, recentOpensScope, rememberOpened } from "@/lib/recent-opens";
+import { lastOpenedPlaylist } from "@scoutable/shared/lib/recent-opens";
 import { Page } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { BackButton, EditorToolbar, type BackToGame } from "@/components/editor/editor-toolbar";
@@ -310,7 +313,7 @@ function writeStatsHintDismissed(ids: ReadonlySet<string>): void {
 }
 
 export function PlaylistsPage() {
-  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profile, profileLoading, expectPlanChange } = useAuth();
+  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, setActiveOrg, profile, profileLoading, expectPlanChange } = useAuth();
   // Export opens for paid plans, and for a Free space once anything is bought
   // (a single game; a Pro subscription only while it lasts).
   const { access: playerAccess, playerMode } = usePlayerAccess();
@@ -470,6 +473,13 @@ export function PlaylistsPage() {
   // Getting Started checklist arrival: which button to pulse until clicked
   // or a few seconds pass.
   const [onboardingHighlight, setOnboardingHighlight] = useState<"add-clips" | "export" | "share" | null>(null);
+  const highlightTimerRef = useRef<number | undefined>(undefined);
+  /** Pulses the Getting Started step's button for a few seconds (the `highlight` a step navigates with). */
+  function applyHighlight(kind: "add-clips" | "export" | "share") {
+    window.clearTimeout(highlightTimerRef.current);
+    setOnboardingHighlight(kind);
+    highlightTimerRef.current = window.setTimeout(() => setOnboardingHighlight(null), 6000);
+  }
   /** The game a "Build a playlist" came from: the next Add clips starts on it, once. */
   const [addClipsFrom, setAddClipsFrom] = useState<string | null>(null);
   const [sendToPhoneOpen, setSendToPhoneOpen] = useState(false);
@@ -808,11 +818,7 @@ export function PlaylistsPage() {
     setBackTo(from ? { title: from.title, onBack: () => navigate(`/matches/${from.matchId}`) } : null);
     if (state?.reship && restore) pendingShipRef.current.add(restore.playlistId);
     if (state?.addClipsFrom) setAddClipsFrom(state.addClipsFrom);
-    let highlightTimer: number | undefined;
-    if (state?.highlight) {
-      setOnboardingHighlight(state.highlight);
-      highlightTimer = window.setTimeout(() => setOnboardingHighlight(null), 6000);
-    }
+    if (state?.highlight) applyHighlight(state.highlight);
     // Switching org must close the open playlist COMPLETELY. The stale
     // `selected` object belongs to the previous org: its clips can't resolve
     // against the new org's matches (they render as vanished), yet the header
@@ -892,8 +898,16 @@ export function PlaylistsPage() {
         const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
         setFolders(sorted);
         let restored: Playlist | null = null;
-        if (restore) {
-          const pl = loadedPlaylists.find((p) => p.id === restore.playlistId);
+        // Nothing asked for: the playlist opened last in this space, in its editor (a report opened
+        // last opens its playlist). One deleted since, or not in this space, opens nothing. An ask
+        // that came while this load was on its way (⌘N, the search; done once it lands) wins too.
+        const asked = createNew || lateCreateRef.current || lateRestoreRef.current !== null;
+        const restoreId = restore?.playlistId ?? (asked ? null : lastOpenedPlaylist(
+          readRecentOpens(recentOpensScope(user?.id, activeOrgId)),
+          new Set(loadedPlaylists.map((p) => p.id)),
+        ));
+        if (restoreId) {
+          const pl = loadedPlaylists.find((p) => p.id === restoreId);
           if (pl) {
             restored = pl;
             setSelected(pl);
@@ -907,6 +921,8 @@ export function PlaylistsPage() {
             setShareOnOpen(null);
           }
         } else if (createNew) {
+          // The browser holds the name field: show it even if the coach hid it (as handleNewPlaylist does).
+          setBrowserCollapsed(false);
           const tempId = `temp-${Date.now()}`;
           const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", items: [], folderId: undefined };
           setPendingNewPlaylistId(tempId);
@@ -935,7 +951,7 @@ export function PlaylistsPage() {
       .finally(() => { if (!stale) setLoading(false); });
     return () => {
       stale = true;
-      if (highlightTimer !== undefined) window.clearTimeout(highlightTimer);
+      window.clearTimeout(highlightTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId]);
@@ -3371,7 +3387,10 @@ export function PlaylistsPage() {
     trackEvent("clip_added_to_playlist", { playlist_id: target.id, match_id: matchId });
     // Shipping is armed once the row exists, so updateClipR2Url has something to patch.
     void commitItemsEdit(target, newItems, "Add clip").then((ok) => {
-      if (ok) queuePendingShip(target);
+      if (ok) {
+        queuePendingShip(target);
+        announcePlaylistsChanged();
+      }
     });
   }
 
@@ -3441,6 +3460,7 @@ export function PlaylistsPage() {
       clipAddInFlightRef.current.delete(inFlightKey);
     }
     trackEvent('clip_added_to_playlist', { playlist_id: targetPlaylistId, match_id: matchId })
+    announcePlaylistsChanged();
     // Derived from prev, not a pre-await snapshot: a concurrent add to the same
     // playlist would otherwise be dropped from optimistic state.
     const appendClip = (items: PlaylistItem[]): PlaylistItem[] =>
@@ -3651,6 +3671,7 @@ export function PlaylistsPage() {
     setSelected((prev) => (prev ? { ...prev, teamIds, teamId: teamIds[0], userIds } : prev));
     if (newlyAddedTeams.length + newlyAddedUsers.length > 0) {
       trackEvent("playlist_shared", { team_count: newlyAddedTeams.length, user_count: newlyAddedUsers.length });
+      announcePlaylistsChanged();
     }
   }
 
@@ -4143,6 +4164,7 @@ export function PlaylistsPage() {
       try {
         const created = await createPlaylist(name, folderId, activeOrgId ?? undefined);
         trackEvent('playlist_created', { playlist_id: created.id, in_folder: !!folderId })
+        announcePlaylistsChanged();
         setPlaylists((prev) => prev.map((p) => (p.id === playlistId ? created : p)));
         selectPlaylist(created);
       } catch (err) {
@@ -4771,6 +4793,7 @@ export function PlaylistsPage() {
     newClips.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: pl.id, match_id: clip.matchId })
     })
+    if (newClips.length > 0) announcePlaylistsChanged();
     // Clips added to an already-shared playlist must ship immediately —
     // recipients can't see unshipped clips at all, and nothing else would
     // ever upload them (sharing only ships toward NEW recipients). Armed
@@ -5068,7 +5091,10 @@ export function PlaylistsPage() {
     const noun = `${pasted.length} item${pasted.length !== 1 ? "s" : ""}`;
     pasted.filter(isClipItem).forEach((c) => trackEvent("clip_added_to_playlist", { playlist_id: pl.id, match_id: c.matchId }));
     void commitItemsEdit(pl, items, `Paste ${noun}`, `${noun} pasted`).then((ok) => {
-      if (ok && pasted.some(isClipItem)) queuePendingShip({ ...pl, items });
+      if (ok && pasted.some(isClipItem)) {
+        queuePendingShip({ ...pl, items });
+        announcePlaylistsChanged();
+      }
     });
     return true;
   }
@@ -5084,6 +5110,7 @@ export function PlaylistsPage() {
     toAdd.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: target.id, match_id: clip.matchId })
     })
+    if (toAdd.length > 0) announcePlaylistsChanged();
     // Append onto whatever the row holds now rather than a pre-await snapshot,
     // and skip clips a concurrent add already landed — mirrors the insert's
     // own on-conflict-do-nothing so optimistic state can't drift from the DB.
@@ -5107,6 +5134,7 @@ export function PlaylistsPage() {
   async function handleCreatePlaylistAndAdd(name: string) {
     const created = await createPlaylist(name, selected?.folderId, activeOrgId ?? undefined);
     trackEvent('playlist_created', { playlist_id: created.id, in_folder: !!selected?.folderId })
+    announcePlaylistsChanged();
     // Prepend before adding: both updates are functional, so the add handler's
     // map below sees the new playlist and its items update isn't lost.
     setPlaylists((prev) => [created, ...prev]);
@@ -5323,9 +5351,10 @@ export function PlaylistsPage() {
     setReportFor(selectedRef.current?.id ?? null);
   }
 
-  // A playlist, or its report, asked for while this page is already shown (the search, ⌘K). The load
-  // effect reads `restore` only as the page is built, and a navigation to the page one is on builds
-  // nothing, so a later arrival is opened here, the way a click in the list opens it.
+  // A playlist, or its report, asked for while this page is already shown (the search, ⌘K, a Getting
+  // Started step), or a new playlist (⌘N). The load effect reads `restore` and `createNew` only as the
+  // page is built, and a navigation to the page one is on builds nothing, so a later arrival is opened
+  // here, the way a click in the list (or New Playlist) opens it.
   async function openAsked(ask: { playlistId: string; report: boolean }) {
     let pl = playlists.find((p) => p.id === ask.playlistId);
     let allFolders = folders;
@@ -5361,27 +5390,49 @@ export function PlaylistsPage() {
     if (ask.report) pendingReportRef.current = pl.id;
     selectPlaylist(pl);
   }
-  const lateRestoreRef = useRef<{ playlistId: string; report: boolean } | null>(null);
+  type LateAsk = { playlistId: string; report: boolean; highlight?: "add-clips" | "export" | "share" };
+  const lateRestoreRef = useRef<LateAsk | null>(null);
+  const lateCreateRef = useRef(false);
   const lateKeyRef = useRef(location.key);
+  async function openLateAsk({ highlight, ...ask }: LateAsk) {
+    await openAsked(ask);
+    if (highlight) applyHighlight(highlight);
+  }
   useEffect(() => {
     if (location.key === lateKeyRef.current) return;
     lateKeyRef.current = location.key;
-    const state = location.state as { restore?: { playlistId: string }; view?: "report" | "clips" } | null;
-    if (!state?.restore) return;
+    const state = location.state as {
+      restore?: { playlistId: string };
+      view?: "report" | "clips";
+      createNew?: boolean;
+      highlight?: "add-clips" | "export" | "share";
+    } | null;
+    if (!state?.restore && !state?.createNew) return;
     // Read once, like the load effect's flags.
     clearingStateRef.current = true;
     navigate(location.pathname, { replace: true, state: null });
-    const ask = { playlistId: state.restore.playlistId, report: state.view === "report" };
-    // The first load is still on its way: opened when it lands, below.
+    // The first load is still on its way: done when it lands, below.
+    if (state.createNew) {
+      if (loading) lateCreateRef.current = true;
+      else handleNewPlaylist();
+      return;
+    }
+    if (!state.restore) return;
+    const ask: LateAsk = { playlistId: state.restore.playlistId, report: state.view === "report", highlight: state.highlight };
     if (loading) lateRestoreRef.current = ask;
-    else void openAsked(ask);
+    else void openLateAsk(ask);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key]);
   useEffect(() => {
+    if (loading) return;
+    if (lateCreateRef.current) {
+      lateCreateRef.current = false;
+      handleNewPlaylist();
+    }
     const ask = lateRestoreRef.current;
-    if (loading || !ask) return;
+    if (!ask) return;
     lateRestoreRef.current = null;
-    void openAsked(ask);
+    void openLateAsk(ask);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
@@ -5593,7 +5644,7 @@ export function PlaylistsPage() {
       if (!m?.videoUrl || !isLocalPath(m.videoUrl))
         return "All games need a local video file for export";
       if (videoStatusByMatch.get(mId) === "missing" || videoStatusByMatch.get(mId) === "unreadable")
-        return "A game's video file can't be found — open the game in the Library to locate it";
+        return "A game's video file can't be found — open the game to locate it";
       if (!m.syncPoint)
         return "Every game needs its tip-off set to export";
     }
@@ -5670,6 +5721,11 @@ export function PlaylistsPage() {
   // A card (text or stats) is on the stage, not footage: the video's errors are about a clip, not about it.
   const cardOnStage = !!stageCard;
 
+  // The active game's file not looked for yet (a playlist opened as the page loads, before the probe
+  // above answers): no controls until it is known to be there, as when it is opened from the list later.
+  const activeMatchUrl = activeMatchId ? matchLookup.get(activeMatchId)?.videoUrl : undefined;
+  const activeFileUnprobed =
+    !cardOnStage && !!activeMatchUrl && isLocalPath(activeMatchUrl) && !videoStatusByMatch.has(activeMatchId!);
   const playerStack = localVideoUrl || stageCard ? (
       <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
         {/* Stage: in fullscreen it fills the layer; every overlay's coordinate
@@ -5727,7 +5783,7 @@ export function PlaylistsPage() {
             speed={playbackSpeed}
             onSpeedChange={setPlaybackSpeed}
             interactive={!cropMode && !draw.session}
-            hideChrome={(!playerFs.active && !!stageCard) || !!draw.session}
+            hideChrome={(!playerFs.active && !!stageCard) || !!draw.session || activeFileUnprobed}
             playback={stageCard ? { paused: cardPaused, toggle: toggleCard } : undefined}
             trimBar={
               trim ? (
@@ -6350,6 +6406,13 @@ export function PlaylistsPage() {
     </div>
   );
 
+  // No playlists and no games of the space's own (the sample game doesn't count): the right pane
+  // says to import one first, where Home's "Next up" used to.
+  const importFirst = !loading && playlists.length === 0 && !matches.some((m) => !m.isDemo);
+  const demoMatchId = matches.find((m) => m.isDemo)?.id ?? null;
+  // A club player in their personal space: their coach's shares are in the club's space, one click away.
+  const playerClub = activeOrgIsPersonal ? (myOrgs.find((o) => !o.isPersonal && o.role === "player") ?? null) : null;
+
   return (
     <>
     <Page>
@@ -6478,6 +6541,19 @@ export function PlaylistsPage() {
             <TooltipContent>New folder</TooltipContent>
           </Tooltip>
         </div>
+
+        {playerClub && (
+          <p className="shrink-0 px-4 pb-2 text-footnote text-muted-foreground">
+            Playlists your coach shares live in the {playerClub.orgName} space.{" "}
+            <button
+              type="button"
+              onClick={() => setActiveOrg(playerClub.orgId)}
+              className="rounded-sm font-medium text-primary underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+            >
+              Open {playerClub.orgName}
+            </button>
+          </p>
+        )}
 
         <div ref={sidebarScrollRef} className="min-h-0 flex-1 overflow-y-auto pb-2">
         {loading ? (
@@ -6652,7 +6728,30 @@ export function PlaylistsPage() {
 
       {/* RIGHT — the editor */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
-        {selected === null ? (
+        {selected === null && importFirst ? (
+          <div className="flex flex-1 items-center justify-center p-12">
+            <EmptyState
+              icon={<Film />}
+              title="Import your first game"
+              body="Every clip is generated automatically from the play-by-play."
+              action={
+                <div className="flex items-center justify-center gap-2">
+                  {demoMatchId && (
+                    <Button size="sm" variant="ghost" asChild>
+                      <Link to={`/matches/${demoMatchId}`}>Browse the sample game</Link>
+                    </Button>
+                  )}
+                  <Button size="sm" asChild>
+                    <Link to="/upload">
+                      <Plus />
+                      Import game
+                    </Link>
+                  </Button>
+                </div>
+              }
+            />
+          </div>
+        ) : selected === null ? (
           <div className="flex flex-1 items-center justify-center p-12">
             <EmptyState
               icon={<ListVideo />}

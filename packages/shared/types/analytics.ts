@@ -17,6 +17,7 @@ export type AnalyticsEvent =
   | "login_provider_clicked"
   | "declared_role_selected"
   | "page_viewed"
+  | "start_page_opened" // desktop: page, restored (the page the coach left on, or a fallback): where `/` sent the app
   // Welcome email (web + desktop). result: sent | too_soon | disabled | error
   | "welcome_link_resent"
   | "desktop_first_signin"
@@ -152,6 +153,7 @@ export type AnalyticsEvent =
   | "notification_permission_denied"
   | "notification_opened"
   // Onboarding
+  | "checklist_opened"
   | "onboarding_step_clicked"
   | "onboarding_dismissed"
   | "onboarding_completed"

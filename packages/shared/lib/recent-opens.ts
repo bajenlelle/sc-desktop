@@ -39,3 +39,11 @@ export function parseRecentOpens(raw: unknown): RecentOpen[] {
   }
   return out;
 }
+
+/** The playlist the coach had open last: the newest playlist or report (a report is its playlist's) that is still one of `playlistIds`. */
+export function lastOpenedPlaylist(opens: readonly RecentOpen[], playlistIds: ReadonlySet<string>): string | null {
+  const newest = opens
+    .filter((o) => (o.kind === "playlist" || o.kind === "report") && playlistIds.has(o.id))
+    .reduce<RecentOpen | null>((best, o) => (!best || o.at > best.at ? o : best), null);
+  return newest ? newest.id : null;
+}

@@ -80,7 +80,7 @@ test("a team's page leads with what stands out", async ({ page, browserName }) =
   await page.goto("/teams");
   await page.getByRole("link", { name: "Alfa", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Alfa" })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText("6 games played · none in your library yet")).toBeVisible();
+  await expect(page.getByText("6 games played · none imported yet")).toBeVisible();
   const keys = page.getByRole("region", { name: "What stands out" });
   await expect(keys.getByText("Shoot a lot of threes: 69% of shots, most in the league.", { exact: true })).toBeVisible();
   await expect(keys.getByRole("listitem")).toHaveCount(1);
@@ -113,7 +113,7 @@ test("a team the season doesn't list says so", async ({ page }) => {
 /** One of the test account's own Genius games, in the space the app opens on. */
 async function aLibraryGame(page: Page): Promise<{ id: string; sourceGameId: number; title: string }> {
   await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible({ timeout: 30_000 });
   const game = await withAppModule<null, { id: string; sourceGameId: number; title: string } | null>(
     page,
     "/src/lib/supabase/client.ts",
@@ -138,7 +138,7 @@ test("games link to the library and to import", async ({ page, browserName }) =>
   await page.goto("/teams");
   await expect(teamRow(page, "Alfa")).toContainText("1 game", { timeout: 30_000 });
   await page.getByRole("link", { name: "Alfa", exact: true }).click();
-  await expect(page.getByText("6 games played · 1 in your library")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("6 games played · 1 imported")).toBeVisible({ timeout: 30_000 });
   const games = page.getByRole("region", { name: "Games" });
   await expect(games.getByRole("row")).toHaveCount(1 + 1 + 5); // the header, one still to play, five played
   await games.getByRole("button", { name: "Show all 6" }).click();
@@ -153,7 +153,7 @@ test("games link to the library and to import", async ({ page, browserName }) =>
   await expect(again.getByRole("button", { name: /^Show (all 6|fewer)$/ })).toBeVisible({ timeout: 30_000 });
   const showAll = again.getByRole("button", { name: "Show all 6" });
   if (await showAll.isVisible()) await showAll.click();
-  await again.getByRole("link", { name: "In your library" }).click();
+  await again.getByRole("link", { name: "Imported" }).click();
   await expect(page).toHaveURL(new RegExp(`/matches/${mine.id}\\?view=stats`));
 });
 

@@ -194,8 +194,8 @@ A player's section shows their roster photo with the number as a badge on it; wi
   stopped report offers Share again, which adds `share: true` so the Report
   view opens with the share sheet (`autoOpenShare`): an expired one keeps its
   link (the publish updates its row), a stopped one gets a new one.
-- Home lists up to three live reports ("Shared reports", hidden when none),
-  and the share sheet's done step links to the page ("See all reports").
+- Live reports are listed on the Reports page, and the share sheet's done step
+  links to it ("See all reports").
 - Analytics: `scouting_report_list_action` (action, status) for each row
   action, `scouting_report_revoked` with `via: "list"`; the page view is
   `page_viewed`.

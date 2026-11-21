@@ -20,9 +20,9 @@ export function meetingLine(m: { kind: "next" | "last"; home: boolean; score: { 
 
 const games = (n: number) => `${n} ${n === 1 ? "game" : "games"}`;
 
-/** "12 games played · 3 in your library". */
+/** "12 games played · 3 imported". */
 export function coverageLine(played: number, inLibrary: number): string {
-  return `${games(played)} played · ${inLibrary === 0 ? "none in your library yet" : `${inLibrary} in your library`}`;
+  return `${games(played)} played · ${inLibrary === 0 ? "none imported yet" : `${inLibrary} imported`}`;
 }
 
 /** A place in words, for a number's tooltip: "4th of 12 in the league", "4th of 14 in Södra". */

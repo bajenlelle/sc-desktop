@@ -171,7 +171,7 @@ test("presets save, apply, refuse a taken name, delete with Undo, travel to the 
   await expect(sheet).toBeHidden();
 
   // The game view: the same preset ticks the sheet's chips.
-  await goViaSidebar(page, "Library");
+  await goViaSidebar(page, "Games");
   const gameLink = page.locator('a[href^="/matches/"]').filter({ hasText: LULEA }).first();
   await expect(gameLink, `the test account has the game "${LULEA}"`).toBeVisible({ timeout: 30_000 });
   await gameLink.click();
@@ -258,11 +258,11 @@ test("a preset applied while the plays load applies at once and leaves the chose
   const name = (step: string) => `${browserName}-C-task12-${step}`;
   await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
-  await goViaSidebar(page, "Library");
+  await goViaSidebar(page, "Games");
   const gameLink = page.locator('a[href^="/matches/"]').filter({ hasText: LULEA }).first();
   await expect(gameLink, `the test account has the game "${LULEA}"`).toBeVisible({ timeout: 30_000 });
   const luleaId = ((await gameLink.getAttribute("href")) ?? "").replace("/matches/", "");
-  expect(luleaId, "the Library links the Luleå game").not.toBe("");
+  expect(luleaId, "Games links the Luleå game").not.toBe("");
   const playlistId = await createPlaylist(page, PLAYLIST);
 
   // "2PT made" saved as a preset, with a team and a player chosen at the time (a preset keeps neither).

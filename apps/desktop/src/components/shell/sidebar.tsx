@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
-import { Link, useLocation } from "react-router-dom";
-import { BookOpen, FileText, Film, Home, ListVideo, Plus, Search, Share2, Shield } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { BookOpen, FileText, Film, ListPlus, ListVideo, Plus, Search, Share2, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { UpdateCard } from "@/components/UpdateChecker";
@@ -15,12 +15,17 @@ import { cn } from "@/lib/utils";
 import { sidebarPages, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
 import { useHeadingToGame } from "@/components/game/use-game-tab-actions";
 import { gameTabsScope, useGameTabs } from "@/lib/game-tabs";
+import { GettingStartedCard } from "./getting-started-card";
 import { OpenGames } from "./open-games";
 import { SpaceSwitcher } from "./space-switcher";
 import { UserMenu } from "./user-menu";
 
 /** Keep in step with --sidebar-width in index.css. */
 const SIDEBAR_WIDTH = 220;
+
+/** The action rows above the pages (New playlist, Search): a page row's look, never selected. */
+const ACTION_ROW =
+  "flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection";
 
 function NavItem({
   to,
@@ -76,6 +81,7 @@ export function Sidebar() {
     setActiveOrg,
   } = useAuth();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const collapsed = useSidebarCollapsed();
   const reduced = useReducedMotionSafe();
   const importQuota = useImportQuota();
@@ -91,8 +97,6 @@ export function Sidebar() {
 
   const row = (page: GoPage) => {
     switch (page) {
-      case "go-home":
-        return <NavItem key={page} to="/" icon={Home} label="Home" active={pathname === "/"} />;
       case "go-playlists":
         return (
           <NavItem
@@ -117,7 +121,7 @@ export function Sidebar() {
           />
         );
       case "go-library":
-        return <NavItem key={page} to="/matches" icon={Film} label="Library" active={libraryActive} />;
+        return <NavItem key={page} to="/matches" icon={Film} label="Games" active={libraryActive} />;
       case "go-teams":
         return <NavItem key={page} to="/teams" icon={Shield} label="Teams" active={pathname.startsWith("/teams")} />;
     }
@@ -150,16 +154,29 @@ export function Sidebar() {
           />
         )}
 
-        {/* The search over the space, where Notion and Mail keep theirs: above the list it searches across.
-            A button, not a destination: it opens the panel (components/search/quick-search.tsx). */}
+        {/* The two actions a coach takes most, above the pages: New playlist, then the search over the
+            space, where Notion and Mail keep theirs. Buttons, not destinations, so never selected:
+            New playlist does what ⌘N does (pages/playlists.tsx takes `createNew` also while it is open),
+            Search opens the panel (components/search/quick-search.tsx). */}
         {ready && isCoachOrAdmin && (
-          <div className="mt-3 px-2">
+          <div className="mt-3 flex flex-col gap-0.5 px-2">
+            <button
+              type="button"
+              onClick={() => navigate("/playlists", { state: { createNew: true } })}
+              aria-label="New playlist"
+              aria-keyshortcuts={IS_MACOS ? "Meta+N" : "Control+N"}
+              className={ACTION_ROW}
+            >
+              <ListPlus className="size-4 shrink-0 text-primary" />
+              <span className="truncate">New playlist</span>
+              <Kbd aria-hidden className="ml-auto">{IS_MACOS ? "\u2318N" : "Ctrl N"}</Kbd>
+            </button>
             <button
               type="button"
               onClick={() => openQuickSearch("sidebar")}
               aria-label="Search"
               aria-keyshortcuts={IS_MACOS ? "Meta+K" : "Control+K"}
-              className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+              className={ACTION_ROW}
             >
               <Search className="size-4 shrink-0 text-primary" />
               <span className="truncate">Search</span>
@@ -193,6 +210,8 @@ export function Sidebar() {
         )}
 
         <div className="mt-auto flex flex-col gap-2 p-2">
+          {/* New signups' checklist, until it's done or dismissed (getting-started-card.tsx). */}
+          {ready && <GettingStartedCard />}
           <UpdateCard />
           {user && <UserMenu user={user} />}
         </div>

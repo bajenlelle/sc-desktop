@@ -22,7 +22,7 @@ stretch where a game turned.
   on a play, and every `openQuarters` link lands on Details.
 - **Only one view is mounted.** Details' tip-off picker has a video of its
   own, and two decoders on one file is how paused frames go black. The game is
-  read again when Game is entered from Details or from outside (Library, a
+  read again when Game is entered from Details or from outside (Games, a
   link), so a sync changed in Details shows; a tab switch serves the copy read
   on this visit until any `matches-changed`, or for 10 minutes.
 - A game comes back as it was left: its position across launches
@@ -43,23 +43,23 @@ stretch where a game turned.
 - **They are rows in the sidebar, under "Open games"**
   (`components/shell/open-games.tsx`), there from any page. Decided
   2026-11-20: the tabs used to be a bar above the game page (2.0.0), and
-  leaving the game for a playlist hid them, so the way back was Library → the
+  leaving the game for a playlist hid them, so the way back was Games → the
   game. With the rows in the sidebar the bar showed the same thing twice and
   was removed (Arc and Edge's vertical tabs have one tab list, not two), and
   the game got its 44 px back. Everything the bar did moved with it:
   - The caption's **+** opens the game picker (`game-tab-picker.tsx`,
-    `packages/shared/lib/game-picker.ts`): the Library's games in the
-    Library's order, archived ones left out, searched by title and team. An
+    `packages/shared/lib/game-picker.ts`): the Games page's games in the
+    that page's order, archived ones left out, searched by title and team. An
     open game says "Open" and choosing it goes to it; Return opens the first.
     New Tab (⌘T, File menu; Ctrl+T without a menu bar) opens the same picker.
   - A row is the game's title alone, starting at the caption's edge (no icon:
     a team-colour bar there read as a missing logo, 2026-11-20), cut short
     team by team ("Fryshuset Bask… vs AIK", `tabTitleParts`), with the whole
     title and date as a tooltip. The game on screen is the selected row, and
-    the Library row is not. A switch selects its game from the click, before
+    the Games row is not. A switch selects its game from the click, before
     the page has drawn (`setHeadingToGame`): the router keeps the page it
     leaves on screen until the next one is ready, and closing the game on
-    screen otherwise lit the Library for a moment, then the next game.
+    screen otherwise lit Games for a moment, then the next game.
   - A row lights on the press and opens on the release, so a press can turn
     into a drag that moves it without opening anything (framer-motion's
     `Reorder` on y; the others slide aside on the app's springs, no bounce;
@@ -113,7 +113,7 @@ stretch where a game turned.
     not for the window behind it. Close Tab also waits while a dialog is open.
     Without a menu bar, Ctrl+W closes the tab under the same rule
     (`packages/shared/lib/menu-shortcuts.ts`).
-- **The Library, Home's Recent imports and the search mark the open games**
+- **Games and the search mark the open games**
   ("Open"); a click on one goes back to it as it was left, with nothing to
   load. The search's Recent lists the open games first.
 - **They come back after the app is quit.** Per user and space in
@@ -139,11 +139,11 @@ stretch where a game turned.
 - Not built, and why (looked up 2026-11-14 against W3C's Tabs pattern, NN/g's
   tab guidelines, Safari, Chrome, Notion and VS Code, and again 2026-11-20
   against Arc, Edge's vertical tabs and Figma): ⌘1–⌘9 for the nth game (⌘1–⌘6
-  are the Go menu); a Library click that changes the game in a row and doesn't
+  are the Go menu); a Games click that changes the game in a row and doesn't
   open a new one (a row per opened game is what lets games be found again; the
   notice at the cap is its price); moving a row with the keyboard; a "Pick up
-  where you left off" card on Home (the open games already come back in the
-  sidebar, and it would say the same thing twice).
+  where you left off" card (the open games already come back in the sidebar,
+  and the app opens on the page the coach left on).
 
 ### Ways into the game
 
@@ -154,7 +154,7 @@ lead to it, as references in the text, not new buttons:
   · Fryshuset vs AIK" names the playlist's one game, and the name opens it;
   with several, "3 games" opens a menu of them with their clips, in the order
   the playlist first uses them (`packages/shared/lib/playlist-games.ts`). Quiet
-  until pointed at, then the link it is. A game the Library doesn't hold
+  until pointed at, then the link it is. A game Games doesn't hold
   (deleted, another space) is left out.
 - **Show in game** on a clip row's menu, and Go → Show Clip in Game (⌘G,
   Ctrl+G; ⇧⌘J was first, and other apps' global keys such as Notion's took
@@ -166,13 +166,13 @@ lead to it, as references in the text, not new buttons:
   them.
 - **A shared playlist's footage** (`components/playlist/watch-view.tsx`): for a
   coach, the game under the footage is named, and opens at the clip's play
-  when the game is in the space's Library. Players get the name only.
+  when the game is in the space's Games. Players get the name only.
 - **Back goes the way it came.** A game opened from a playlist shows
-  "‹ {playlist}" where it otherwise has "‹ Library" (`GameBackButton`), as the
+  "‹ {playlist}" where it otherwise has "‹ Games" (`GameBackButton`), as the
   editor shows "‹ {game}" when it was opened from a game; it reopens that
   playlist (the editor, or the shared playlist). It is remembered per game
   for the visit, across the Game | Details switch and a return through the open
-  games; opening the game any other way makes it the Library's again. The
+  games; opening the game any other way makes it Games' again. The
   game's Add collects into that playlist (`setCollectTarget`).
 
 ### The player and its timeline

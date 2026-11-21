@@ -16,9 +16,9 @@ describe("meetingLine", () => {
 
 describe("coverageLine", () => {
   it("counts the coverage", () => {
-    expect(coverageLine(12, 3)).toBe("12 games played · 3 in your library");
-    expect(coverageLine(12, 0)).toBe("12 games played · none in your library yet");
-    expect(coverageLine(1, 1)).toBe("1 game played · 1 in your library");
+    expect(coverageLine(12, 3)).toBe("12 games played · 3 imported");
+    expect(coverageLine(12, 0)).toBe("12 games played · none imported yet");
+    expect(coverageLine(1, 1)).toBe("1 game played · 1 imported");
   });
 });
 

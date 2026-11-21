@@ -1357,7 +1357,7 @@ export function UploadZone({
 
       {existingMatch && (
         <p className="rounded-lg bg-fill-1 px-4 py-3 text-sm text-foreground">
-          Already in your library as{" "}
+          Already imported as{" "}
           <span className="font-semibold">{existingMatch.title}</span>. Importing again
           updates that game — events and rosters refresh, and your playlists keep working.
         </p>

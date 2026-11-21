@@ -3,7 +3,7 @@
  * "Open games", there from any page, with a + that opens a game picker, rows
  * that drag into another order, Close Tab, New Tab and Reopen Closed Tab, the
  * keys of a list, a row's menu, ⌃Tab from any page, the title's menu with the
- * sidebar hidden, the Library and Home marking the games that are open, and
+ * sidebar hidden, the Library marking the games that are open, and
  * the open games back after the app is quit. No tab bar over the game page.
  * It opens the test account's games and writes nothing: the open games live
  * in the browser's storage.
@@ -65,7 +65,7 @@ test("the open games are sidebar rows, the game on screen selected, with no tab 
   await expect(heading(page)).toHaveText(g0.title);
   await expect(rows(page), "one game is one row").toHaveCount(1);
   await expect(row(page, g0.title)).toHaveAttribute("aria-current", "page");
-  await expect(mainNav(page).getByRole("link", { name: "Library", exact: true }), "the game's row is selected, not the Library").not.toHaveAttribute("aria-current", "page");
+  await expect(mainNav(page).getByRole("link", { name: "Games", exact: true }), "the game's row is selected, not Games").not.toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("tablist"), "no tab bar over the game").toHaveCount(0);
   // The game on screen is the only one: there is no game to give the page to, so nothing closes it.
   await row(page, g0.title).hover();
@@ -136,9 +136,9 @@ test("⌃Tab steps through the open games on the game page, and from another pag
   await expect(heading(page)).toHaveText(g1.title, { timeout: 10_000 });
 });
 
-test("the + opens a picker of the Library's games: a new one opens as a new row, an open one goes to it", async ({ page, browserName }) => {
+test("the + opens a picker of the games: a new one opens as a new row, an open one goes to it", async ({ page, browserName }) => {
   const [g0, g1] = await openGames(page, 2);
-  await page.locator("header").getByRole("button", { name: "Library", exact: true }).click();
+  await page.locator("header").getByRole("button", { name: "Games", exact: true }).click();
   const third = page.locator('main a[href^="/matches/"]').nth(2);
   await expect(third).toBeVisible({ timeout: 30_000 });
   const g2: Game = { id: (await third.getAttribute("href"))!.replace("/matches/", ""), title: (await third.locator("span").first().innerText()).trim() };
@@ -195,7 +195,7 @@ test("a row dragged past its neighbour changes places with it, and the order sta
   await drag(g2, g1, -12);
   await expect.poll(() => titles(page), { message: "the last row is now the first" }).toEqual([g2.title, g1.title, g0.title]);
 
-  await goViaSidebar(page, "Home");
+  await goViaSidebar(page, "Games");
   expect(await titles(page), "the order after leaving the games").toEqual([g2.title, g1.title, g0.title]);
 });
 
@@ -234,19 +234,13 @@ test.describe("where there is no menu bar", () => {
   });
 });
 
-test("the Library and Home mark the games that are open, from one", async ({ page, browserName }) => {
+test("Games marks the games that are open, from one", async ({ page, browserName }) => {
   const [g0] = await openGames(page, 1);
-  await page.locator("header").getByRole("button", { name: "Library", exact: true }).click();
+  await page.locator("header").getByRole("button", { name: "Games", exact: true }).click();
   await expect(libraryRow(page, g0.id).getByText("Open", { exact: true }), "one open game is marked").toBeVisible({ timeout: 30_000 });
   const other = page.locator('main a[href^="/matches/"]').nth(1);
   await expect(other.getByText("Open", { exact: true }), "a game not open isn't").toHaveCount(0);
   await shot(page, `${browserName}-I-open-games-library`);
-
-  await goViaSidebar(page, "Home");
-  const homeRow = libraryRow(page, g0.id);
-  if (await homeRow.isVisible({ timeout: 15_000 }).catch(() => false)) {
-    await expect(homeRow.getByText("Open", { exact: true }), "Home's Recent imports marks it too").toBeVisible();
-  }
 });
 
 test("the keyboard works the rows as a list: one stop, ↓ and ↑ to move, Return to open, Delete to close", async ({ page }) => {

@@ -10,7 +10,7 @@ test("library, game view and Add clips render against staging", async ({ page, b
 
   // Asserts the Library heading and a game row, and screenshots the Library on the way.
   const title = await openFirstGame(page, { shotLibraryAs: name("library") });
-  expect(title, "the first Library row has a title").not.toBe("");
+  expect(title, "the first game row has a title").not.toBe("");
 
   // A game whose video isn't on this computer opens on Details; the Game view draws without footage.
   await page.getByRole("radio", { name: "Game" }).click();

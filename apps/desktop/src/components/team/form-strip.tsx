@@ -21,7 +21,7 @@ export function FormStrip({ rows, library }: { rows: readonly TeamGameRow[]; lib
       {bars.map((b) => {
         const row = byId.get(b.matchId)!;
         const gameId = library.get(b.matchId);
-        const label = `${playedDay(row.at)} ${row.home ? "vs" : "at"} ${row.opponentName}, ${b.won ? "won" : "lost"} ${row.score!.own}–${row.score!.opp}.${gameId ? " In your library." : ""}`;
+        const label = `${playedDay(row.at)} ${row.home ? "vs" : "at"} ${row.opponentName}, ${b.won ? "won" : "lost"} ${row.score!.own}–${row.score!.opp}.${gameId ? " Imported." : ""}`;
         const height = Math.max(2, (b.margin / FORM_MARGIN_CAP) * HALF);
         const bar = (
           <span className="flex w-[9px] flex-col items-center" style={{ height: HALF * 2 + 8 }}>

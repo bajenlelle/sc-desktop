@@ -143,7 +143,7 @@ export function SendToPhoneDialog({
       if (!kept.some((s) => s.kind === "clip")) {
         setError(
           "None of these clips fall inside the linked video: it may be the wrong file, " +
-            "or its tip-off may be off. Open the game in the Library to relink it or set the tip-off again.",
+            "or its tip-off may be off. Open the game to relink its video or set the tip-off again.",
         );
         return;
       }

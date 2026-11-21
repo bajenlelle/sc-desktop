@@ -91,8 +91,8 @@ export const test = base.extend<{ headlessProblems: void }>({
 });
 export { expect };
 
-/** The Home or Library toolbar title: the app is signed in and past its loading screens. */
-const signedInTitle = (page: Page) => page.getByRole("heading", { level: 1, name: /^(Home|Library)$/ });
+/** The Main navigation is visible: the app is signed in and past its loading screens. */
+const signedInTitle = (page: Page) => page.getByRole("navigation", { name: "Main" });
 
 /** Signs in through the real login form with the staging test account from .env.headless. */
 export async function signIn(page: Page): Promise<void> {
@@ -112,7 +112,7 @@ export async function signIn(page: Page): Promise<void> {
   if (await skipTeam.waitFor({ state: "visible", timeout: 10_000 }).then(() => true, () => false)) {
     await skipTeam.click();
   }
-  await expect(signedInTitle(page), "signed in and on Home or Library").toBeVisible({ timeout: 30_000 });
+  await expect(signedInTitle(page), "signed in").toBeVisible({ timeout: 30_000 });
 }
 
 /** A full-page screenshot at headless/out/<port>-<name>.png; returns its path. */
@@ -131,9 +131,9 @@ export async function shot(page: Page, name: string): Promise<string> {
  */
 export async function openFirstGame(page: Page, options: { shotLibraryAs?: string } = {}): Promise<string> {
   await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible();
   const first = page.locator('a[href^="/matches/"]').first();
-  await expect(first, "the test account has a game in its Library").toBeVisible();
+  await expect(first, "the test account has a game").toBeVisible();
   // The row's first text is the game's title (components/match-row.tsx).
   const title = (await first.locator("span").first().innerText()).trim();
   if (options.shotLibraryAs) await shot(page, options.shotLibraryAs);
@@ -413,13 +413,13 @@ export const playRows = (page: Page) => page.getByRole("list", { name: "Plays" }
  * /matches otherwise) and waits for its page. Returns its id and title.
  */
 export async function openLibraryGame(page: Page, index: number): Promise<{ id: string; title: string }> {
-  const library = page.locator("header").getByRole("button", { name: "Library", exact: true });
+  const library = page.locator("header").getByRole("button", { name: "Games", exact: true });
   if (await library.isVisible()) await library.click();
   // Already loaded at /matches (a spec's cleanup ran there): no second load.
   else if (new URL(page.url(), BASE_URL).pathname !== "/matches" || !page.url().startsWith(BASE_URL)) await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible({ timeout: 30_000 });
   const row = page.locator('a[href^="/matches/"]').nth(index);
-  await expect(row, `the test account has a game at Library row ${index}`).toBeVisible({ timeout: 30_000 });
+  await expect(row, `the test account has a game at Games row ${index}`).toBeVisible({ timeout: 30_000 });
   const id = (await row.getAttribute("href"))!.replace("/matches/", "");
   const title = (await row.locator("span").first().innerText()).trim();
   await row.click();
@@ -562,16 +562,36 @@ export const addClipsSheet = (page: Page) =>
 
 /**
  * Goes to a sidebar page the way a coach does, without a full page load
- * (see waitForQuiet).
+ * (see waitForQuiet). Already on that page (the app opens on Playlists, where
+ * a press on its row hides the list instead), it loads the page afresh, so it
+ * reads what was made since.
  */
-export async function goViaSidebar(page: Page, link: "Home" | "Playlists" | "Library" | "Teams"): Promise<void> {
+export async function goViaSidebar(page: Page, link: "Playlists" | "Games" | "Teams"): Promise<void> {
   const nav = page.getByRole("navigation", { name: "Main" });
-  if (!page.url().startsWith(BASE_URL) || !(await nav.isVisible())) {
+  const row = nav.getByRole("link", { name: link, exact: true });
+  if (!page.url().startsWith(BASE_URL) || !(await nav.isVisible()) || (await row.getAttribute("aria-current")) === "page") {
     await waitForQuiet(page);
-    await page.goto(link === "Library" ? "/matches" : link === "Playlists" ? "/playlists" : link === "Teams" ? "/teams" : "/");
+    await page.goto(link === "Games" ? "/matches" : link === "Playlists" ? "/playlists" : "/teams");
     return;
   }
-  await nav.getByRole("link", { name: link, exact: true }).click();
+  await row.click();
+}
+
+/**
+ * Forgets where the coach was on this computer: the page the app reopens on
+ * (`scoutable_last_page:*`) and every list of what was opened last
+ * (`scoutable_recent_opens:*`), from which Playlists reopens the playlist
+ * opened last. For a spec that needs a fresh start: the app opening on
+ * Playlists, and Playlists loading with nothing open. Goes to the app first
+ * when the page is elsewhere.
+ */
+export async function forgetLastPlaces(page: Page): Promise<void> {
+  await onAppOrigin(page);
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("scoutable_last_page:") || key.startsWith("scoutable_recent_opens:")) localStorage.removeItem(key);
+    }
+  });
 }
 
 /**
@@ -820,7 +840,7 @@ export async function archiveRestoreGame(page: Page, matchId: string): Promise<v
       if (error) throw new Error("headless: " + error.message);
     `, matchId);
   }
-  await expect.poll(() => archiveStateOnServer(page, matchId), { message: "the game is back in the Library on the server", timeout: 15_000 }).toBeNull();
+  await expect.poll(() => archiveStateOnServer(page, matchId), { message: "the game is back on the server", timeout: 15_000 }).toBeNull();
 }
 
 /**
@@ -859,7 +879,7 @@ export async function archivePlaylistNames(page: Page, prefix: string): Promise<
   `, prefix);
 }
 
-/** The Library's toolbar subtitle, "N games", as a number. */
+/** The Games toolbar subtitle, "N games", as a number. */
 export async function libraryGameCount(page: Page): Promise<number> {
   const text = await page.getByText(/^\d+ games$/).innerText();
   return Number(text.split(" ")[0]);
@@ -871,7 +891,7 @@ export const videoDuration = (page: Page) => page.evaluate(() => document.queryS
 /** The sample game on its Game view, with its footage ready to seek. */
 export async function openSampleGame(page: Page): Promise<number> {
   await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible({ timeout: 30_000 });
   const row = page.locator('a[href^="/matches/"]').filter({ hasText: "Sample game" }).first();
   await expect(row, "the test account has the sample game").toBeVisible({ timeout: 30_000 });
   await row.click();
@@ -1165,4 +1185,64 @@ export async function giveSampleGameATimeout(page: Page): Promise<number> {
     },
   });
   return eventId;
+}
+
+/** The space `addSecondSpace` adds: a club the account isn't in, so staging holds nothing of it. */
+export const OTHER_SPACE = { id: "00000000-0000-4000-8000-00000000c1ab", name: `headless-${PORT} other club` } as const;
+
+/**
+ * Tells the page the account is in a second space, a club it coaches (the test
+ * account has one space only). The read of its orgs (get_my_orgs) gets the club
+ * added, and the read of its team answers says it skipped the team question
+ * there, so no prompt covers the page. The account's own space stays the open
+ * one until the spec switches (switchSpace). Every write that names the club (the
+ * sample-game seeding, any other) is answered here and never reaches staging;
+ * its reads go to staging, which has nothing of it. Returns the writes answered,
+ * as "METHOD url". Call it before the page loads.
+ */
+export async function addSecondSpace(page: Page): Promise<string[]> {
+  const answered: string[] = [];
+  await page.route(
+    (url) => url.hostname.endsWith(".supabase.co"),
+    async (route: Route) => {
+      const request = route.request();
+      const names = request.url().includes(OTHER_SPACE.id) || (request.postData() ?? "").includes(OTHER_SPACE.id);
+      // A get_* function is a read sent as a POST.
+      if (request.method() === "GET" || request.url().includes("/rpc/get_") || !names) return route.fallback();
+      answered.push(`${request.method()} ${request.url()}`);
+      if (request.url().includes("/rpc/")) return route.fulfill({ status: 200, json: null });
+      return route.fulfill({ status: 204, body: "" });
+    },
+  );
+  await page.route("**/rpc/get_my_orgs*", async (route: Route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const response = await route.fetch();
+    const rows = (await response.json()) as Record<string, unknown>[];
+    const club = { ...rows[0], org_id: OTHER_SPACE.id, org_name: OTHER_SPACE.name, role: "coach", is_personal: false, is_nt_org: false, expires_at: null };
+    // The app opens a club before a personal space when none is stored: keep the account's own space the open one.
+    const own = rows[0]?.org_id;
+    if (typeof own === "string") await page
+      .evaluate((id) => {
+        if (!localStorage.getItem("scoutable_active_org_id")) localStorage.setItem("scoutable_active_org_id", id);
+      }, own)
+      .catch(() => {});
+    await route.fulfill({ response, json: [...rows, club] });
+  });
+  await page.route("**/rest/v1/space_team_choices*", async (route: Route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await route.fetch();
+    const rows = (await response.json()) as Record<string, unknown>[];
+    const skipped = { org_id: OTHER_SPACE.id, unlisted_team: null, updated_at: new Date().toISOString(), league_teams: null };
+    await route.fulfill({ response, json: Array.isArray(rows) ? [...rows, skipped] : rows });
+  });
+  return answered;
+}
+
+/** Switches to the space named `name` through the sidebar's space menu. */
+export async function switchSpace(page: Page, name: string): Promise<void> {
+  await page.locator("aside button").filter({ has: page.locator(".lucide-chevrons-up-down") }).click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem").filter({ hasText: name }).click();
+  await expect(menu).toBeHidden();
 }

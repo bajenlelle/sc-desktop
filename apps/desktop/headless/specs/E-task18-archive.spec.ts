@@ -3,8 +3,8 @@
  * moves the game to a collapsed "Archived" group with its count, the subtitle
  * drops by one, a toast offers Undo; Show/Hide open and close the group; a
  * search lists matching archived games while the group is collapsed; "Bring
- * back to Library" returns it without a toast. While it is archived, Home's
- * Recent imports and Add clips' Game picker leave it out, a playlist with its
+ * back to Games" returns it without a toast. While it is archived, Add
+ * clips' Game picker leaves it out, a playlist with its
  * clips still shows them (and its Add clips still offers the game), and
  * "Build a playlist" on the archived game's page starts Add clips on it.
  *
@@ -64,7 +64,7 @@ const archivedHeading = (page: Page) => page.getByRole("heading", { level: 2, na
 const archivedSection = (page: Page) => page.locator("section").filter({ has: archivedHeading(page) });
 const archivedToggle = (page: Page) => archivedSection(page).getByRole("button", { name: /^(Show|Hide)$/ });
 const archivedToast = (page: Page) => page.locator("[data-sonner-toast]").filter({ hasText: "Game archived" });
-const sidebarLink = (page: Page, name: "Home" | "Library" | "Playlists") =>
+const sidebarLink = (page: Page, name: "Games" | "Playlists") =>
   page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true });
 
 /** How many games the Archived group's heading counts (0 when the group isn't there). */
@@ -76,15 +76,15 @@ async function archivedCount(page: Page): Promise<number> {
 /** The Library with its games loaded (the subtitle is there once they are). */
 async function openLibrary(page: Page, via: "goto" | "sidebar"): Promise<void> {
   if (via === "goto") await page.goto("/matches");
-  else await sidebarLink(page, "Library").click();
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
-  await expect(page.getByText(/^\d+ games$/), "the Library's games are loaded").toBeVisible({ timeout: 30_000 });
+  else await sidebarLink(page, "Games").click();
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible();
+  await expect(page.getByText(/^\d+ games$/), "the games are loaded").toBeVisible({ timeout: 30_000 });
 }
 
 /** The last game in the Library's main list (the Archived group collapsed). */
 async function lastGame(page: Page): Promise<Game> {
   const rows = page.locator('a[href^="/matches/"]');
-  await expect(rows.first(), "the test account has games in its Library").toBeVisible();
+  await expect(rows.first(), "the test account has games").toBeVisible();
   const row = rows.last();
   const id = (await row.getAttribute("href"))!.replace("/matches/", "");
   const title = (await row.locator("span").first().innerText()).trim();
@@ -95,7 +95,7 @@ async function lastGame(page: Page): Promise<Game> {
 }
 
 /** Archives or brings back the game with its row's hover button, and waits for the server to agree. */
-async function pressRowButton(page: Page, game: Game, action: "Archive game" | "Bring back to Library"): Promise<void> {
+async function pressRowButton(page: Page, game: Game, action: "Archive game" | "Bring back to Games"): Promise<void> {
   const row = gameRow(page, game.id);
   await row.hover();
   if (action === "Archive game") archived = { id: game.id };
@@ -140,7 +140,7 @@ async function closePicker(page: Page): Promise<void> {
   await expect(gameList(page)).toBeHidden();
 }
 
-test("Library: archive, Undo, Show and Hide, search, bring back", async ({ page, browserName }) => {
+test("Games: archive, Undo, Show and Hide, search, bring back", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-E-task18-${step}`;
   let game: Game | null = null;
   try {
@@ -148,7 +148,7 @@ test("Library: archive, Undo, Show and Hide, search, bring back", async ({ page,
     const total = await libraryGameCount(page);
     const archivedBefore = await archivedCount(page);
     game = await lastGame(page);
-    expect(await archiveStateOnServer(page, game.id), "the last game starts in the Library").toBeNull();
+    expect(await archiveStateOnServer(page, game.id), "the last game starts in Games").toBeNull();
     const row = gameRow(page, game.id);
 
     // Archive: the row leaves the main list for the collapsed Archived group.
@@ -179,7 +179,7 @@ test("Library: archive, Undo, Show and Hide, search, bring back", async ({ page,
     await expect(archivedToggle(page)).toHaveText("Hide");
     await expect(archivedToggle(page)).toHaveAttribute("aria-expanded", "true");
     await expect(archivedSection(page).locator(`a[href="/matches/${game.id}"]`), "Show lists the game in the Archived group").toBeVisible();
-    await expect(archivedSection(page).getByRole("button", { name: "Bring back to Library" }).first()).toBeAttached();
+    await expect(archivedSection(page).getByRole("button", { name: "Bring back to Games" }).first()).toBeAttached();
     await shot(page, name("shown"));
     await archivedToggle(page).click();
     await expect(archivedToggle(page)).toHaveText("Show");
@@ -197,7 +197,7 @@ test("Library: archive, Undo, Show and Hide, search, bring back", async ({ page,
     // Bring back by the row's button: back in the main list, no toast.
     await expect(archivedToast(page), "the archive toast has gone").toHaveCount(0, { timeout: 15_000 });
     await archivedToggle(page).click();
-    await pressRowButton(page, game, "Bring back to Library");
+    await pressRowButton(page, game, "Bring back to Games");
     await expect(page.getByText(/^\d+ games$/)).toHaveText(`${total} games`);
     await expect(row).toBeVisible();
     if (archivedBefore === 0) await expect(archivedHeading(page)).toHaveCount(0);
@@ -212,7 +212,7 @@ test("Library: archive, Undo, Show and Hide, search, bring back", async ({ page,
   }
 });
 
-test("archived: Home, Add clips and playlists leave it out or keep it as they should", async ({ page, browserName }) => {
+test("archived: Add clips and playlists leave it out or keep it as they should", async ({ page, browserName }) => {
   test.setTimeout(180_000);
   const name = (step: string) => `${browserName}-E-task18-${step}`;
   let game: Game | null = null;
@@ -220,7 +220,7 @@ test("archived: Home, Add clips and playlists leave it out or keep it as they sh
     await archiveDeletePlaylistsNamed(page, PREFIX);
     await openLibrary(page, "goto");
     game = await lastGame(page);
-    expect(await archiveStateOnServer(page, game.id), "the last game starts in the Library").toBeNull();
+    expect(await archiveStateOnServer(page, game.id), "the last game starts in Games").toBeNull();
     expect(game.clips, `the last game ("${game.title}") has plays to put in a playlist`).toBeGreaterThan(0);
     const keepsId = await archiveCreatePlaylist(page, KEEPS_CLIPS);
     const addId = await archiveCreatePlaylist(page, ADD_CLIPS);
@@ -254,15 +254,6 @@ test("archived: Home, Add clips and playlists leave it out or keep it as they sh
     const archivedAt = Date.now();
     await pressRowButton(page, game, "Archive game");
     await expect(gameRow(page, game.id)).toHaveCount(0);
-    const activeIds = (await page.locator('a[href^="/matches/"]').evaluateAll((as) => as.map((a) => a.getAttribute("href")))).slice(0, 3);
-
-    // Home: Recent imports are the latest games outside the archive.
-    await sidebarLink(page, "Home").click();
-    const recent = page.locator("section").filter({ has: page.getByRole("heading", { name: "Recent imports" }) });
-    await expect(recent.locator('a[href^="/matches/"]').first(), "Home lists recent imports").toBeVisible({ timeout: 30_000 });
-    await expect(recent.locator(`a[href="/matches/${game.id}"]`), "Recent imports leave the archived game out").toHaveCount(0);
-    expect(await recent.locator('a[href^="/matches/"]').evaluateAll((as) => as.map((a) => a.getAttribute("href"))), "Recent imports are the Library's first games outside the archive").toEqual(activeIds);
-    await shot(page, name("home"));
 
     // The playlist with its clips: they still show, and its Add clips still offers the game.
     await sidebarLink(page, "Playlists").click();
@@ -306,7 +297,7 @@ test("archived: Home, Add clips and playlists leave it out or keep it as they sh
     // Bring it back; Add clips lists it again.
     await openLibrary(page, "sidebar");
     await archivedToggle(page).click();
-    await pressRowButton(page, game, "Bring back to Library");
+    await pressRowButton(page, game, "Bring back to Games");
     test.info().annotations.push({ type: "archived window", description: `${((Date.now() - archivedAt) / 1000).toFixed(1)} s` });
     await expect(gameRow(page, game.id)).toBeVisible();
     await sidebarLink(page, "Playlists").click();

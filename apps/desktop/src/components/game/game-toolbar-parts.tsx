@@ -34,7 +34,7 @@ export function GameBackButton({ matchId }: { matchId: string }) {
       onClick={() => (from ? navigate(from.path, { state: { restore: { playlistId: from.playlistId } } }) : navigate("/matches"))}
     >
       <ChevronLeft className="shrink-0" />
-      <span className="max-w-48 truncate">{from ? from.title : "Library"}</span>
+      <span className="max-w-48 truncate">{from ? from.title : "Games"}</span>
     </Button>
   );
 }

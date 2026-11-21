@@ -5,7 +5,7 @@ upper part of the window with a field and what it finds under it. It finds
 playlists, reports and games by name and opens the one chosen. It is a
 search, not a command palette: it lists things, not actions.
 
-Each page keeps its own search field (Library, Reports, the playlist
+Each page keeps its own search field (Games, Reports, the playlist
 browser). Those filter the view one is on; this one goes anywhere.
 
 ## Opening it
@@ -20,7 +20,7 @@ On macOS the chord is the menu item's accelerator
 `packages/shared/lib/menu-shortcuts.ts` reads it from the keyboard. Both end
 in `runMenuAction("search")` in `components/menu-handler.tsx`.
 
-It is there for the roles the sidebar lists Home, Playlists and the Library
+It is there for the roles the sidebar lists Playlists and Games
 for (coach or admin, a personal space included), and only once the page
 itself is shown. It stays out of the way of anything else that is open: over
 another dialog, a sheet or a menu the chord does nothing. A popover (a
@@ -64,7 +64,7 @@ season's page (docs/teams.md).
 - Case and accents are ignored (`foldForSearch`): "sodertalje" finds
   Södertälje.
 - In a group, best first:
-  1. games in the Library before archived ones,
+  1. games in Games before archived ones,
   2. a name that starts with what was typed, then a name in which every word
      starts a word, then a name that holds every word, then a match only in
      the folders, the playlist's name or the teams,

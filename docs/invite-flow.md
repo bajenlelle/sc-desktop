@@ -51,7 +51,7 @@ This replaces the current confusing four-path (org coach, org player, team coach
 **Industry precedent:** Slack, Notion, Linear all gate first use behind a team/workspace join. Code-entry after email verification is standard practice.
 
 ```
-Sign up → Verify email → App opens → [no org?] → Onboarding screen → Enter code → Home
+Sign up → Verify email → App opens → [no org?] → Onboarding screen → Enter code → start page
 ```
 
 The onboarding screen replaces the scattered "create org / join org / join team" UI currently buried in the profile page. It is the **only** entry point for new users.
@@ -59,7 +59,7 @@ The onboarding screen replaces the scattered "create org / join org / join team"
 - No "create org" option for regular users — admins are bootstrapped by platform admin.
 - Single input accepts either an org code (for coaches/admins) or a team code (for players).
 - The backend auto-detects the code type: try `org_invites` first, then `team_invites`. One RPC handles both.
-- After joining, redirect to role-appropriate home.
+- After joining, open the start page: Playlists for coaches and admins, My Playlists for players.
 
 ---
 
@@ -71,18 +71,21 @@ New:
 
 | Nav item | Admin | Coach | Player |
 |---|---|---|---|
-| Home | ✓ | ✓ | ✓ |
 | Library (matches) | ✓ | ✓ | ✗ |
 | Upload | ✓ | ✓ | ✗ |
 | Playlists (create/edit) | ✓ | ✓ | ✗ |
 | My Playlists (view-only) | ✓ | ✓ | ✓ |
 | Profile | ✓ | ✓ | ✓ |
 
-Players get a simplified sidebar: Home + My Playlists + Profile.
+Players get a simplified sidebar: My Playlists + Profile.
+
+The desktop has no Home page (retired 2026-11-21): the app opens on the page
+the coach left on in the space, else Playlists; a player in a club opens on
+My Playlists.
 
 ---
 
-## Player Home / My Playlists
+## Player My Playlists
 
 Players need a view to see playlists that have been sent to their team. Currently, "send to players" = Clip & Ship to R2, but there's no player-facing view.
 
@@ -160,7 +163,7 @@ The join page forgets the code once it has settled the invite (joined, already a
 - Add coach-level invite generation (coaches can now generate coach/player org invites)
 
 ### Phase F — Player Playlist View
-- Home page: players see team playlists instead of empty "import a game" state
+- Start page: players open on their team playlists instead of an empty "import a game" state
 - Playlists page: players get a read-only view (no create, no edit, no clip-and-ship)
 
 ---
@@ -178,7 +181,7 @@ The join page forgets the code once it has settled the invite (joined, already a
 | `src/pages/onboarding.tsx` | New — invite code entry screen |
 | `src/components/app-sidebar.tsx` | Role-gated nav items |
 | `src/pages/profile.tsx` | Remove create-org/join card; add promote-to-admin; add coach invite generation |
-| `src/pages/home.tsx` | Player-aware empty state → show team playlists |
+| `src/pages/start.tsx` | Club players open on their team playlists (My Playlists) |
 | `src/pages/playlists.tsx` | Read-only mode for players |
 
 ---

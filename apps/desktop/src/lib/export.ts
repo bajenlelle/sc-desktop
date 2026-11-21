@@ -141,7 +141,7 @@ async function assertVideosPresent(segments: ExportSegment[]): Promise<void> {
   const gone = paths.find((_, i) => results[i].status !== "ok");
   if (gone) {
     throw new Error(
-      `The video file for "${videoBasename(gone)}" can't be found — open the game in the Library and locate it.`,
+      `The video file for "${videoBasename(gone)}" can't be found — open the game and locate it.`,
     );
   }
 }
@@ -242,7 +242,7 @@ async function assertClipsWithinVideos(rustSegments: RustSegment[]): Promise<voi
       throw new Error(
         `Clip ${i + 1} of ${clips.length} starts at ${formatSeconds(clip.start)}, but ` +
           `"${videoBasename(clip.video_path)}" is only ${formatSeconds(duration)} long. ` +
-          `The video linked to this game may be the wrong file. Open it in the Library ` +
+          `The video linked to this game may be the wrong file. Open the game ` +
           `and locate the right one, or set the tip-off again.`,
       );
     }
@@ -393,7 +393,7 @@ export async function exportPlaylist(
   if (!kept.some((s) => s.kind === "clip")) {
     throw new Error(
       "None of the selected clips fall inside the linked video: it may be the wrong " +
-        "file, or its tip-off may be off. Open the game in the Library to relink it or set the tip-off again.",
+        "file, or its tip-off may be off. Open the game to relink its video or set the tip-off again.",
     );
   }
   if (skipped > 0 && note) toast.warning(note, { duration: 8000 });

@@ -21,14 +21,13 @@ describe("menuIdForChord", () => {
       ["=", "zoom-in"],
       ["-", "zoom-out"],
       ["0", "zoom-reset"],
-      // The sidebar's pages when every row is shown (a coach in a club): Home, Playlists, Reports, Shared playlists, Library, Teams.
-      ["1", "go-home"],
-      ["2", "go-playlists"],
-      ["3", "go-reports"],
-      ["4", "go-my-playlists"],
-      ["5", "go-library"],
-      ["6", "go-teams"],
-      ["7", "go-organization"],
+      // The sidebar's pages when every row is shown (a coach in a club): Playlists, Reports, Shared playlists, Library, Teams.
+      ["1", "go-playlists"],
+      ["2", "go-reports"],
+      ["3", "go-my-playlists"],
+      ["4", "go-library"],
+      ["5", "go-teams"],
+      ["6", "go-organization"],
       ["w", "close-tab"],
       ["t", "new-game-tab"],
       ["k", "search"],
@@ -100,12 +99,12 @@ const playerInClub = { staff: false, personal: false };
 
 describe("sidebarPages", () => {
   it("is every page for a coach in a club, in the sidebar's order", () => {
-    expect(sidebarPages(coachInClub)).toEqual(["go-home", "go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams"]);
+    expect(sidebarPages(coachInClub)).toEqual(["go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams"]);
     expect(sidebarPages(coachInClub)).toEqual([...GO_PAGES]);
   });
 
   it("has no shared playlists in a personal space", () => {
-    expect(sidebarPages(coachAlone)).toEqual(["go-home", "go-playlists", "go-reports", "go-library", "go-teams"]);
+    expect(sidebarPages(coachAlone)).toEqual(["go-playlists", "go-reports", "go-library", "go-teams"]);
   });
 
   it("is only their playlists for a player in a club: no Teams row", () => {
@@ -115,9 +114,9 @@ describe("sidebarPages", () => {
 
 describe("goKeyOrder", () => {
   it("gives the rows shown the first keys in the sidebar's order, and the pages not shown the keys after them", () => {
-    expect(goKeyOrder(coachInClub)).toEqual(["go-home", "go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams"]);
-    expect(goKeyOrder(coachAlone)).toEqual(["go-home", "go-playlists", "go-reports", "go-library", "go-teams", "go-my-playlists"]);
-    expect(goKeyOrder(playerInClub)).toEqual(["go-my-playlists", "go-home", "go-playlists", "go-reports", "go-library", "go-teams"]);
+    expect(goKeyOrder(coachInClub)).toEqual(["go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams"]);
+    expect(goKeyOrder(coachAlone)).toEqual(["go-playlists", "go-reports", "go-library", "go-teams", "go-my-playlists"]);
+    expect(goKeyOrder(playerInClub)).toEqual(["go-my-playlists", "go-playlists", "go-reports", "go-library", "go-teams"]);
   });
 
   it("always holds every page once, so each keeps a key of its own", () => {
@@ -130,22 +129,27 @@ describe("goKeyOrder", () => {
 describe("menuIdForChord with the rows a sidebar shows", () => {
   const press = (key: string, who: { staff: boolean; personal: boolean }) => menuIdForChord(chord(key, { ctrlKey: true }), goKeyOrder(who));
 
-  it("opens the nth row: the Library is the fourth in a personal space and the fifth in a club", () => {
-    expect(press("4", coachAlone)).toBe("go-library");
-    expect(press("5", coachInClub)).toBe("go-library");
-    expect(press("4", coachInClub)).toBe("go-my-playlists");
+  it("opens the nth row: the Library is the third in a personal space and the fourth in a club", () => {
+    expect(press("3", coachAlone)).toBe("go-library");
+    expect(press("4", coachInClub)).toBe("go-library");
+    expect(press("3", coachInClub)).toBe("go-my-playlists");
   });
 
   it("opens a player's playlists with the first key", () => {
     expect(press("1", playerInClub)).toBe("go-my-playlists");
   });
 
-  it("opens Teams with the sixth key in a club and the fifth in a personal space", () => {
-    expect(press("6", coachInClub)).toBe("go-teams");
-    expect(press("5", coachAlone)).toBe("go-teams");
+  it("opens Teams with the fifth key in a club and the fourth in a personal space", () => {
+    expect(press("5", coachInClub)).toBe("go-teams");
+    expect(press("4", coachAlone)).toBe("go-teams");
   });
 
-  it("keeps Organization on 7, after the rows, whatever they are", () => {
-    for (const who of [coachInClub, coachAlone, playerInClub]) expect(press("7", who)).toBe("go-organization");
+  it("opens Playlists with the first key, for a coach in a club or on their own", () => {
+    expect(press("1", coachInClub)).toBe("go-playlists");
+    expect(press("1", coachAlone)).toBe("go-playlists");
+  });
+
+  it("keeps Organization on 6, after the rows, whatever they are", () => {
+    for (const who of [coachInClub, coachAlone, playerInClub]) expect(press("6", who)).toBe("go-organization");
   });
 });
