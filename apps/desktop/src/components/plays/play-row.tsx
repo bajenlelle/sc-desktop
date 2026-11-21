@@ -201,7 +201,7 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
       <span className={cn(cell, "flex w-3 shrink-0 justify-center")}>
         {now && <Play aria-label="Playing" className="size-2.5 fill-current text-foreground" />}
       </span>
-      <span className={cn(cell, "shrink-0 text-muted-foreground nums", clock === "with-period" ? "w-14" : "w-10", faded)}>{clockText}</span>
+      <span className={cn(cell, "shrink-0 whitespace-nowrap text-muted-foreground nums", clock === "with-period" ? "w-16" : "w-10", faded)}>{clockText}</span>
       {team && <span className={cn(cell, "w-9 shrink-0 truncate text-muted-foreground", faded)}>{teamCode(e) ?? ""}</span>}
       {pill && <span className={cn(cell, "shrink-0")}>{pill}</span>}
       <span className={cn(cell, "flex w-[104px] shrink-0 items-center gap-1.5 @max-[400px]/row:w-[7px]", faded)} title={what}>

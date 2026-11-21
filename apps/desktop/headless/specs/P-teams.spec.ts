@@ -600,6 +600,9 @@ test.describe("a play's row", () => {
     const box = (await row.boundingBox())!;
     expect(Math.round(box.height)).toBe(32);
     expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    // Every cell keeps to one line: the clock ("Q1 09:47") doesn't break over two.
+    const clock = (await row.locator(":scope > span").nth(1).boundingBox())!;
+    expect(clock.height).toBeLessThan(24);
     const add = (await row.getByRole("button", { name: /^Add to / }).boundingBox())!;
     expect(add.x + add.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
     await shot(page, `${browserName}-P-team-plays-narrow`);
