@@ -12,7 +12,7 @@
 import type { PlayByPlayEvent } from "../types/match";
 import { isBookkeepingEvent } from "./events";
 import { gameBox, type BoxStat } from "./game-box";
-import { gameShots, type ShotZone } from "./game-shots";
+import { gameShots, SHOT_ZONES, type ChartShot, type ShotZone } from "./game-shots";
 import type { End } from "./league-season";
 import type { KeyMetric } from "./team-keys";
 import type { TeamGameRow } from "./team-schedule";
@@ -150,4 +150,86 @@ export function playability(
   if (!m.syncPoint) return "sync";
   if (!m.videoUrl || status === "missing" || status === "unreadable") return "video";
   return "ok";
+}
+
+/** A key's count in the coach's games; `made` only for threes. */
+export interface StatCount {
+  count: number;
+  made: number | null;
+}
+
+/** What the Season view shows from the coach's games. */
+export interface TeamVideo {
+  /** The games counted. */
+  games: number;
+  /** Every play on each side (Watch all). */
+  all: Record<PlaysSide, number>;
+  stats: Record<PlaysSide, Record<KeyStat, StatCount>>;
+  shots: {
+    /** Games with shot positions: the chart's dots and its zones come from these alone. */
+    games: number;
+    /** Games left out of the chart (imported before shot positions). */
+    withoutPositions: number;
+    dots: (ChartShot & { key: string })[];
+    zones: Record<ShotZone, { made: number; attempts: number }>;
+  };
+  /** The team's players (With the ball), by person id: in how many games they have a play, and how many plays. */
+  players: ReadonlyMap<number, { games: number; plays: number }>;
+}
+
+const SIDES: readonly PlaysSide[] = ["with", "without"];
+const STATS: readonly KeyStat[] = ["threes", "oreb", "tov"];
+
+/** The counts the Season view shows, each the length of what its pick opens. */
+export function teamVideo(games: readonly GamePlays[]): TeamVideo {
+  const all = { with: 0, without: 0 } as Record<PlaysSide, number>;
+  const stats = { with: {}, without: {} } as Record<PlaysSide, Record<KeyStat, StatCount>>;
+  for (const side of SIDES) {
+    all[side] = pickKeys(null, side, games).length;
+    for (const stat of STATS) stats[side][stat] = { count: 0, made: stat === "threes" ? 0 : null };
+  }
+
+  const zones = {} as Record<ShotZone, { made: number; attempts: number }>;
+  for (const zone of SHOT_ZONES) zones[zone] = { made: 0, attempts: 0 };
+  const dots: (ChartShot & { key: string })[] = [];
+  let shotGames = 0;
+  let withoutPositions = 0;
+  const players = new Map<number, { games: number; plays: number }>();
+
+  for (const g of games) {
+    const box = gameBox(g.events);
+    for (const side of SIDES) {
+      const team = sideNumber(g.game, side) === 1 ? box.home : box.away;
+      for (const stat of STATS) {
+        const cell = team.totals[STAT_CELL[stat]];
+        const c = stats[side][stat];
+        c.count += cell.eventIds.length;
+        if (c.made !== null) c.made += cell.value;
+      }
+    }
+
+    const shots = gameShots(g.events);
+    if (shots.hasPositions) {
+      shotGames++;
+      for (const s of g.game.side === 1 ? shots.home : shots.away) {
+        dots.push({ ...s, key: keyOf(g.game, s.eventId) });
+        zones[s.zone].attempts++;
+        if (s.made) zones[s.zone].made++;
+      }
+    } else if (g.events.some((e) => e.type === "2pt" || e.type === "3pt")) {
+      withoutPositions++;
+    }
+
+    const inGame = new Map<number, number>();
+    for (const e of g.events) {
+      if (isBookkeepingEvent(e) || sideOf(e) !== g.game.side || !e.player) continue;
+      inGame.set(e.player.playerId, (inGame.get(e.player.playerId) ?? 0) + 1);
+    }
+    for (const [id, n] of inGame) {
+      const p = players.get(id) ?? { games: 0, plays: 0 };
+      players.set(id, { games: p.games + 1, plays: p.plays + n });
+    }
+  }
+
+  return { games: games.length, all, stats, shots: { games: shotGames, withoutPositions, dots, zones }, players };
 }
