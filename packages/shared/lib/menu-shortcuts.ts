@@ -19,7 +19,7 @@ export interface KeyChord {
  * The sidebar's pages as Go menu ids, in the sidebar's order
  * (apps/desktop/src/components/shell/sidebar.tsx draws its rows from this).
  */
-export const GO_PAGES = ["go-home", "go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams"] as const;
+export const GO_PAGES = ["go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams"] as const;
 export type GoPage = (typeof GO_PAGES)[number];
 
 /** Who the sidebar is drawn for: a coach or admin of the space (`staff`), and whether the space is a personal one. */
@@ -29,8 +29,8 @@ export interface SidebarFor {
 }
 
 /**
- * The rows the sidebar shows, top to bottom. Home, Playlists, Reports, the
- * Library and Teams are the staff's; the playlists shared in a club ("Shared playlists"
+ * The rows the sidebar shows, top to bottom. Playlists, Reports, the Library
+ * and Teams are the staff's; the playlists shared in a club ("Shared playlists"
  * to its staff, "My playlists" to a player) are there in a club space only.
  */
 export function sidebarPages(who: SidebarFor): GoPage[] {
@@ -69,8 +69,8 @@ const PLAIN: Record<string, string> = {
   // The editor's clip shown in its game (G for Game); on only while the editor has a clip.
   g: "show-clip-in-game",
   "0": "zoom-reset",
-  // Organization is not a row of the sidebar: its key comes after the rows' (1 to 6), whatever they are.
-  "7": "go-organization",
+  // Organization is not a row of the sidebar: its key comes after the rows' (1 to 5), whatever they are.
+  "6": "go-organization",
 };
 
 /**

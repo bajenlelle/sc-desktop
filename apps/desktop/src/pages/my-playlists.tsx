@@ -115,8 +115,8 @@ export function MyPlaylistsPage() {
 
   useEffect(() => {
     if (profileLoading) return;
-    // No shared-with-me feed exists in a personal space: back to Home. It
-    // must stay "/" — this also fires while "Open my space" switches spaces
+    // No shared-with-me feed exists in a personal space: back to where the app
+    // opens (pages/start.tsx). It must stay "/" — this also fires while "Open my space" switches spaces
     // and navigates there itself.
     if (activeOrgIsPersonal) navigate("/", { replace: true });
   }, [activeOrgIsPersonal, profileLoading, navigate]);

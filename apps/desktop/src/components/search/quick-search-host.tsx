@@ -13,7 +13,7 @@ import { closeQuickSearch, setQuickSearchAvailable, useQuickSearchOpen, type Sea
 
 const QuickSearch = lazy(() => import("./quick-search"));
 
-/** Who gets the search: the roles the sidebar lists Home, Playlists and the Library for. */
+/** Who gets the search: the roles the sidebar lists Playlists and the Library for. */
 export function useQuickSearchScope(): SearchScope | null {
   const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal } = useAuth();
   const gate = useRouteGate();

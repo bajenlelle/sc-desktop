@@ -20,7 +20,7 @@ On macOS the chord is the menu item's accelerator
 `packages/shared/lib/menu-shortcuts.ts` reads it from the keyboard. Both end
 in `runMenuAction("search")` in `components/menu-handler.tsx`.
 
-It is there for the roles the sidebar lists Home, Playlists and the Library
+It is there for the roles the sidebar lists Playlists and the Library
 for (coach or admin, a personal space included), and only once the page
 itself is shown. It stays out of the way of anything else that is open: over
 another dialog, a sheet or a menu the chord does nothing. A popover (a

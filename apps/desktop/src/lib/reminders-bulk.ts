@@ -1,6 +1,6 @@
 /**
  * Bulk playlist reminders with the shared toast vocabulary — used by the
- * SharedByMe dashboard and the Home page's engagement strip / hero.
+ * SharedByMe dashboard.
  *
  * Cooldown handling: reminders-db raises "Already reminded in the last 24
  * hours." per recipient; repeat clicks are expected, so those are counted as

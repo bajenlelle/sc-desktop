@@ -356,7 +356,7 @@ export function OrganizationPage() {
   const [memberSearch, setMemberSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
-  // One-shot flags from Home and the admin setup checklist: { invite,
+  // One-shot flags from the Shared playlists dashboard and the admin setup checklist: { invite,
   // inviteRole? } opens the invite dialog, { newTeam } the new-team dialog.
   // Cleared at once so a remount doesn't reopen them.
   useEffect(() => {

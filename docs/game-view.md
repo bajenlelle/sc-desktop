@@ -113,7 +113,7 @@ stretch where a game turned.
     not for the window behind it. Close Tab also waits while a dialog is open.
     Without a menu bar, Ctrl+W closes the tab under the same rule
     (`packages/shared/lib/menu-shortcuts.ts`).
-- **The Library, Home's Recent imports and the search mark the open games**
+- **The Library and the search mark the open games**
   ("Open"); a click on one goes back to it as it was left, with nothing to
   load. The search's Recent lists the open games first.
 - **They come back after the app is quit.** Per user and space in
@@ -142,8 +142,8 @@ stretch where a game turned.
   are the Go menu); a Library click that changes the game in a row and doesn't
   open a new one (a row per opened game is what lets games be found again; the
   notice at the cap is its price); moving a row with the keyboard; a "Pick up
-  where you left off" card on Home (the open games already come back in the
-  sidebar, and it would say the same thing twice).
+  where you left off" card (the open games already come back in the sidebar,
+  and the app opens on the page the coach left on).
 
 ### Ways into the game
 

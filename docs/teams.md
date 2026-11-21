@@ -9,8 +9,8 @@ that start from a team.
 
 ## Where it lives
 
-- **Sidebar:** Teams, the last row a coach or admin sees (Go menu, ⌘6 in a
-  club; Organization moved to ⌘7). Players don't get it.
+- **Sidebar:** Teams, the last row a coach or admin sees (Go menu, ⌘5 in a
+  club; Organization is ⌘6). Players don't get it.
 - **`/teams`:** the league picked in the toolbar's pop-up, each league's
   current season only (rosters are synced for current seasons alone). It opens
   on the league chosen last in this space (localStorage

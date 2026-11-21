@@ -11,7 +11,7 @@ import { MyTeamProvider } from "@/lib/my-team";
 import { PlayerAccessProvider } from "@/lib/player-access";
 import { ProtectedRoute } from "@/components/protected-route";
 import { RootLayout } from "@/components/root-layout";
-import { HomePage } from "@/pages/home";
+import { StartPage } from "@/pages/start";
 import { MatchesPage } from "@/pages/matches";
 import { ReportsPage } from "@/pages/reports";
 import { TeamsPage } from "@/pages/teams";
@@ -83,6 +83,8 @@ initAnalytics()
 function PageTracker() {
   const location = useLocation()
   useEffect(() => {
+    // `/` is no page: it sends the app on at once (pages/start.tsx), and the page it opens on is the view.
+    if (location.pathname === '/') return
     trackEvent('page_viewed', { path: location.pathname })
   }, [location.pathname])
   return null
@@ -241,7 +243,7 @@ export default function App() {
               }
             />
             <Route element={<RootLayout />}>
-              <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+              <Route path="/" element={<ProtectedRoute><StartPage /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />
               <Route path="/teams" element={<ProtectedRoute><TeamsPage /></ProtectedRoute>} />
               <Route path="/teams/find/:leagueTeamId" element={<ProtectedRoute><TeamFindPage /></ProtectedRoute>} />

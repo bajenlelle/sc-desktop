@@ -4,16 +4,19 @@ import { QuickSearchHost } from "@/components/search/quick-search-host";
 import { Sidebar } from "@/components/shell/sidebar";
 import { LicenseBanner } from "@/components/license-banner";
 import { TeamStep } from "@/components/team-step";
+import { useRememberLastPage } from "@/lib/last-page";
 
 /**
  * The window: a source-list sidebar beside the content column. Pages built
  * on `Page`/`Toolbar`/`PageContent` own their scrolling; older pages still
  * scroll in the column itself. No page transition: a source-list app swaps
  * content in place, and the sidebar selection plus the toolbar title say
- * where you are. The key resets scroll position between pages.
+ * where you are. The key resets scroll position between pages. It notes the
+ * page as the one to reopen on the next start (lib/last-page.ts).
  */
 export function RootLayout() {
   const { pathname } = useLocation();
+  useRememberLastPage();
   return (
     <div className="flex h-screen overflow-hidden font-sans antialiased">
       <Sidebar />

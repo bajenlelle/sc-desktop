@@ -13,7 +13,7 @@ export interface StatCell {
 
 /**
  * A row of figures in one group, separated by hairlines: the summary at the
- * top of Home's engagement section and of the Shared by me dashboard.
+ * top of the Shared by me dashboard.
  */
 export function StatCells({ cells, className }: { cells: StatCell[]; className?: string }) {
   return (

@@ -3,7 +3,7 @@
  * "Open games", there from any page, with a + that opens a game picker, rows
  * that drag into another order, Close Tab, New Tab and Reopen Closed Tab, the
  * keys of a list, a row's menu, ⌃Tab from any page, the title's menu with the
- * sidebar hidden, the Library and Home marking the games that are open, and
+ * sidebar hidden, the Library marking the games that are open, and
  * the open games back after the app is quit. No tab bar over the game page.
  * It opens the test account's games and writes nothing: the open games live
  * in the browser's storage.
@@ -195,7 +195,7 @@ test("a row dragged past its neighbour changes places with it, and the order sta
   await drag(g2, g1, -12);
   await expect.poll(() => titles(page), { message: "the last row is now the first" }).toEqual([g2.title, g1.title, g0.title]);
 
-  await goViaSidebar(page, "Home");
+  await goViaSidebar(page, "Library");
   expect(await titles(page), "the order after leaving the games").toEqual([g2.title, g1.title, g0.title]);
 });
 
@@ -234,19 +234,13 @@ test.describe("where there is no menu bar", () => {
   });
 });
 
-test("the Library and Home mark the games that are open, from one", async ({ page, browserName }) => {
+test("the Library marks the games that are open, from one", async ({ page, browserName }) => {
   const [g0] = await openGames(page, 1);
   await page.locator("header").getByRole("button", { name: "Library", exact: true }).click();
   await expect(libraryRow(page, g0.id).getByText("Open", { exact: true }), "one open game is marked").toBeVisible({ timeout: 30_000 });
   const other = page.locator('main a[href^="/matches/"]').nth(1);
   await expect(other.getByText("Open", { exact: true }), "a game not open isn't").toHaveCount(0);
   await shot(page, `${browserName}-I-open-games-library`);
-
-  await goViaSidebar(page, "Home");
-  const homeRow = libraryRow(page, g0.id);
-  if (await homeRow.isVisible({ timeout: 15_000 }).catch(() => false)) {
-    await expect(homeRow.getByText("Open", { exact: true }), "Home's Recent imports marks it too").toBeVisible();
-  }
 });
 
 test("the keyboard works the rows as a list: one stop, ↓ and ↑ to move, Return to open, Delete to close", async ({ page }) => {

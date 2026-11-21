@@ -67,7 +67,7 @@ export const deleteMatch = async (matchId: string) => {
   await db.deleteMatch(c(), matchId);
   window.dispatchEvent(new CustomEvent("matches-changed"));
 };
-// Announced so open pages (Library, Home, Add clips) move the game in or out of
+// Announced so open pages (Library, Add clips) move the game in or out of
 // their lists. Returns the stored archived_at (null = back in the library).
 export const setMatchArchived = async (matchId: string, archived: boolean) => {
   const archivedAt = await db.setMatchArchived(c(), matchId, archived);

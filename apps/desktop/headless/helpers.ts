@@ -91,8 +91,8 @@ export const test = base.extend<{ headlessProblems: void }>({
 });
 export { expect };
 
-/** The Home or Library toolbar title: the app is signed in and past its loading screens. */
-const signedInTitle = (page: Page) => page.getByRole("heading", { level: 1, name: /^(Home|Library)$/ });
+/** The Main navigation is visible: the app is signed in and past its loading screens. */
+const signedInTitle = (page: Page) => page.getByRole("navigation", { name: "Main" });
 
 /** Signs in through the real login form with the staging test account from .env.headless. */
 export async function signIn(page: Page): Promise<void> {
@@ -112,7 +112,7 @@ export async function signIn(page: Page): Promise<void> {
   if (await skipTeam.waitFor({ state: "visible", timeout: 10_000 }).then(() => true, () => false)) {
     await skipTeam.click();
   }
-  await expect(signedInTitle(page), "signed in and on Home or Library").toBeVisible({ timeout: 30_000 });
+  await expect(signedInTitle(page), "signed in").toBeVisible({ timeout: 30_000 });
 }
 
 /** A full-page screenshot at headless/out/<port>-<name>.png; returns its path. */
@@ -562,29 +562,34 @@ export const addClipsSheet = (page: Page) =>
 
 /**
  * Goes to a sidebar page the way a coach does, without a full page load
- * (see waitForQuiet).
+ * (see waitForQuiet). Already on that page (the app opens on Playlists, where
+ * a press on its row hides the list instead), it loads the page afresh, so it
+ * reads what was made since.
  */
-export async function goViaSidebar(page: Page, link: "Home" | "Playlists" | "Library" | "Teams"): Promise<void> {
+export async function goViaSidebar(page: Page, link: "Playlists" | "Library" | "Teams"): Promise<void> {
   const nav = page.getByRole("navigation", { name: "Main" });
-  if (!page.url().startsWith(BASE_URL) || !(await nav.isVisible())) {
+  const row = nav.getByRole("link", { name: link, exact: true });
+  if (!page.url().startsWith(BASE_URL) || !(await nav.isVisible()) || (await row.getAttribute("aria-current")) === "page") {
     await waitForQuiet(page);
-    await page.goto(link === "Library" ? "/matches" : link === "Playlists" ? "/playlists" : link === "Teams" ? "/teams" : "/");
+    await page.goto(link === "Library" ? "/matches" : link === "Playlists" ? "/playlists" : "/teams");
     return;
   }
-  await nav.getByRole("link", { name: link, exact: true }).click();
+  await row.click();
 }
 
 /**
- * Forgets where the coach was on this computer: every list of what was opened
- * last (`scoutable_recent_opens:*`), from which Playlists reopens the playlist
- * opened last. For a spec that needs Playlists to load with nothing open.
- * Goes to the app first when the page is elsewhere.
+ * Forgets where the coach was on this computer: the page the app reopens on
+ * (`scoutable_last_page:*`) and every list of what was opened last
+ * (`scoutable_recent_opens:*`), from which Playlists reopens the playlist
+ * opened last. For a spec that needs a fresh start: the app opening on
+ * Playlists, and Playlists loading with nothing open. Goes to the app first
+ * when the page is elsewhere.
  */
 export async function forgetLastPlaces(page: Page): Promise<void> {
   await onAppOrigin(page);
   await page.evaluate(() => {
     for (const key of Object.keys(localStorage)) {
-      if (key.startsWith("scoutable_recent_opens:")) localStorage.removeItem(key);
+      if (key.startsWith("scoutable_last_page:") || key.startsWith("scoutable_recent_opens:")) localStorage.removeItem(key);
     }
   });
 }

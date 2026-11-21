@@ -99,8 +99,8 @@ test("Search in the sidebar opens on what was opened last, and Esc gives the foc
   await page.locator(`[data-playlist-id="${alphaId}"]`).first().click();
   await expect(heading(page)).toHaveText(ALPHA);
 
-  await goViaSidebar(page, "Home");
-  await expect(heading(page)).toHaveText("Home");
+  await goViaSidebar(page, "Library");
+  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
   // With the keyboard, so the button holds the focus in WebKit too (a click doesn't focus a button there).
   await searchButton(page).focus();
   await page.keyboard.press("Enter");
@@ -171,12 +171,12 @@ test("typing finds games and playlists by name in the sidebar's order, and never
   expect(reads.length - typed, "typing reads nothing").toBe(0);
 });
 
-test("Enter opens a playlist from Home, and another one in place on the Playlists page", async ({ page }) => {
+test("Enter opens a playlist from Library, and another one in place on the Playlists page", async ({ page }) => {
   const tracked = await recordAnalytics(page);
   await createPlaylist(page, ALPHA);
   await createPlaylist(page, BETA);
-  await goViaSidebar(page, "Home");
-  await expect(heading(page)).toHaveText("Home");
+  await goViaSidebar(page, "Library");
+  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
 
   await openSearch(page);
   await field(page).pressSequentially(ALPHA);
@@ -213,7 +213,7 @@ test("Enter opens a playlist from Home, and another one in place on the Playlist
   expect(picks[2]).toMatchObject({ kind: "playlist", from: "recent", position: 1, query_length: 0 });
 });
 
-test("a report opens in its Report view, from Home and in place, and its playlist opens on the clips", async ({ page }) => {
+test("a report opens in its Report view, from Library and in place, and its playlist opens on the clips", async ({ page }) => {
   const id = await createPlaylist(page, ALPHA);
   // A draft of the spec's own, under a title of its own; it goes with its playlist.
   await withAppModule(
@@ -222,8 +222,8 @@ test("a report opens in its Report view, from Home and in place, and its playlis
     `await mod.saveReportDraft(arg.id, { v: 1, title: arg.title, opponent: null, intro: "", sections: [], placements: {}, order: [] });`,
     { id, title: REPORT },
   );
-  await goViaSidebar(page, "Home");
-  await expect(heading(page)).toHaveText("Home");
+  await goViaSidebar(page, "Library");
+  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
 
   await openSearch(page);
   await field(page).pressSequentially(REPORT);
@@ -397,7 +397,7 @@ test("a playlist the page can't read leaves its list as it was", async ({ page }
 });
 
 test("a team is found by name and opens its page", async ({ page }) => {
-  await goViaSidebar(page, "Home");
+  await goViaSidebar(page, "Library");
   const teams = await withAppModule<null, { id: string; name: string }[]>(
     page,
     "/src/lib/my-team.tsx",
@@ -489,7 +489,9 @@ test.describe("where there is no menu bar", () => {
     await expect(field(page)).toBeFocused();
     await field(page).pressSequentially("ab");
     await page.keyboard.press("Control+1");
-    await expect(heading(page)).toHaveText("Home", { timeout: 15_000 });
+    // The first row: Playlists (which may reopen the playlist opened last, so its URL, not its title).
+    await expect(page).toHaveURL(/\/playlists$/, { timeout: 15_000 });
+    await expect(page.getByRole("navigation", { name: "Main" }).locator('a[aria-current="page"]')).toHaveText("Playlists");
     await expect(panel(page), "the panel doesn't stay over the page that opened").toBeHidden();
   });
 
