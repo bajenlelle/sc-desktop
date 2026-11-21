@@ -47,6 +47,10 @@ describe("parseRecentOpens", () => {
     expect(parseRecentOpens(stored)).toEqual([{ kind: "report", id: "p1", at: 5 }]);
   });
 
+  it("reads back a team", () => {
+    expect(parseRecentOpens([{ kind: "team", id: "t1", at: 7 }])).toEqual([{ kind: "team", id: "t1", at: 7 }]);
+  });
+
   it("is empty for anything that isn't a list", () => {
     expect(parseRecentOpens(null)).toEqual([]);
     expect(parseRecentOpens("x")).toEqual([]);

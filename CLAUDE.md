@@ -29,7 +29,9 @@ playlists, and share them with teams; players watch on web/mobile.
   `GENIUS_API_KEY`, all match imports go through it; it also keeps the
   league team catalogue (`league_teams`, behind each user's "Your team") current
   after fixture refreshes and in the weekly season audit, and the league players with
-  their photos (`league_players`, photos copied to R2; `docs/scouting-reports.md`); `tipoff-detect` — reads
+  their photos (`league_players`, photos copied to R2; `docs/scouting-reports.md`); its
+  fixtures carry each game's group (`phaseName`, `poolNumber`) for the Teams pages
+  (`docs/teams.md`); `tipoff-detect` — reads
   scoreboard clocks from video stills with Claude for the automatic tip-off
   suggestion; `ANTHROPIC_API_KEY`, kill switch `app_config.tipoff_detect_enabled`).
   Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`
@@ -163,6 +165,9 @@ playlists, and share them with teams; players watch on web/mobile.
   reads from the stats, game marks, collecting plays into a playlist, and the
   Stats view (box score, four factors against each team's season, shots, lineups; every
   number opens its plays).
+- `docs/teams.md`: the desktop's Teams pages: the league's table and a team's
+  season (what stands out, how it plays at both ends, players, games), placed
+  within its group, and which of its games the coach has.
 - `docs/search.md`: the desktop's search over a space (⌘K): what it finds, how it
   orders it, what it reads and when.
 - `docs/maintenance.md`: the bug pipeline, and every secret: where it lives

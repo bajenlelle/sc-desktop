@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Link, useLocation } from "react-router-dom";
-import { BookOpen, FileText, Film, Home, ListVideo, Plus, Search, Share2 } from "lucide-react";
+import { BookOpen, FileText, Film, Home, ListVideo, Plus, Search, Share2, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { UpdateCard } from "@/components/UpdateChecker";
@@ -118,6 +118,8 @@ export function Sidebar() {
         );
       case "go-library":
         return <NavItem key={page} to="/matches" icon={Film} label="Library" active={libraryActive} />;
+      case "go-teams":
+        return <NavItem key={page} to="/teams" icon={Shield} label="Teams" active={pathname.startsWith("/teams")} />;
     }
   };
 

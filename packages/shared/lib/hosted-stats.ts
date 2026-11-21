@@ -331,6 +331,7 @@ function combineStints(list: Stint[]): SeasonLine {
       tpa: x.tpa,
       tpPct: x.tpPct,
       ftPct: x.ftPct,
+      ftaPg: x.ftaPg,
       pmPg: x.pmPg,
     };
   }
@@ -372,6 +373,7 @@ function combineStints(list: Stint[]): SeasonLine {
     tpa,
     tpPct: pct(tpm, tpa),
     ftPct: pct(ftm, fta),
+    ftaPg: fta === null || gp === 0 ? null : fta / gp,
     pmPg: pm === null ? null : pm / gp,
   };
 }

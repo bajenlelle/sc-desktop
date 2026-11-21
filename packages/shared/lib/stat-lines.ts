@@ -50,6 +50,8 @@ export interface SeasonLine {
   tpa: number | null;
   tpPct: number | null;
   ftPct: number | null;
+  /** Free throws attempted a game; absent from lines stored before the team page. */
+  ftaPg?: number | null;
   pmPg: number | null;
 }
 

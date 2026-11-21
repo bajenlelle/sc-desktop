@@ -1,31 +1,10 @@
 import { useEffect, useState } from "react";
 import type { League } from "@scoutable/shared/types/league";
 import type { StoredMatch } from "@scoutable/shared/types/match";
-import { getGeniusSeason } from "@scoutable/shared/lib/genius-client";
 import { seasonContext, seasonMatchOf, type SeasonContext } from "@scoutable/shared/lib/season-context";
-import type { SeasonPayload } from "@scoutable/shared/lib/season-payload";
-import { createClient } from "@/lib/supabase/client";
+import { loadSeason } from "@/lib/league-data";
 
 export type SeasonStatus = "none" | "reading" | "ready" | "failed";
-
-const TTL_MS = 30 * 60 * 1000;
-/** One request per competition per half hour; the function caches 12 hours behind it. A failure is asked again next time. */
-const cache = new Map<number, { at: number; payload: Promise<SeasonPayload | null> }>();
-
-/** The competition's season; null from a genius function that predates the action (the view goes on without it). */
-function loadSeason(competitionId: number): Promise<SeasonPayload | null> {
-  const hit = cache.get(competitionId);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.payload;
-  const payload = (async () => {
-    const res = await getGeniusSeason(createClient(), competitionId);
-    if (!res.ok && res.error === "unknown_action") return null;
-    if (!res.ok) throw new Error(`season: ${res.error}`);
-    return res.data;
-  })();
-  cache.set(competitionId, { at: Date.now(), payload });
-  payload.catch(() => cache.delete(competitionId));
-  return payload;
-}
 
 /**
  * Each team's season beside this game, for the Stats view's season context

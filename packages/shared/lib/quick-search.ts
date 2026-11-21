@@ -6,6 +6,7 @@
  * never waits for the network (apps/desktop/src/lib/quick-search-store.ts,
  * docs/search.md).
  */
+import type { LeagueTeam } from "../types/league-team";
 import type { PlaylistFolder } from "../types/match";
 import { folderPath } from "./folder-tree";
 import { foldForSearch } from "./league-teams";
@@ -14,8 +15,8 @@ import type { ReportListItem } from "./scouting-report-list";
 
 export type SearchKind = OpenKind;
 
-/** The groups' order: the sidebar's (Playlists, Reports, Library). */
-export const SEARCH_KINDS: readonly SearchKind[] = ["playlist", "report", "game"];
+/** The groups' order: the sidebar's (Playlists, Reports, Library, Teams). */
+export const SEARCH_KINDS: readonly SearchKind[] = ["playlist", "report", "game", "team"];
 
 /** How many of a kind a query shows; the group says how many it found. */
 export const SEARCH_GROUP_MAX = 5;
@@ -68,7 +69,16 @@ export interface GameSearchItem {
   archived: boolean;
 }
 
-export type SearchItem = PlaylistSearchItem | ReportSearchItem | GameSearchItem;
+export interface TeamSearchItem {
+  kind: "team";
+  /** The stable team (league_teams id); /teams/find/:id opens this season's page. */
+  id: string;
+  title: string;
+  /** Its newest league's name, shown to the right. */
+  league: string;
+}
+
+export type SearchItem = PlaylistSearchItem | ReportSearchItem | GameSearchItem | TeamSearchItem;
 
 export interface SearchGroup {
   kind: SearchKind;
@@ -118,6 +128,8 @@ export function buildSearchIndex(source: {
   folders: PlaylistFolder[];
   reports: readonly ReportListItem[];
   games: readonly SearchGameRow[];
+  /** This season's teams (the team catalogue); absent until it is read. */
+  teams?: readonly LeagueTeam[];
 }): SearchIndex {
   const entries: Entry[] = [];
   for (const p of source.playlists) {
@@ -132,6 +144,9 @@ export function buildSearchIndex(source: {
     entries.push(
       entry({ kind: "game", id: g.id, title: g.title, date: g.date, archived }, [g.homeTeam, g.awayTeam], time(g.date) || time(g.createdAt), archived),
     );
+  }
+  for (const t of source.teams ?? []) {
+    entries.push(entry({ kind: "team", id: t.id, title: t.name, league: t.leagueName }, [t.clubName ?? ""], 0));
   }
   return { entries };
 }
@@ -204,9 +219,9 @@ export function recentItems(
   return out;
 }
 
-/** The newest of each kind, for a computer nothing has been opened on yet. Archived games are left out. */
+/** The newest of each kind, for a computer nothing has been opened on yet. Archived games and teams (a whole league, none newer) are left out. */
 export function newestItems(index: SearchIndex, perGroup = SEARCH_NEWEST_MAX): SearchGroup[] {
-  return SEARCH_KINDS.flatMap((kind) => {
+  return SEARCH_KINDS.filter((kind) => kind !== "team").flatMap((kind) => {
     const of = index.entries.filter((e) => e.item.kind === kind && !e.archived).sort((a, b) => b.time - a.time);
     return of.length > 0 ? [{ kind, items: of.slice(0, perGroup).map((e) => e.item), total: of.length }] : [];
   });

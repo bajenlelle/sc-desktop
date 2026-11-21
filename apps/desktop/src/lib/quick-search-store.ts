@@ -15,6 +15,7 @@ import { buildSearchIndex, type SearchIndex } from "@scoutable/shared/lib/quick-
 import { mergeReportList } from "@scoutable/shared/lib/scouting-report-list";
 import { trackEvent } from "@/lib/analytics";
 import { listFolders, listMatchIndex } from "@/lib/matches-db";
+import { teamCatalog } from "@/lib/my-team";
 import { listPlaylistIndex } from "@/lib/playlists-db";
 import { listReportDraftTitles } from "@/lib/report-drafts-db";
 import { listMyScoutingReports } from "@/lib/scouting-reports-db";
@@ -109,7 +110,9 @@ async function read(scope: SearchScope): Promise<SearchIndex> {
     listReportDraftTitles(),
     listMatchIndex(scope.orgId),
   ]);
-  return buildSearchIndex({ playlists, folders, reports: mergeReportList(reports, drafts, playlists, new Date()), games });
+  // This season's teams, read once a session (the team picker's catalogue); the search goes on without them.
+  const teams = await teamCatalog().catch(() => []);
+  return buildSearchIndex({ playlists, folders, reports: mergeReportList(reports, drafts, playlists, new Date()), games, teams });
 }
 
 /**

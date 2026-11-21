@@ -18,7 +18,7 @@ import {
   type TeamFactors,
 } from "./game-box";
 import type { TeamStanding } from "./season-copy";
-import type { SeasonGame, SeasonPayload, TeamGame } from "./season-payload";
+import type { SeasonGame, SeasonPayload, SeasonStanding, TeamGame } from "./season-payload";
 import { seasonOf, statsKindOf } from "./stats-card-data";
 
 export type { TeamStanding };
@@ -40,8 +40,10 @@ export interface TeamSeason {
   allowed: TeamFactors;
   /** Points from the paint, second chance, fast break, turnovers and bench, a game. */
   perGame: Record<PointsFrom, number | null>;
-  /** 1 = best in the competition. */
+  /** 1 = best in its group (the standings' poolNumber): the whole competition when it is one table. */
   ranks: Record<FactorKey, number | null>;
+  /** Teams of its group with a counted game: what its ranks are "of". */
+  of: number;
   standing: TeamStanding | null;
 }
 
@@ -62,20 +64,36 @@ export function geniusTotals(g: TeamGame): FactorTotals {
 }
 
 /** A regular-season game (no type given counts as one) with both sides' statistics. */
-const isRegular = (game: SeasonGame) => game.matchType === "REGULAR" || game.matchType === "";
-const counted = (game: SeasonGame): game is SeasonGame & { home: TeamGame; away: TeamGame } =>
+export const isRegular = (game: SeasonGame) => game.matchType === "REGULAR" || game.matchType === "";
+export const counted = (game: SeasonGame): game is SeasonGame & { home: TeamGame; away: TeamGame } =>
   isRegular(game) && !!game.home && !!game.away;
 
 /** One team's side of a game: its row and its opponent's. */
-interface Side {
+export interface Side {
   matchId: number;
   team: TeamGame;
   opp: TeamGame;
 }
 
+/** Every counted game, as each team's sides (season-context and league-season read the same rows). */
+export function sidesByTeam(payload: SeasonPayload): Map<number, Side[]> {
+  const byTeam = new Map<number, Side[]>();
+  const add = (side: Side) => {
+    const list = byTeam.get(side.team.teamId) ?? [];
+    list.push(side);
+    byTeam.set(side.team.teamId, list);
+  };
+  for (const game of payload.games) {
+    if (!counted(game)) continue;
+    add({ matchId: game.matchId, team: game.home, opp: game.away });
+    add({ matchId: game.matchId, team: game.away, opp: game.home });
+  }
+  return byTeam;
+}
+
 const ZERO: FactorTotals = { pts: 0, fgm: 0, fga: 0, tpm: 0, fta: 0, oreb: 0, dreb: 0, tov: 0 };
 
-function summed(rows: TeamGame[]): FactorTotals {
+export function summed(rows: TeamGame[]): FactorTotals {
   const out = { ...ZERO };
   for (const r of rows) {
     const t = geniusTotals(r);
@@ -101,7 +119,7 @@ const PER_GAME: Record<PointsFrom, keyof TeamGame> = {
   bench: "bench",
 };
 
-function perGame(sides: Side[]): Record<PointsFrom, number | null> {
+export function perGame(sides: Side[]): Record<PointsFrom, number | null> {
   const out = {} as Record<PointsFrom, number | null>;
   for (const [k, field] of Object.entries(PER_GAME) as [PointsFrom, keyof TeamGame][]) {
     out[k] = sides.length ? sides.reduce((n, s) => n + (s.team[field] as number), 0) / sides.length : null;
@@ -109,7 +127,7 @@ function perGame(sides: Side[]): Record<PointsFrom, number | null> {
   return out;
 }
 
-function populationSd(values: number[]): number {
+export function populationSd(values: number[]): number {
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   return Math.sqrt(values.reduce((a, v) => a + (v - mean) ** 2, 0) / values.length);
 }
@@ -138,23 +156,18 @@ function rankOf(key: FactorKey, value: number | null, all: (number | null)[]): n
   return 1 + all.filter((v) => v !== null && (lower ? v < value : v > value)).length;
 }
 
+/** A team's standings row: the regular season's, else the first it has. */
+export function standingRowOf(payload: SeasonPayload, teamId: number): SeasonStanding | null {
+  const rows = payload.standings.filter((s) => s.teamId === teamId);
+  return rows.find((s) => s.matchType === "REGULAR") ?? rows[0] ?? null;
+}
+
 /** Each team's season beside game `matchId`; null when the season doesn't list the game. */
 export function seasonContext(payload: SeasonPayload, matchId: number): SeasonContext | null {
   const tonight = payload.games.find((g) => g.matchId === matchId);
   if (!tonight) return null;
 
-  const byTeam = new Map<number, Side[]>();
-  const add = (side: Side) => {
-    const list = byTeam.get(side.team.teamId) ?? [];
-    list.push(side);
-    byTeam.set(side.team.teamId, list);
-  };
-  for (const game of payload.games) {
-    if (!counted(game)) continue;
-    add({ matchId: game.matchId, team: game.home, opp: game.away });
-    add({ matchId: game.matchId, team: game.away, opp: game.home });
-  }
-
+  const byTeam = sidesByTeam(payload);
   const others = (teamId: number) => (byTeam.get(teamId) ?? []).filter((s) => s.matchId !== matchId);
   const tonightIds = new Set([tonight.homeTeamId, tonight.awayTeamId]);
 
@@ -162,17 +175,20 @@ export function seasonContext(payload: SeasonPayload, matchId: number): SeasonCo
   const rankedOn = new Map<number, TeamFactors>();
   for (const [teamId, sides] of byTeam) rankedOn.set(teamId, seasonFactors(tonightIds.has(teamId) ? others(teamId) : sides).factors);
   for (const teamId of tonightIds) if (!rankedOn.has(teamId)) rankedOn.set(teamId, { ...NONE });
-  const competitors = [...byTeam.keys()].map((id) => rankedOn.get(id)!);
+  // A team is placed among its own group's teams; without standings every team is in one group.
+  const groupOf = (teamId: number) => standingRowOf(payload, teamId)?.poolNumber ?? null;
+  const competitorsOf = (teamId: number) =>
+    [...byTeam.keys()].filter((id) => groupOf(id) === groupOf(teamId)).map((id) => rankedOn.get(id)!);
 
   const standingOf = (teamId: number): TeamStanding | null => {
-    const rows = payload.standings.filter((s) => s.teamId === teamId);
-    const row = rows.find((s) => s.matchType === "REGULAR") ?? rows[0];
+    const row = standingRowOf(payload, teamId);
     return row ? { position: row.position, won: row.won, lost: row.lost, last5: row.last5, streak: row.streak } : null;
   };
 
   const team = (teamId: number): TeamSeason => {
     const sides = others(teamId);
     const own = rankedOn.get(teamId)!;
+    const competitors = competitorsOf(teamId);
     const ranks = {} as Record<FactorKey, number | null>;
     for (const k of FACTOR_KEYS) ranks[k] = rankOf(k, own[k], competitors.map((f) => f[k]));
     return {
@@ -181,6 +197,7 @@ export function seasonContext(payload: SeasonPayload, matchId: number): SeasonCo
       ...seasonFactors(sides),
       perGame: perGame(sides),
       ranks,
+      of: competitors.length,
       standing: standingOf(teamId),
     };
   };

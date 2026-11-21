@@ -143,7 +143,8 @@ test("typing finds games and playlists by name in the sidebar's order, and never
   await expect(options(page).first(), "the panel offers something before a query").toBeVisible({ timeout: 15_000 });
   await waitForQuiet(page);
   const forIndex = reads.slice(before);
-  expect(forIndex.length, `the first open reads the index in at most five requests (${forIndex.map((u) => new URL(u).pathname).join(", ")})`).toBeLessThanOrEqual(5);
+  // Five for the space, and the team catalogue, read once a session (lib/my-team.tsx teamCatalog).
+  expect(forIndex.length, `the first open reads the index in at most six requests (${forIndex.map((u) => new URL(u).pathname).join(", ")})`).toBeLessThanOrEqual(6);
   for (const select of INDEX_SELECTS) expect(forIndex.map(selectOf), "the index is read with its own light selects").toContain(select);
   const bytes = (await Promise.all(sizes)).reduce((a, b) => a + b, 0);
   console.log(`K-search (${browserName}): the index came in ${forIndex.length} reads; playlists, games and drafts weigh ${bytes} bytes`);
@@ -154,7 +155,7 @@ test("typing finds games and playlists by name in the sidebar's order, and never
   await field(page).pressSequentially(word);
   await expect(group(page, "Games").getByRole("option").filter({ hasText: game.title }).first(), `"${word}" finds ${game.title}`).toBeVisible();
   const order = await panel(page).getByRole("group").evaluateAll((gs) => gs.map((g) => g.getAttribute("aria-label")));
-  expect(order, "the groups come in the sidebar's order").toEqual(["Playlists", "Reports", "Games"].filter((g) => order.includes(g)));
+  expect(order, "the groups come in the sidebar's order").toEqual(["Playlists", "Reports", "Games", "Teams"].filter((g) => order.includes(g)));
 
   await field(page).fill("");
   await field(page).pressSequentially(PREFIX);
@@ -393,6 +394,26 @@ test("a playlist the page can't read leaves its list as it was", async ({ page }
   await expect(toastWith(page, "Couldn’t open that playlist")).toBeVisible({ timeout: 15_000 });
   await expect(listed, "the playlists the page had are still listed").toBeVisible();
   await page.unroute(pageReads);
+});
+
+test("a team is found by name and opens its page", async ({ page }) => {
+  await goViaSidebar(page, "Home");
+  const teams = await withAppModule<null, { id: string; name: string }[]>(
+    page,
+    "/src/lib/my-team.tsx",
+    "return (await mod.teamCatalog()).slice(0, 1).map((t) => ({ id: t.id, name: t.name }));",
+    null,
+  );
+  expect(teams.length, "the catalogue has a current team").toBe(1);
+  const name = teams[0].name;
+  await openSearch(page);
+  await field(page).pressSequentially(plain(name));
+  const option = group(page, "Teams").getByRole("option").filter({ hasText: name }).first();
+  await chooseWithKeys(page, option);
+  await expect(page).toHaveURL(/\/teams\/\d+\/\d+$/, { timeout: 30_000 });
+  await openSearch(page);
+  await expect(group(page, "Recent").getByRole("option").filter({ hasText: name }).first()).toBeVisible();
+  await page.keyboard.press("Escape");
 });
 
 test.describe("where there is no menu bar", () => {

@@ -116,13 +116,17 @@ export type AnalyticsEvent =
   | "game_opened_from_playlist" // via (subtitle: the editor's one game named | subtitle_menu: one of its "N games" | clip_menu: a row's Show in Game | menu: Go > Show Clip in Game, ⌘G | watch_caption: the game under a shared playlist's footage), at_play (opened at the clip's play), games (in the playlist)
   // Search over a space (desktop ⌘K or Ctrl+K; docs/search.md). What was typed is never sent.
   | "search_opened" // via (shortcut: ⌘K, Ctrl+K or Go > Search… | sidebar)
-  | "search_result_opened" // kind (playlist | report | game), from (recent | newest: nothing opened here yet | results), position (row from the top, 0 first), query_length
+  | "search_result_opened" // kind (playlist | report | game | team), from (recent | newest: nothing opened here yet | results), position (row from the top, 0 first), query_length
   | "game_tab_reopened" // tabs (how many are open): Reopen Closed Tab, or the Reopen of the made-room notice
   | "game_tabs_reordered" // tabs: an open game's row was dragged to another place
   | "collect_target_set" // source (existing | new), shared, via (toolbar | row | now_bar | bulk | menu | selection)
   | "collect_undone" // via (toast | row), clips
   | "collect_sent" // clips, target (it was the "Adding to" playlist), in_place (true: cut and uploaded from the game view; absent: opened the editor to upload what was held)
   | "game_marks_filled" // outcome (filled | unsaved | failed | skipped), timeouts, error
+  // The Teams pages (docs/teams.md)
+  | "team_page_viewed" // once per open when the season is in: league, season, games (played), library_games, keys (sentences shown), own_team, from (teams | game | search | team | other)
+  | "team_page_action" // action (open_game | import | open_team | show_all_players | show_all_games)
+  | "teams_league_changed" // league, season: the Teams page's league pop-up
   // Distribution & virality
   | "video_exported"
   | "playlist_shipped"

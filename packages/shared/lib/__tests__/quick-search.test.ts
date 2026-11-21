@@ -12,6 +12,7 @@ import {
   type SearchPlaylistRow,
 } from "../quick-search";
 import type { RecentOpen } from "../recent-opens";
+import type { LeagueTeam } from "../../types/league-team";
 import type { ReportListItem } from "../scouting-report-list";
 import type { PlaylistFolder } from "../../types/match";
 
@@ -242,5 +243,42 @@ describe("newestItems", () => {
 
   it("is empty for an empty index", () => {
     expect(newestItems(buildSearchIndex({ playlists: [], folders: [], reports: [], games: [] }))).toEqual([]);
+  });
+});
+
+const huddinge: LeagueTeam = {
+  id: "t1",
+  name: "Huddinge Basket",
+  clubName: "Huddinge BK",
+  clubKey: null,
+  gender: "men",
+  leagueId: "superettan-herr",
+  leagueName: "Superettan Herr",
+  seasonId: "2026-27",
+  logoUrl: null,
+};
+
+describe("teams in the search", () => {
+  it("finds a team by its name and its club's, after the games", () => {
+    const teams = buildSearchIndex({ playlists: [], folders: [], reports: [], games: [], teams: [huddinge] });
+    const groups = searchIndex(teams, "huddinge", []);
+    expect(groups.map((g) => g.kind)).toEqual(["team"]);
+    expect(groups[0].items[0]).toMatchObject({ kind: "team", id: "t1", title: "Huddinge Basket", league: "Superettan Herr" });
+    expect(searchIndex(teams, "bk", [])[0].items).toHaveLength(1);
+  });
+
+  it("lists teams last when other kinds match too", () => {
+    const both = buildSearchIndex({ playlists: [], folders: [], reports: [], games: [game("g1", "Huddinge", "Borås")], teams: [huddinge] });
+    expect(searchIndex(both, "huddinge", []).map((g) => g.kind)).toEqual(["game", "team"]);
+  });
+
+  it("works without a team catalogue", () => {
+    expect(searchIndex(buildSearchIndex({ playlists: [], folders: [], reports: [], games: [] }), "huddinge", [])).toEqual([]);
+  });
+
+  it("offers a team opened before, but no teams among the newest", () => {
+    const teams = buildSearchIndex({ playlists: [], folders: [], reports: [], games: [], teams: [huddinge] });
+    expect(recentItems(teams, [{ kind: "team", id: "t1", at: 1 }]).map((i) => i.kind)).toEqual(["team"]);
+    expect(newestItems(teams)).toEqual([]);
   });
 });

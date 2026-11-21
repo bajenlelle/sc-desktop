@@ -35,10 +35,11 @@ while the last one is still leaving. A chord held down opens it once.
 **Before a query:** *Recent*, up to eight things opened last on this computer,
 newest first, each with its kind to the right; the games open in the sidebar
 come first, marked "Open". On a computer where nothing
-has been opened yet it lists the three newest of each kind instead.
+has been opened yet it lists the three newest of each kind instead (teams
+aside: a whole league has no newest).
 
 **With a query:** groups in the sidebar's order, *Playlists*, *Reports*,
-*Games*, five of each at most; a group that holds back says so ("5 of 12").
+*Games*, *Teams*, five of each at most; a group that holds back says so ("5 of 12").
 Typing more is how one reaches the rest.
 
 | Kind | Found by | To the right of its name |
@@ -46,9 +47,14 @@ Typing more is how one reaches the rest.
 | Playlist | its name, and the folders it is in | the folder path |
 | Report | its title, and its playlist's name | the playlist's name when it differs, then the status the Reports list gives it |
 | Game | its title and both teams' names | the day it was played; "Archived" first for an archived game |
+| Team | its name and its club's | its league |
 
 A report is its playlist's (one per playlist), so its id is the playlist's
-id; kind and id together name a thing.
+id; kind and id together name a thing. A team is this season's team in the
+catalogue the team picker reads (`teamCatalog` in `lib/my-team.tsx`, read once
+a session, so the first open makes one more read); its id is the stable
+`league_teams` id, and choosing it goes through `/teams/find/:id` to this
+season's page (docs/teams.md).
 
 ## How a query matches
 

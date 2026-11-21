@@ -679,7 +679,10 @@ with (Hudl, Synergy) open clips from a stat, and one game is a small sample.
   never read). A gap is real with at least 4 other games and
   `|tonight − season| ≥ GAP_SWINGS (1.5) × swing`, the league's typical
   single-game swing (`season-context.ts`; about two captions a game on SBL
-  Herr 2026/27). Ranks: 1 = best, lowest first for turnover rate, ties shared.
+  Herr 2026/27). Ranks: 1 = best, lowest first for turnover rate, ties shared,
+  and counted within the team's group (the standings' `poolNumber`: Basketettan
+  is played as Norra and Södra), so "4th of 14" is among the teams it plays;
+  the swing stays competition-wide.
   The bars use a **fixed scale per factor** (`FACTOR_SCALE`: PPP 1.6, eFG
   75%, TO 35%, OREB 60%, FT rate 0.7), so a mark always has a place and bars
   compare across games. Data: the `genius` function's `season` action

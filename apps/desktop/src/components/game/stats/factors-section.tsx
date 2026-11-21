@@ -1,8 +1,8 @@
 import { Fragment, useMemo, type ReactNode } from "react";
 import {
+  FACTOR_SCALE,
   LOWER_IS_BETTER,
   POINTS_FROM,
-  barShare,
   pointsFrom,
   teamFactors,
   type FactorKey,
@@ -16,11 +16,12 @@ import { GroupHeader } from "@/components/ui/group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { teamTints } from "../team-tints";
+import { FactorBar, WithHover } from "./factor-bar";
 import { StatCell, type OpenPlays } from "./stat-cell";
 import type { SeasonStatus } from "./use-season-context";
 
 /** The rows in the order coaches read them: efficiency first, then the four factors. */
-const FACTORS: { key: FactorKey; label: string; help: string; format: (v: number) => string }[] = [
+export const FACTORS: { key: FactorKey; label: string; help: string; format: (v: number) => string }[] = [
   { key: "ppp", label: "Points per possession", help: "Points scored each time the team had the ball.", format: (v) => v.toFixed(2) },
   { key: "efg", label: "Shooting (eFG%)", help: "Field-goal percentage with a made three counted as one and a half twos.", format: pct },
   { key: "tovRate", label: "Turnover rate", help: "Share of possessions that ended in a turnover; lower is better.", format: pct },
@@ -121,7 +122,7 @@ export function FactorsSection({
               const allowed = opp.allowed[f.key];
               const hover = (
                 <>
-                  <span className="block">{seasonHoverLine(f.key, value, t.games, t.ranks[f.key], ctx.teams, ctx.regular)}</span>
+                  <span className="block">{seasonHoverLine(f.key, value, t.games, t.ranks[f.key], t.of, ctx.regular)}</span>
                   {allowed !== null && <span className="block">{allowedLine(f.key, s === "home" ? away : home, allowed)}</span>}
                 </>
               );
@@ -133,14 +134,14 @@ export function FactorsSection({
             return (
               <Fragment key={f.key}>
                 <Figure align="right" bold={better === 1} text={h === null ? "–" : f.format(h)} caption={hs?.caption ?? null} hover={hs?.hover} />
-                <Bar value={h} mark={hs?.value ?? null} factor={f.key} colour={tints.home} side="home" hover={hs?.hover} />
+                <FactorBar value={h} mark={hs?.value ?? null} scale={FACTOR_SCALE[f.key]} colour={tints.home} grow="left" hover={hs?.hover} />
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="cursor-default text-center text-subheadline text-muted-foreground">{f.label}</span>
                   </TooltipTrigger>
                   <TooltipContent>{f.help}</TooltipContent>
                 </Tooltip>
-                <Bar value={a} mark={as?.value ?? null} factor={f.key} colour={tints.away} side="away" hover={as?.hover} />
+                <FactorBar value={a} mark={as?.value ?? null} scale={FACTOR_SCALE[f.key]} colour={tints.away} grow="right" hover={as?.hover} />
                 <Figure align="left" bold={better === 2} text={a === null ? "–" : f.format(a)} caption={as?.caption ?? null} hover={as?.hover} />
               </Fragment>
             );
@@ -205,49 +206,3 @@ function Figure({ align, bold, text, caption, hover }: { align: "left" | "right"
   );
 }
 
-function WithHover({ hover, children }: { hover?: ReactNode; children: ReactNode }) {
-  if (!hover) return <>{children}</>;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent>{hover}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-/**
- * Tonight's value on the factor's fixed scale, growing away from the label,
- * and the season as a 2 px line across the track at its own place on the same
- * scale. Decorative: the numbers beside it say the same in words.
- */
-function Bar({
-  value,
-  mark,
-  factor,
-  colour,
-  side,
-  hover,
-}: {
-  value: number | null;
-  mark: number | null;
-  factor: FactorKey;
-  colour: string;
-  side: "home" | "away";
-  hover?: ReactNode;
-}) {
-  const at = barShare(mark, factor) * 100;
-  return (
-    <WithHover hover={hover}>
-      <div className={cn("relative flex h-3.5 items-center", side === "home" && "justify-end")} aria-hidden>
-        <div className="h-2 rounded-full opacity-60" style={{ width: `${barShare(value, factor) * 100}%`, backgroundColor: colour }} />
-        {mark !== null && (
-          <span
-            data-season-mark=""
-            className="absolute inset-y-0 w-0.5 rounded-full bg-foreground"
-            style={side === "home" ? { right: `calc(${at}% - 1px)` } : { left: `calc(${at}% - 1px)` }}
-          />
-        )}
-      </div>
-    </WithHover>
-  );
-}

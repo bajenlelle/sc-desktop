@@ -72,6 +72,15 @@ export const useMyTeam = () => useContext(MyTeamContext);
 // The catalogue is the same for everyone and changes weekly at most: one read per app session.
 let catalogPromise: Promise<LeagueTeam[]> | null = null;
 
+/** The catalogue as a promise, for readers outside React (the search's index). A failure is asked again next time. */
+export function teamCatalog(): Promise<LeagueTeam[]> {
+  catalogPromise ??= listLeagueTeams(createClient()).then(currentTeams);
+  catalogPromise.catch(() => {
+    catalogPromise = null;
+  });
+  return catalogPromise;
+}
+
 /** Teams in the current season of every supported league, for the picker. */
 export function useTeamCatalog(): { teams: LeagueTeam[] | null; failed: boolean; retry: () => void } {
   const [teams, setTeams] = useState<LeagueTeam[] | null>(null);
