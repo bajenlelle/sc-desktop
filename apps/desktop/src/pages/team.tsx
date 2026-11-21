@@ -8,6 +8,8 @@ import { TeamViewSwitch, type TeamView } from "@/components/team/team-view-switc
 import { playedDay } from "@/components/team/dates";
 import { useClipLabels } from "@/lib/use-clip-labels";
 import { useAuth } from "@/lib/auth-context";
+import { CollectControl } from "@/components/game/collect-control";
+import { useCollect, type CollectScope } from "@/components/game/use-collect";
 import { cn } from "@/lib/utils";
 import type { ShotZone } from "@scoutable/shared/lib/game-shots";
 import { TeamShotsSection } from "@/components/team/team-shots-section";
@@ -152,14 +154,20 @@ export function TeamPage() {
   // Plays is mounted the first time it is shown and kept: switching back keeps its filters and its scroll, as Season keeps its own.
   const [playsShown, setPlaysShown] = useState(view === "plays");
   if (view === "plays" && !playsShown) setPlaysShown(true);
-  const [current, setCurrent] = useState<string | null>(null);
   const teamKey = `${competitionId}:${teamId}`;
-  const [currentFor, setCurrentFor] = useState(teamKey);
-  if (currentFor !== teamKey) {
-    setCurrentFor(teamKey);
-    setCurrent(null);
-  }
-  const { activeOrgId } = useAuth();
+  const { activeOrgId, activeOrgIsPersonal } = useAuth();
+  // Collecting from the team's games, into a target remembered per team.
+  const collectScope = useMemo<CollectScope>(
+    () => ({
+      key: `team:${teamKey}`,
+      games: teamGames.flatMap((g) => plays.matches.get(g.gameId) ?? []),
+      title: `Scout ${name || "Team"}`,
+      from: null,
+      surface: "team_plays",
+    }),
+    [teamKey, teamGames, plays.matches, name],
+  );
+  const collect = useCollect({ scope: collectScope, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
   const labelGames = useMemo(() => teamGames.map((g) => g.gameId), [teamGames]);
   const clipLabels = useClipLabels(playsShown ? activeOrgId : null, labelGames, "team_plays");
   // The empty Plays view's one action: their latest played game that can be imported and isn't in the library.
@@ -203,6 +211,7 @@ export function TeamPage() {
         }
         title={name || (status === "ready" ? "Team" : "")}
         subtitle={seasonLabel}
+        actions={view === "plays" && plays.status !== "none" ? <CollectControl collect={collect} /> : undefined}
       />
       {playsShown && profile && (
         <div className={cn("flex min-h-0 flex-1 flex-col pt-[var(--toolbar-height)]", view !== "plays" && "pointer-events-none invisible absolute inset-0")}>
@@ -215,10 +224,11 @@ export function TeamPage() {
             pick={pick}
             onClearPick={() => setPlays({ pick: null })}
             latestImport={latestImport}
-            current={current}
-            onPlay={setCurrent}
             labels={clipLabels.labels}
             labelsOf={clipLabels.labelsOf}
+            labelHandlers={clipLabels.handlers}
+            collect={collect}
+            active={view === "plays"}
           />
         </div>
       )}

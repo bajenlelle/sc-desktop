@@ -4,7 +4,7 @@
  * mocked with, so nothing depends on real standings.
  */
 import type { Page } from "@playwright/test";
-import { delayPlaysReads, expect, mockLeague, mockRoster, patchGameReads, recordAnalytics, shot, test, waitForQuiet, withAppModule } from "../helpers";
+import { delayPlaysReads, deleteOwnedPlaylists, expect, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const teamRow = (page: Page, name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
@@ -356,4 +356,57 @@ test("another team while plays are reading shows only its own games", async ({ p
   await expect(page.getByText("None of their games are in your library.")).toBeVisible();
   await expect(page.getByRole("list", { name: "Plays" })).toHaveCount(0);
   await release();
+});
+
+const PLAYS_TARGET = owned("team plays");
+
+/**
+ * Alfa's page with the Library's first game as one of Alfa's games, its video the test video (its reads are
+ * answered so; the account is never written to: its own video is on another computer).
+ */
+async function alfaWithAPlayableGame(page: Page): Promise<void> {
+  await page.goto("/matches");
+  await deleteOwnedPlaylists(page, [PLAYS_TARGET]);
+  const game = await openLibraryGame(page, 0);
+  const [row] = await selectRows<{ source_game_id: string | null }>(page, "matches", "source_game_id", { id: game.id });
+  expect(row?.source_game_id ?? "", "the Library's first game is a league game").toMatch(/^\d+$/);
+  await patchGameReads(page, { videoUrl: FIXTURE_VIDEO });
+  await mockLeague(page, madeUpLeague({ libraryGame: Number(row.source_game_id) }));
+  await openTeam(page, "Alfa");
+  await page.getByRole("radio", { name: "Plays" }).click();
+  await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
+}
+
+const playing = (page: Page) => page.evaluate(() => Array.from(document.querySelectorAll("video")).some((v) => !v.paused));
+const litRow = (page: Page) => page.getByRole("list", { name: "Plays" }).locator("[aria-current=true]");
+
+test.describe("playing and collecting", () => {
+  test.afterEach(async ({ page }) => {
+    await deleteOwnedPlaylists(page, [PLAYS_TARGET]);
+  });
+
+  test("Plays plays a play and adds it to a new playlist", async ({ page, browserName }) => {
+    await alfaWithAPlayableGame(page);
+    await page.getByRole("list", { name: "Plays" }).getByRole("button").first().click();
+    await expect.poll(() => playing(page), { timeout: 20_000 }).toBe(true);
+    await page.keyboard.press("a"); // no target yet: the picker opens, and the play goes in once one is made
+    await page.getByPlaceholder("Search or create…").fill(PLAYS_TARGET);
+    await page.getByRole("button", { name: `Create “${PLAYS_TARGET}”` }).click();
+    await expect.poll(() => playlistClips(page, PLAYS_TARGET).then((c) => c?.length ?? 0), { timeout: 15_000 }).toBe(1);
+    await expect(page.getByRole("button", { name: `Adding to ${PLAYS_TARGET}. Change playlist` })).toBeVisible();
+    await shot(page, `${browserName}-P-team-plays-playing`);
+  });
+
+  test("↓ moves to the next play and G opens the labels", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    const rows = page.getByRole("list", { name: "Plays" }).getByRole("button");
+    await rows.first().click();
+    await expect(litRow(page)).toHaveAttribute("data-key", (await rows.first().getAttribute("data-key"))!);
+    const second = (await rows.nth(1).getAttribute("data-key"))!;
+    await page.keyboard.press("ArrowDown");
+    await expect(litRow(page)).toHaveAttribute("data-key", second);
+    await page.keyboard.press("g");
+    await expect(page.getByPlaceholder("Search or create…")).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
 });

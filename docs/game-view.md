@@ -433,6 +433,11 @@ on the selection when that row is in it.
 
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 
+`useCollect` takes a `CollectScope` (the games, where the target is
+remembered, the editor's way back, the surface): here one game, remembered per
+game; a team's Plays view (`docs/teams.md`, "Plays") passes the team's games.
+`useClipLabels` likewise takes several games.
+
 - **One target playlist, chosen once** and remembered per game on this device
   (`lib/prefs.ts`). With none chosen, the first add opens the picker from the
   control that was pressed; the choice sets the target and adds the play.

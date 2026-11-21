@@ -3,9 +3,11 @@
 The desktop's **Teams** pages: the league's table and a page per team, with
 each team's season from the league's numbers. Step 1 of the opponent page
 (design: `docs/superpowers/specs/2026-11-21-team-page-design.md`, plan:
-`docs/superpowers/plans/2026-11-21-team-page.md`). Season numbers only:
-step 2 adds numbers from the coach's own video across games, step 3 reports
-that start from a team.
+`docs/superpowers/plans/2026-11-21-team-page.md`), and step 2, the team's
+plays in the coach's own games (design:
+`docs/superpowers/specs/2026-11-21-team-plays-design.md`, plan:
+`docs/superpowers/plans/2026-11-21-team-plays.md`). Step 3 is reports that
+start from a team.
 
 ## Where it lives
 
@@ -76,6 +78,71 @@ Values equal but for rounding in the sums share a place and are never a key
 "In your library" is per coach: a coach reads only their own games
 (`useLibraryGames`, `listMatchesLight` with `ownOnly`), archived ones included.
 
+## Plays
+
+A team page has two views, **Season | Plays** (`?view=plays`), leading in the
+toolbar after Back. Numbers from the coach's video never mix with the
+season's: they say "in your N games", sit in secondary text, and are the only
+numbers that open plays.
+
+**Your games** for a team are the coach's own library games of this team in
+this competition, regular season and finals alike (`teamLibraryGames` in
+`packages/shared/lib/team-video.ts`). The team's side in each comes from the
+fixture (`TeamGameRow.home`: home is `teamNumber` 1), never from names. They
+are read once per team for both views (`apps/desktop/src/lib/use-team-plays.ts`):
+the games' rows, then their plays four at a time, newest first, through the
+shared plays cache; a read for a team the page has left never lands.
+
+**On Season**, once every game is read (`teamVideo`):
+
+- "Watch all n plays" after the coverage line;
+- under a key with plays, one line and Watch (`keyStatOf`, `videoKeyLine`):
+  threes (made of attempted), offensive rebounds, turnovers; without the ball
+  "against them" and "turnovers forced". Points per possession and pace have
+  none. A count of 0 shows without Watch;
+- "Their shots in your games": the team's field goals on one half court and
+  made of attempted by zone, each zone with Watch. Only games with shot
+  positions count, so dots and zones agree; older games are named in a line;
+- Players gains "In your games" (games, Watch) or "Not in your games".
+
+Every count is the length of what its Watch opens (`pickKeys`), counted by
+the Stats view's own rules (`gameBox`, `gameShots`).
+
+**Plays** (`components/team/team-plays-view.tsx`): With the ball | Without the
+ball (what the team's opponents did against it); Games, every one of the
+team's games ticked to start, no limit; Add clips' Player, Shot type,
+Situation, Labels and Presets (surface `team_plays`); what Watch picked as one
+pill ("Turnovers · 41") with Clear; the event chips. The list is newest game
+first, each game's plays in game order, a header per game (the top one pinned),
+windowed (`teamPlayRows`, `team-play-list.tsx`). A game whose video isn't on
+this computer, or isn't synced, is dimmed under one line with the way to fix
+it, and playback skips it.
+
+- **The pick** is a definition (a key stat and side, a shot zone, a player),
+  carried in the router state with the side, so a reload keeps it. Flipping
+  the side moves a key stat to its counterpart; a zone or a player has none
+  and the pill goes (`flipPick`). A pick that matches nothing says "No plays
+  match." with Clear filters.
+- **Playing** (`use-cross-game-playback.ts`): a click plays a play from its
+  pre-roll to its post-roll (the editor's defaults, 10 s and 3 s) and runs on
+  to the next listed play that can play, loading the next game's file, until
+  the last. Add clips' seek and run-on, with its queue replaced by the listed
+  rows. Add clips itself is unchanged.
+- **Collecting** is the game view's (`useCollect` with a `CollectScope`: the
+  team's games, the target remembered per team as `team:competition:team`, no
+  way back from the editor, surface `team_plays`). Labels are read for all the
+  games at once (`useClipLabels` takes several games).
+- **Keys** (scope `team-plays`, only while Plays shows): Space, J K L, ← →, R;
+  ↑ ↓ the previous or next play that can play; A add; G label; ⇧G the label
+  used last; ⌥1–⌥9 a label's key; ⌘-click and Shift-click select, ⌘A every
+  listed play, Esc lets go. A click on a play takes the keyboard from the
+  toolbar's switch, whose arrows would otherwise move between its options.
+- **With none of the team's games**, Plays offers their latest importable
+  game ("Import their latest game: at Beta, 22 Nov").
+- Plays is mounted the first time it shows and kept: switching back and forth
+  keeps each view's scroll and Plays' filters, and nothing plays while Season
+  shows. The views cross-fade (150 ms; none with reduced motion).
+
 ## Data
 
 Two answers of the `genius` function, both already cached server-side, read
@@ -106,15 +173,22 @@ migration and no new Genius calls.
 
 `team_page_viewed` (league, season, games, library_games, keys, own_team,
 from), `team_page_action` (open_game, import, open_team, show_all_players,
-show_all_games), `teams_league_changed`, and `search_result_opened` with kind
-`team`.
+show_all_games, watch_all, watch_key with `key`, watch_shots with `zone`,
+watch_player), `team_plays_viewed` (games, plays, from: switch, watch_all,
+key, shots, player; side), `teams_league_changed`, and
+`search_result_opened` with kind `team`. Collecting from Plays sends the game
+view's events with surface `team_plays`.
 
 ## Checking it
 
 - `packages/shared`: `npm test` (`league-season`, `team-keys`, `team-schedule`,
-  `team-players`, `team-copy`, `teams-league`, `league-players-db`).
+  `team-players`, `team-copy`, `teams-league`, `league-players-db`,
+  `team-video`).
 - Headless: `P-teams` runs on a made-up league (`headless/team-league.ts`,
   answered by `mockLeague`), plus `K-search`, `F-go-keys` and `O-game-stats`.
+  The Plays tests map the test account's first Library game onto Alfa and
+  answer its reads with the test video (`patchGameReads` `videoUrl`); nothing
+  is written to the account but the playlist they make and delete.
 - Live on staging: Basketettan Herr shows Norra and Södra; SBL Herr's order by
   Scores and Allows should mostly follow Off Rat and Def Rat on Genius's hosted
   team statistics page (the values differ: Genius counts possessions its own
