@@ -38,6 +38,10 @@ export interface GeniusFixture {
   /** Empty string means the match has no play-by-play upstream. */
   statsSource: string;
   venueName: string;
+  /** The group the game is played in ("Norra", "Södra"; the league's own name when it is one table). Absent from functions before the team page. */
+  phaseName?: string;
+  /** The group's number, the same as the standings' poolNumber. */
+  poolNumber?: number | null;
   competitors: Array<{
     teamId: number;
     teamName: string;

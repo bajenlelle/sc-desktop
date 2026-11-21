@@ -670,6 +670,9 @@ function trimFixture(m: Json): Json {
     matchType: m.matchType ?? "",
     statsSource: m.statsSource ?? "",
     venueName: m.venue?.venueName ?? "",
+    // The group a league is played in (Basketettan: Norra, Södra): the team page's tables.
+    phaseName: m.phaseName ?? "",
+    poolNumber: m.poolNumber ?? null,
     competitors: (m.competitors ?? []).map((c: Json) => ({
       teamId: c.teamId,
       teamName: c.teamName ?? "",
