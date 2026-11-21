@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import * as sidebarFs from "node:fs";
 import { test as base, expect, webkit, type Locator, type Page, type Request, type Route } from "@playwright/test";
 import { loadEnv } from "vite";
+import type { GeniusFixture } from "@scoutable/shared/lib/genius";
 import type { SeasonPayload } from "@scoutable/shared/lib/season-payload";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1064,6 +1065,42 @@ export async function mockSeason(page: Page, answer: (matchId: number) => Season
     if (result === "unknown") return route.fulfill({ status: 400, json: { error: "unknown_action" } });
     return route.fulfill({ status: 200, json: result });
   });
+}
+
+/**
+ * Answers the genius function's `season` and `fixtures` actions (the Teams
+ * pages and the game's Stats view) from `answer`, and fails its `match` action
+ * for a made-up game (id 9,000,001 and up), so the import page never asks
+ * Genius for one. "fail" answers as an upstream failure does, "unknown" as a
+ * function that predates the season action. Call before the first navigation;
+ * a second call replaces the first.
+ */
+export async function mockLeague(
+  page: Page,
+  answer: { season: SeasonPayload | "fail" | "unknown"; fixtures: GeniusFixture[] | "fail" },
+): Promise<void> {
+  await page.unroute("**/functions/v1/genius");
+  await page.route("**/functions/v1/genius", async (route) => {
+    const body = route.request().postDataJSON() as { action?: string; matchId?: number | string } | null;
+    if (body?.action === "season") {
+      if (answer.season === "fail") return route.fulfill({ status: 502, json: { error: "upstream_failed" } });
+      if (answer.season === "unknown") return route.fulfill({ status: 400, json: { error: "unknown_action" } });
+      return route.fulfill({ status: 200, json: answer.season });
+    }
+    if (body?.action === "fixtures") {
+      if (answer.fixtures === "fail") return route.fulfill({ status: 502, json: { error: "upstream_failed" } });
+      return route.fulfill({ status: 200, json: { fixtures: answer.fixtures } });
+    }
+    if (body?.action === "match" && Number(body.matchId) >= 9_000_001) {
+      return route.fulfill({ status: 502, json: { error: "upstream_failed" } });
+    }
+    return route.fallback();
+  });
+}
+
+/** Answers the read of a team's roster (league_player_teams) with `rows`. */
+export async function mockRoster(page: Page, rows: { source_person_id: string; shirt_number: string | null }[]): Promise<void> {
+  await page.route("**/rest/v1/league_player_teams*", (route) => route.fulfill({ status: 200, json: rows }));
 }
 
 /** Holds the page's reads of plays back by `ms` until the returned function is called. */

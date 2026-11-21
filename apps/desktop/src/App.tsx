@@ -14,6 +14,7 @@ import { RootLayout } from "@/components/root-layout";
 import { HomePage } from "@/pages/home";
 import { MatchesPage } from "@/pages/matches";
 import { ReportsPage } from "@/pages/reports";
+import { TeamsPage } from "@/pages/teams";
 import { GamePage } from "@/pages/game";
 import { UploadPage } from "@/pages/upload";
 import { PlaylistsPage } from "@/pages/playlists";
@@ -240,6 +241,7 @@ export default function App() {
             <Route element={<RootLayout />}>
               <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />
+              <Route path="/teams" element={<ProtectedRoute><TeamsPage /></ProtectedRoute>} />
               <Route
                 path="/matches"
                 element={
