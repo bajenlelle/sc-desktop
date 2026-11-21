@@ -5,7 +5,7 @@ import { FACTOR_KEYS, factorsOf } from "../game-box";
 import { GAP_SWINGS, MIN_GAP_GAMES, geniusTotals, realGap, seasonContext, seasonGaps, seasonMatchOf } from "../season-context";
 import type { SeasonPayload, SeasonStanding, TeamGame } from "../season-payload";
 import sblHerr from "./fixtures/season-sbl-herr.json";
-import { g, hasNaN, payload, tg } from "./helpers/season";
+import { g, hasNaN, payload, st as inGroup, tg } from "./helpers/season";
 
 const totals = (t: TeamGame) => geniusTotals(t);
 const sum = (...ts: TeamGame[]) => {
@@ -110,6 +110,19 @@ describe("seasonContext", () => {
 
   it("takes Genius's rebounds as they are: dead-ball rebounds are outside them, as in our plays", () => {
     expect(geniusTotals(tg(1, { oreb: 11, orebDeadball: 6, dreb: 22 }))).toMatchObject({ oreb: 11, dreb: 22 });
+  });
+
+  it("places a team among its own group only", () => {
+    const two = [inGroup(1, 10), inGroup(2, 10, 2), inGroup(3, 20), inGroup(4, 20, 2)];
+    const p = payload(
+      [g(100, tg(1), tg(2)), g(101, tg(1, { pts: 70 }), tg(2, { pts: 90 })), g(200, tg(3, { pts: 120 }), tg(4, { pts: 110 }))],
+      two,
+    );
+    const c = seasonContext(p, 100)!;
+    expect(c.away.ranks.ppp).toBe(1); // team 2 leads its group; teams 3 and 4 score more, in another
+    expect(c.home.ranks.ppp).toBe(2);
+    expect(c.home.of).toBe(2);
+    expect(c.teams).toBe(4);
   });
 });
 

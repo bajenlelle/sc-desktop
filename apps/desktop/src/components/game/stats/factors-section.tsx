@@ -121,7 +121,7 @@ export function FactorsSection({
               const allowed = opp.allowed[f.key];
               const hover = (
                 <>
-                  <span className="block">{seasonHoverLine(f.key, value, t.games, t.ranks[f.key], ctx.teams, ctx.regular)}</span>
+                  <span className="block">{seasonHoverLine(f.key, value, t.games, t.ranks[f.key], t.of, ctx.regular)}</span>
                   {allowed !== null && <span className="block">{allowedLine(f.key, s === "home" ? away : home, allowed)}</span>}
                 </>
               );

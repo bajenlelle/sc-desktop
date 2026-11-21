@@ -40,8 +40,10 @@ export interface TeamSeason {
   allowed: TeamFactors;
   /** Points from the paint, second chance, fast break, turnovers and bench, a game. */
   perGame: Record<PointsFrom, number | null>;
-  /** 1 = best in the competition. */
+  /** 1 = best in its group (the standings' poolNumber): the whole competition when it is one table. */
   ranks: Record<FactorKey, number | null>;
+  /** Teams of its group with a counted game: what its ranks are "of". */
+  of: number;
   standing: TeamStanding | null;
 }
 
@@ -173,7 +175,10 @@ export function seasonContext(payload: SeasonPayload, matchId: number): SeasonCo
   const rankedOn = new Map<number, TeamFactors>();
   for (const [teamId, sides] of byTeam) rankedOn.set(teamId, seasonFactors(tonightIds.has(teamId) ? others(teamId) : sides).factors);
   for (const teamId of tonightIds) if (!rankedOn.has(teamId)) rankedOn.set(teamId, { ...NONE });
-  const competitors = [...byTeam.keys()].map((id) => rankedOn.get(id)!);
+  // A team is placed among its own group's teams; without standings every team is in one group.
+  const groupOf = (teamId: number) => standingRowOf(payload, teamId)?.poolNumber ?? null;
+  const competitorsOf = (teamId: number) =>
+    [...byTeam.keys()].filter((id) => groupOf(id) === groupOf(teamId)).map((id) => rankedOn.get(id)!);
 
   const standingOf = (teamId: number): TeamStanding | null => {
     const row = standingRowOf(payload, teamId);
@@ -183,6 +188,7 @@ export function seasonContext(payload: SeasonPayload, matchId: number): SeasonCo
   const team = (teamId: number): TeamSeason => {
     const sides = others(teamId);
     const own = rankedOn.get(teamId)!;
+    const competitors = competitorsOf(teamId);
     const ranks = {} as Record<FactorKey, number | null>;
     for (const k of FACTOR_KEYS) ranks[k] = rankOf(k, own[k], competitors.map((f) => f[k]));
     return {
@@ -191,6 +197,7 @@ export function seasonContext(payload: SeasonPayload, matchId: number): SeasonCo
       ...seasonFactors(sides),
       perGame: perGame(sides),
       ranks,
+      of: competitors.length,
       standing: standingOf(teamId),
     };
   };
