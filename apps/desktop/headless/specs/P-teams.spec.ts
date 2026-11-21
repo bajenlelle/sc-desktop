@@ -241,3 +241,33 @@ test("a failed read and an older function say so", async ({ page }) => {
   await page.reload();
   await expect(page.getByText("This league has no team statistics.")).toBeVisible({ timeout: 30_000 });
 });
+
+/** Teams in the sidebar's page, then a team's row. */
+async function openTeam(page: Page, name: string): Promise<void> {
+  await page.goto("/teams");
+  await page.getByRole("link", { name, exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name })).toBeVisible({ timeout: 30_000 });
+}
+
+test("Season shows the coach's games beside the keys and opens their plays", async ({ page, browserName }) => {
+  const mine = await aLibraryGame(page);
+  await mockLeague(page, madeUpLeague({ libraryGame: mine.sourceGameId }));
+  await openTeam(page, "Alfa");
+  await expect(page.getByRole("button", { name: /^Watch all \d+ plays$/ })).toBeVisible({ timeout: 30_000 });
+  // Alfa's one key is its threes: the line under it counts them in the coach's one game.
+  const keys = page.getByRole("region", { name: "What stands out" });
+  await expect(keys.getByText(/^In your game: \d+ of \d+ threes$/)).toBeVisible();
+  await expect(keys.getByRole("button", { name: "Watch" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Their shots in your games" })).toBeVisible();
+  await shot(page, `${browserName}-P-team-season-video`);
+});
+
+test("a team with none of your games shows no video lines", async ({ page }) => {
+  await mockLeague(page, madeUpLeague());
+  await openTeam(page, "Beta");
+  await expect(page.getByRole("region", { name: "What stands out" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("region", { name: "Games" })).toBeVisible();
+  await expect(page.getByText(/^In your/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Watch all/ })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Their shots in your games" })).toHaveCount(0);
+});
