@@ -329,6 +329,30 @@ git commit -m "desktop: retire Home; open where the coach left off, New playlist
 
 ---
 
+### Task 6b: Library becomes Games
+
+**Files:**
+- Modify (labels and copy): `apps/desktop/src/components/shell/sidebar.tsx`, `apps/desktop/src/pages/matches.tsx` (title), `apps/desktop/src/pages/match-detail.tsx` ("Back to Library"), `apps/desktop/src/components/match-row.tsx` ("Bring back to Library"), `apps/desktop/src/components/game/game-tab-picker.tsx`, `apps/desktop/src/components/game/game-toolbar-parts.tsx`, `apps/desktop/src/components/game/use-collect.ts`, `apps/desktop/src/components/editor/clip-browser-panel.tsx`, `apps/desktop/src/components/send-to-phone-dialog.tsx`, `apps/desktop/src/lib/clip-and-ship.ts`, `apps/desktop/src/lib/export.ts`, `apps/desktop/src/pages/playlists.tsx` (~5632), `apps/desktop/src-tauri/src/menu.rs` (Go item label), `apps/desktop/src-tauri/src/lib.rs:212`, `packages/shared/lib/team-copy.ts:22-24` (+ its test)
+- Modify: every headless spec and helper that finds the page by the name "Library" (`git grep -l Library apps/desktop/headless`)
+- Docs: `CLAUDE.md`, `docs/*.md` where "Library" names the page
+
+**Interfaces:** none new. `/matches`, `go-library`, `useLibraryGames` and other identifiers keep their names. `goViaSidebar`'s link type changes `"Library"` → `"Games"`.
+
+- [ ] **Step 1: Find every user-facing "Library".** Run `git grep -n -i library -- apps/desktop/src apps/desktop/src-tauri/src packages/shared/lib`. List each user-facing string, leaving out identifiers and comments.
+- [ ] **Step 2: Rewrite them.** Invoke the `copywriting` skill, then rewrite each string to read naturally with the page called "Games". For example: "Open the game in the Library to relink it" → "Open the game to relink its video"; "Bring back to Library" → "Bring back to Games"; "No games in the Library yet." → "No games yet."; the Teams line "3 in your library" → "3 imported". Change one line in `team-copy.ts` and update its test expectation.
+- [ ] **Step 3: Labels.** Change the sidebar row label, the `matches.tsx` toolbar title, and the `menu.rs` Go item to "Games".
+- [ ] **Step 4: Specs.** Update `helpers.ts` (`goViaSidebar` type and mapping; any `/^(…|Library)$/` title) and each spec that names the page or row "Library".
+- [ ] **Step 5: Docs.** In `CLAUDE.md` and in `docs/` files where "Library" names the desktop page, write "Games". Leave history alone (old specs and plans).
+- [ ] **Step 6: Verify.** Run `git grep -n '"Library"' -- apps/desktop/src apps/desktop/src-tauri/src` (expected: nothing user-facing left), `npm test` in `packages/shared`, `npx tsc --noEmit` in `apps/desktop`, `cargo test` in `src-tauri`, and `HEADLESS_PORT=1437 npm run headless -- F-go-keys F-sidebar-import E-task18-archive I-game-tabs K-search L-start-page`. All pass.
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A apps/desktop packages/shared CLAUDE.md docs
+git commit -m "desktop: the Library is called Games"
+```
+
+---
+
 ### Task 7: Whole-suite check
 
 **Files:** whatever specs the run shows are disturbed by reopening (Review Focus 5).

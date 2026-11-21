@@ -349,6 +349,29 @@ Existing accounts were backfilled as dismissed, so only new signups see it.
 - Order of commits. It should be releasable at every commit, so the
   sidebar and keys change in the same commit that removes the row.
 
+## Library becomes Games (added 2026-11-21)
+
+Leonard asked during the build whether "Games" makes more sense than
+"Library", now that Teams and Reports also hold things a coach collects.
+It does: a nav label should name what the page holds, and "Library" is
+an umbrella. The page lists the coach's imported games, the sidebar
+already has **Open games** under it and **Import game** below it, and
+the Go menu's other items are named for their contents.
+
+- User-facing only: the sidebar row, the page title, the Go menu item
+  ("Games"), and every string that sends the coach "to the Library"
+  (relink hints, export errors, the archive button "Bring back to
+  Library", "Back to Library", the game picker's empty line, the Teams
+  coverage line "in your library"). Each string is rewritten to read
+  naturally rather than swapped word for word, through the copywriting
+  skill.
+- Unchanged: the route `/matches`, the menu id `go-library`,
+  `useLibraryGames`, and other identifiers. Renaming them would only
+  churn diffs.
+- `packages/shared/lib/team-copy.ts` is also touched by the Teams work on
+  `feat/team-plays`. Keep that change to one line.
+- Docs and CLAUDE.md that name the page "Library" follow.
+
 ## Decided in review (2026-11-21)
 
 - Playlists reopens the last-opened playlist whenever it opens without one
