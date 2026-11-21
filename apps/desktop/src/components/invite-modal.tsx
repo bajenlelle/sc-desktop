@@ -334,7 +334,7 @@ export function InviteModal({
   })();
 
   const rolePopUp = (id: string) => (
-    <PopUpButton id={id} aria-label="Role" value={selectedRole} onValueChange={setSelectedRole} options={roleOptions} />
+    <PopUpButton variant="field" id={id} aria-label="Role" value={selectedRole} onValueChange={setSelectedRole} options={roleOptions} />
   );
 
   return (
@@ -354,6 +354,7 @@ export function InviteModal({
                   </FormRow>
                   <FormRow label="Expires after" htmlFor="invite-link-expiry">
                     <PopUpButton
+                      variant="field"
                       id="invite-link-expiry"
                       aria-label="Expires after"
                       value={
@@ -408,6 +409,7 @@ export function InviteModal({
                   {orgTeams.length > 0 && (
                     <FormRow label="Team" htmlFor="invite-team">
                       <PopUpButton
+                        variant="field"
                         id="invite-team"
                         aria-label="Team"
                         value={selectedTeamId ?? NO_TEAM}

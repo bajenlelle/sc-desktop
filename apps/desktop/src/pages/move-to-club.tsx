@@ -289,6 +289,7 @@ export function MoveToClubPage() {
                   trailing={
                     clubs.length > 1 ? (
                       <PopUpButton
+                        variant="field"
                         aria-label="Club"
                         value={clubId}
                         onValueChange={(v) => {

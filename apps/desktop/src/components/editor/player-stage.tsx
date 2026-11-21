@@ -497,7 +497,7 @@ export function PlayerStage({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-8 shrink-0 bg-black/40 text-white ring-white/25 hover:bg-black/60 hover:text-white"
+                  className="h-8 shrink-0 bg-black/40 text-white ring-1 ring-white/25 hover:bg-black/60 hover:text-white"
                   onClick={onExitFullscreen}
                 >
                   <Minimize2 />

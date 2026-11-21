@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FilterButton } from "@/components/ui/filter-button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -29,23 +30,9 @@ const CHOICE = "focus:bg-fill-2 focus:text-foreground active:bg-fill-3";
 export function TriggerButton({
   label,
   active,
-  className,
   ...props
 }: React.ComponentProps<"button"> & { label: string; active: boolean }) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "flex h-9 min-w-[130px] items-center justify-between gap-2 rounded-md bg-card px-3 text-sm shadow-xs ring-1 ring-separator outline-none transition-[background-color,transform] duration-150 hover:bg-fill-1 active:scale-[0.98] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection data-[state=open]:bg-fill-2",
-        active ? "text-foreground" : "text-muted-foreground",
-        className
-      )}
-      {...props}
-    >
-      <span className="truncate">{label}</span>
-      <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-    </button>
-  );
+  return <FilterButton label={label} active={active} {...props} />;
 }
 
 export function SingleSelectDropdown({

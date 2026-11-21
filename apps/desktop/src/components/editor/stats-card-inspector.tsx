@@ -249,6 +249,7 @@ export function StatsCardInspector({
         <span className="text-callout text-muted-foreground">{embedded ? "Show" : "Stats card"}</span>
         {!embedded && (
           <PopUpButton
+            variant="field"
             size="sm"
             aria-label="Player"
             value={personId}
@@ -275,6 +276,7 @@ export function StatsCardInspector({
         )}
         {spec.scope === "game" ? (
           <PopUpButton
+            variant="field"
             size="sm"
             aria-label="Game"
             value={spec.game.matchId}
@@ -287,6 +289,7 @@ export function StatsCardInspector({
           />
         ) : (
           <PopUpButton
+            variant="field"
             size="sm"
             aria-label="Season"
             value={String(spec.season.competitionId)}

@@ -20,8 +20,10 @@ const buttonVariants = cva(
           "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 disabled:hover:bg-primary [&_svg]:stroke-2",
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 active:bg-destructive/80 disabled:hover:bg-destructive [&_svg]:stroke-2",
+        // The second button of a pair: a soft fill, no ring or shadow, so the
+        // primary action is the only one with an edge of colour.
         outline:
-          "bg-card text-foreground shadow-xs ring-1 ring-separator hover:bg-fill-1 active:bg-fill-3 disabled:hover:bg-card",
+          "bg-fill-2 text-foreground hover:bg-fill-3 active:bg-fill-4 disabled:hover:bg-fill-2",
         secondary:
           "bg-fill-2 text-foreground hover:bg-fill-3 active:bg-fill-4 disabled:hover:bg-fill-2",
         ghost: "text-foreground hover:bg-fill-1 active:bg-fill-3 disabled:hover:bg-transparent",

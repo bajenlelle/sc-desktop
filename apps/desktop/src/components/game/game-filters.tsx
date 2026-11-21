@@ -12,6 +12,7 @@ import type { GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFilterCount, type GameFilters } from "@scoutable/shared/lib/game-list";
 import type { Label } from "@scoutable/shared/types/labels";
 import { Button } from "@/components/ui/button";
+import { quietControl, quietState } from "@/components/ui/filter-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollRow } from "@/components/ui/scroll-row";
 import { SearchField } from "@/components/ui/search-field";
@@ -68,7 +69,7 @@ function Chip({
       onClick={onClick}
       className={cn(
         "flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium whitespace-nowrap outline-none transition-[background-color,color,transform] duration-100 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:opacity-40 disabled:active:scale-100",
-        pressed ? "bg-fill-3 text-foreground ring-1 ring-separator-strong hover:bg-fill-4" : "bg-card text-foreground ring-1 ring-separator hover:bg-fill-1 active:bg-fill-2",
+        pressed ? "bg-fill-3 text-foreground hover:bg-fill-4" : "bg-fill-1 text-foreground hover:bg-fill-2 active:bg-fill-3",
         className,
       )}
     >
@@ -165,12 +166,7 @@ export function GameFilterBar({
             <button
               type="button"
               aria-label={sheetCount > 0 ? `Filters, ${sheetCount} on` : "Filters"}
-              className={cn(
-                "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium outline-none transition-[background-color,transform] duration-100 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-selection",
-                sheetCount > 0
-                  ? "bg-fill-3 text-foreground ring-1 ring-separator-strong hover:bg-fill-4"
-                  : "bg-card text-foreground shadow-xs ring-1 ring-separator hover:bg-fill-1 data-[state=open]:bg-fill-2",
-              )}
+              className={cn(quietControl, quietState(sheetCount > 0), "text-xs font-medium [&_svg]:size-3.5")}
             >
               <ListFilter className="size-3.5" />
               Filter

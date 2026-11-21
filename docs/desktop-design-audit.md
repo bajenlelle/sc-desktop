@@ -310,3 +310,7 @@ Export and the Clips | Report switch show their icons only, their labels as tool
 (`ToolbarAction`, `useToolbarCompact`). The title fills the room between the leading items and the actions, so the
 actions stay put on the right whatever the title's length; beside a subtitle of parts (the editor's count and its
 game) the title takes at most two thirds, and the game's name keeps a few letters to click.
+
+## Buttons and filters (2026-11-21)
+
+Controls that sit on a bar are quiet, after Notion's search filters: no fill, ring or shadow at rest, a neutral fill (`fill-2`) on hover, while their menu is open and while a filter is on, and a width that is their label's (`components/ui/filter-button.tsx`: `FilterButton`, and `quietControl` for triggers with their own markup). Every filter dropdown, the presets and game pickers, Leaders, the game view's Filter button and the choice menus of toolbars (`PopUpButton`, default `variant="quiet"`) use it. Filter chips are a fill at rest and a darker fill when pressed, with no ring. Borders stay where something is typed into or set in a form: text and search fields, the colour and date pickers, and `PopUpButton variant="field"` in dialogs and settings rows. The second button of a pair (`variant="outline"`) is a soft fill with no ring or shadow; the accent stays on the primary action.
