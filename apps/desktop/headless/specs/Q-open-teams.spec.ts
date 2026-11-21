@@ -19,7 +19,9 @@ const teamsLink = (page: Page) => page.getByRole("navigation", { name: "Main" })
 async function openTeam(page: Page, name: string) {
   if (page.url().startsWith("http")) await teamsLink(page).click();
   else await page.goto("/teams");
-  await page.getByRole("main").getByRole("link", { name, exact: true }).click();
+  // The page being left is on screen until the league's has drawn: one heading, the league's, first.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Teams", { timeout: 30_000 });
+  await page.getByRole("table").getByRole("link", { name, exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name })).toBeVisible({ timeout: 30_000 });
 }
 
