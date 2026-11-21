@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
+import { announcePlaylistsChanged } from "@/lib/playlist-events";
 import { afterSyncChange, CLIPS_PATCHED_EVENT, isSyncRefreshRunning, type ClipPatch } from "@/lib/sync-change";
 import { describeShift, SyncFixPanel } from "@/components/editor/sync-fix-sheet";
 import { joinNames, quartersMoved, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
@@ -3382,6 +3383,7 @@ export function PlaylistsPage() {
     newItems.splice(itemsInsertIndex, 0, newClip);
     const target = selected;
     trackEvent("clip_added_to_playlist", { playlist_id: target.id, match_id: matchId });
+    announcePlaylistsChanged();
     // Shipping is armed once the row exists, so updateClipR2Url has something to patch.
     void commitItemsEdit(target, newItems, "Add clip").then((ok) => {
       if (ok) queuePendingShip(target);
@@ -3454,6 +3456,7 @@ export function PlaylistsPage() {
       clipAddInFlightRef.current.delete(inFlightKey);
     }
     trackEvent('clip_added_to_playlist', { playlist_id: targetPlaylistId, match_id: matchId })
+    announcePlaylistsChanged();
     // Derived from prev, not a pre-await snapshot: a concurrent add to the same
     // playlist would otherwise be dropped from optimistic state.
     const appendClip = (items: PlaylistItem[]): PlaylistItem[] =>
@@ -3664,6 +3667,7 @@ export function PlaylistsPage() {
     setSelected((prev) => (prev ? { ...prev, teamIds, teamId: teamIds[0], userIds } : prev));
     if (newlyAddedTeams.length + newlyAddedUsers.length > 0) {
       trackEvent("playlist_shared", { team_count: newlyAddedTeams.length, user_count: newlyAddedUsers.length });
+      announcePlaylistsChanged();
     }
   }
 
@@ -4156,6 +4160,7 @@ export function PlaylistsPage() {
       try {
         const created = await createPlaylist(name, folderId, activeOrgId ?? undefined);
         trackEvent('playlist_created', { playlist_id: created.id, in_folder: !!folderId })
+        announcePlaylistsChanged();
         setPlaylists((prev) => prev.map((p) => (p.id === playlistId ? created : p)));
         selectPlaylist(created);
       } catch (err) {
@@ -4784,6 +4789,7 @@ export function PlaylistsPage() {
     newClips.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: pl.id, match_id: clip.matchId })
     })
+    if (newClips.length > 0) announcePlaylistsChanged();
     // Clips added to an already-shared playlist must ship immediately —
     // recipients can't see unshipped clips at all, and nothing else would
     // ever upload them (sharing only ships toward NEW recipients). Armed
@@ -5080,6 +5086,7 @@ export function PlaylistsPage() {
     setAnchorKey(keys[0]);
     const noun = `${pasted.length} item${pasted.length !== 1 ? "s" : ""}`;
     pasted.filter(isClipItem).forEach((c) => trackEvent("clip_added_to_playlist", { playlist_id: pl.id, match_id: c.matchId }));
+    if (pasted.some(isClipItem)) announcePlaylistsChanged();
     void commitItemsEdit(pl, items, `Paste ${noun}`, `${noun} pasted`).then((ok) => {
       if (ok && pasted.some(isClipItem)) queuePendingShip({ ...pl, items });
     });
@@ -5097,6 +5104,7 @@ export function PlaylistsPage() {
     toAdd.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: target.id, match_id: clip.matchId })
     })
+    if (toAdd.length > 0) announcePlaylistsChanged();
     // Append onto whatever the row holds now rather than a pre-await snapshot,
     // and skip clips a concurrent add already landed — mirrors the insert's
     // own on-conflict-do-nothing so optimistic state can't drift from the DB.
@@ -5120,6 +5128,7 @@ export function PlaylistsPage() {
   async function handleCreatePlaylistAndAdd(name: string) {
     const created = await createPlaylist(name, selected?.folderId, activeOrgId ?? undefined);
     trackEvent('playlist_created', { playlist_id: created.id, in_folder: !!selected?.folderId })
+    announcePlaylistsChanged();
     // Prepend before adding: both updates are functional, so the add handler's
     // map below sees the new playlist and its items update isn't lost.
     setPlaylists((prev) => [created, ...prev]);

@@ -28,6 +28,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
 import { trackEvent } from "@/lib/analytics";
+import { announcePlaylistsChanged } from "@/lib/playlist-events";
 import {
   getMyTeamPlaylists,
   getMyDirectPlaylists,
@@ -357,7 +358,10 @@ export function MyPlaylistsPage() {
     const before = { teams: new Set(target.teamIds ?? []), users: new Set(target.userIds ?? []) };
     const addedTeams = teamIds.filter((id) => !before.teams.has(id)).length;
     const addedUsers = userIds.filter((id) => !before.users.has(id)).length;
-    if (addedTeams + addedUsers > 0) trackEvent("playlist_shared", { team_count: addedTeams, user_count: addedUsers });
+    if (addedTeams + addedUsers > 0) {
+      trackEvent("playlist_shared", { team_count: addedTeams, user_count: addedUsers });
+      announcePlaylistsChanged();
+    }
     setPlaylists((prev) => prev.map((p) => (p.id === target.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p)));
     // The dashboard derives its recipient rows from this state, so the
     // entry carries teamShares/userShares too (unknown timestamps are null).

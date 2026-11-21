@@ -7,6 +7,7 @@ import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
 import { isClipItem, type Playlist, type PlaylistClipItem, type PlaylistItem, type StoredMatch } from "@/types/match";
 import { trackEvent } from "@/lib/analytics";
+import { announcePlaylistsChanged } from "@/lib/playlist-events";
 import { listEventsForMatches, listMatchesByIds } from "@/lib/matches-db";
 import { appendClips, createPlaylist, listPlaylists, writePlaylistItems } from "@/lib/playlists-db";
 import { getCollectTarget, setAddClipsScope, setCollectTarget } from "@/lib/prefs";
@@ -367,6 +368,7 @@ export function useCollect({
               to_target: toTarget,
             });
           }
+          if (added.length > 0) announcePlaylistsChanged();
           // The editor's Add clips starts on this game next time.
           setAddClipsScope(playlist.id, { gameIds: [match.id], teams: [] });
         } catch (e) {
@@ -451,6 +453,7 @@ export function useCollect({
     async (name: string) => {
       const created = await createPlaylist(name, undefined, orgId ?? undefined);
       trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: "game_view" });
+      announcePlaylistsChanged();
       saved.current.set(created.id, []);
       addCreated(created);
       chooseTarget(created, "new");
@@ -463,6 +466,7 @@ export function useCollect({
     async (name: string, plays: readonly TimedPlay[], via: CollectVia, moment: string | null) => {
       const created = await createPlaylist(name, undefined, orgId ?? undefined);
       trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: "game_view" });
+      announcePlaylistsChanged();
       saved.current.set(created.id, []);
       addCreated(created);
       addToPlaylist(created, plays, via, moment, false);
