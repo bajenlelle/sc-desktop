@@ -8,10 +8,10 @@ import { expect, goViaSidebar, test } from "../helpers";
 test.use({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36" });
 
 test("Ctrl with a number opens that row of the sidebar, and a number past the last row does nothing", async ({ page }) => {
-  await goViaSidebar(page, "Library");
+  await goViaSidebar(page, "Games");
   const nav = page.getByRole("navigation", { name: "Main" });
   const current = nav.locator('a[aria-current="page"]');
-  await expect(current).toHaveText("Library", { timeout: 30_000 });
+  await expect(current).toHaveText("Games", { timeout: 30_000 });
   const rows = await nav.getByRole("link").allTextContents();
   expect(rows.length, "the sidebar lists the coach's pages").toBeGreaterThanOrEqual(4);
 

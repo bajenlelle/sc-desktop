@@ -200,8 +200,8 @@ test("coming back to Playlists within a session, Add clips lists its plays", asy
   await sheet.getByRole("button", { name: "Close", exact: true }).click();
   await expect(sheet).toBeHidden();
 
-  await goViaSidebar(page, "Library");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible({ timeout: 30_000 });
   await goViaSidebar(page, "Playlists");
   const row = page.locator(`[data-playlist-id="${playlistId}"]`).first();
   await expect(row, "the spec's playlist is listed").toBeVisible({ timeout: 30_000 });

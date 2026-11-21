@@ -209,7 +209,7 @@ fn assert_rendered_output(path: &std::path::Path, what: &str) -> Result<(), Stri
     if size < MIN_RENDERED_OUTPUT_BYTES {
         return Err(format!(
             "{what} rendered empty — its time range is probably outside the source video. \
-             The video linked to this game may be the wrong file (open it in the Library \
+             The video linked to this game may be the wrong file (open the game \
              and locate the right one), or its sync point may be off."
         ));
     }

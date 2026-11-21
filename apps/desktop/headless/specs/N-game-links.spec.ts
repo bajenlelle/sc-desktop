@@ -31,7 +31,7 @@ test("the editor names its game, a clip shows in its game at its play, and the g
   await expect(page).toHaveURL(new RegExp(`/matches/${matchId}$`));
   const back = header.getByRole("button", { name: NAME, exact: true });
   await expect(back, "the game's back button names the playlist").toBeVisible({ timeout: 30_000 });
-  await expect(header.getByRole("button", { name: "Library", exact: true }), "instead of the Library").toHaveCount(0);
+  await expect(header.getByRole("button", { name: "Games", exact: true }), "instead of Games").toHaveCount(0);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(gameTitle);
   await shot(page, name("game-from-playlist"));
 
@@ -65,5 +65,5 @@ test("the editor names its game, a clip shows in its game at its play, and the g
   // Opened from the Library instead, the game's way back is the Library's again.
   await page.goto("/matches");
   await page.locator(`main a[href="/matches/${matchId}"]`).click();
-  await expect(header.getByRole("button", { name: "Library", exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(header.getByRole("button", { name: "Games", exact: true })).toBeVisible({ timeout: 30_000 });
 });

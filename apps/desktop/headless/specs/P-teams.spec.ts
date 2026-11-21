@@ -113,7 +113,7 @@ test("a team the season doesn't list says so", async ({ page }) => {
 /** One of the test account's own Genius games, in the space the app opens on. */
 async function aLibraryGame(page: Page): Promise<{ id: string; sourceGameId: number; title: string }> {
   await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible({ timeout: 30_000 });
   const game = await withAppModule<null, { id: string; sourceGameId: number; title: string } | null>(
     page,
     "/src/lib/supabase/client.ts",

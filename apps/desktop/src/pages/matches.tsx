@@ -152,7 +152,7 @@ export function MatchesPage() {
   return (
     <Page>
       <Toolbar
-        title="Library"
+        title="Games"
         subtitle={!loading && matches.length > 0 ? `${active.length} games` : undefined}
         search={
           !loading && matches.length > 0 ? (

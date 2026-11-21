@@ -65,7 +65,7 @@ test("the open games are sidebar rows, the game on screen selected, with no tab 
   await expect(heading(page)).toHaveText(g0.title);
   await expect(rows(page), "one game is one row").toHaveCount(1);
   await expect(row(page, g0.title)).toHaveAttribute("aria-current", "page");
-  await expect(mainNav(page).getByRole("link", { name: "Library", exact: true }), "the game's row is selected, not the Library").not.toHaveAttribute("aria-current", "page");
+  await expect(mainNav(page).getByRole("link", { name: "Games", exact: true }), "the game's row is selected, not Games").not.toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("tablist"), "no tab bar over the game").toHaveCount(0);
   // The game on screen is the only one: there is no game to give the page to, so nothing closes it.
   await row(page, g0.title).hover();
@@ -136,9 +136,9 @@ test("⌃Tab steps through the open games on the game page, and from another pag
   await expect(heading(page)).toHaveText(g1.title, { timeout: 10_000 });
 });
 
-test("the + opens a picker of the Library's games: a new one opens as a new row, an open one goes to it", async ({ page, browserName }) => {
+test("the + opens a picker of the games: a new one opens as a new row, an open one goes to it", async ({ page, browserName }) => {
   const [g0, g1] = await openGames(page, 2);
-  await page.locator("header").getByRole("button", { name: "Library", exact: true }).click();
+  await page.locator("header").getByRole("button", { name: "Games", exact: true }).click();
   const third = page.locator('main a[href^="/matches/"]').nth(2);
   await expect(third).toBeVisible({ timeout: 30_000 });
   const g2: Game = { id: (await third.getAttribute("href"))!.replace("/matches/", ""), title: (await third.locator("span").first().innerText()).trim() };
@@ -195,7 +195,7 @@ test("a row dragged past its neighbour changes places with it, and the order sta
   await drag(g2, g1, -12);
   await expect.poll(() => titles(page), { message: "the last row is now the first" }).toEqual([g2.title, g1.title, g0.title]);
 
-  await goViaSidebar(page, "Library");
+  await goViaSidebar(page, "Games");
   expect(await titles(page), "the order after leaving the games").toEqual([g2.title, g1.title, g0.title]);
 });
 
@@ -234,9 +234,9 @@ test.describe("where there is no menu bar", () => {
   });
 });
 
-test("the Library marks the games that are open, from one", async ({ page, browserName }) => {
+test("Games marks the games that are open, from one", async ({ page, browserName }) => {
   const [g0] = await openGames(page, 1);
-  await page.locator("header").getByRole("button", { name: "Library", exact: true }).click();
+  await page.locator("header").getByRole("button", { name: "Games", exact: true }).click();
   await expect(libraryRow(page, g0.id).getByText("Open", { exact: true }), "one open game is marked").toBeVisible({ timeout: 30_000 });
   const other = page.locator('main a[href^="/matches/"]').nth(1);
   await expect(other.getByText("Open", { exact: true }), "a game not open isn't").toHaveCount(0);

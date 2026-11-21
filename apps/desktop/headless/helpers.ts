@@ -131,9 +131,9 @@ export async function shot(page: Page, name: string): Promise<string> {
  */
 export async function openFirstGame(page: Page, options: { shotLibraryAs?: string } = {}): Promise<string> {
   await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible();
   const first = page.locator('a[href^="/matches/"]').first();
-  await expect(first, "the test account has a game in its Library").toBeVisible();
+  await expect(first, "the test account has a game").toBeVisible();
   // The row's first text is the game's title (components/match-row.tsx).
   const title = (await first.locator("span").first().innerText()).trim();
   if (options.shotLibraryAs) await shot(page, options.shotLibraryAs);
@@ -413,13 +413,13 @@ export const playRows = (page: Page) => page.getByRole("list", { name: "Plays" }
  * /matches otherwise) and waits for its page. Returns its id and title.
  */
 export async function openLibraryGame(page: Page, index: number): Promise<{ id: string; title: string }> {
-  const library = page.locator("header").getByRole("button", { name: "Library", exact: true });
+  const library = page.locator("header").getByRole("button", { name: "Games", exact: true });
   if (await library.isVisible()) await library.click();
   // Already loaded at /matches (a spec's cleanup ran there): no second load.
   else if (new URL(page.url(), BASE_URL).pathname !== "/matches" || !page.url().startsWith(BASE_URL)) await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible({ timeout: 30_000 });
   const row = page.locator('a[href^="/matches/"]').nth(index);
-  await expect(row, `the test account has a game at Library row ${index}`).toBeVisible({ timeout: 30_000 });
+  await expect(row, `the test account has a game at Games row ${index}`).toBeVisible({ timeout: 30_000 });
   const id = (await row.getAttribute("href"))!.replace("/matches/", "");
   const title = (await row.locator("span").first().innerText()).trim();
   await row.click();
@@ -566,12 +566,12 @@ export const addClipsSheet = (page: Page) =>
  * a press on its row hides the list instead), it loads the page afresh, so it
  * reads what was made since.
  */
-export async function goViaSidebar(page: Page, link: "Playlists" | "Library" | "Teams"): Promise<void> {
+export async function goViaSidebar(page: Page, link: "Playlists" | "Games" | "Teams"): Promise<void> {
   const nav = page.getByRole("navigation", { name: "Main" });
   const row = nav.getByRole("link", { name: link, exact: true });
   if (!page.url().startsWith(BASE_URL) || !(await nav.isVisible()) || (await row.getAttribute("aria-current")) === "page") {
     await waitForQuiet(page);
-    await page.goto(link === "Library" ? "/matches" : link === "Playlists" ? "/playlists" : "/teams");
+    await page.goto(link === "Games" ? "/matches" : link === "Playlists" ? "/playlists" : "/teams");
     return;
   }
   await row.click();
@@ -840,7 +840,7 @@ export async function archiveRestoreGame(page: Page, matchId: string): Promise<v
       if (error) throw new Error("headless: " + error.message);
     `, matchId);
   }
-  await expect.poll(() => archiveStateOnServer(page, matchId), { message: "the game is back in the Library on the server", timeout: 15_000 }).toBeNull();
+  await expect.poll(() => archiveStateOnServer(page, matchId), { message: "the game is back on the server", timeout: 15_000 }).toBeNull();
 }
 
 /**
@@ -879,7 +879,7 @@ export async function archivePlaylistNames(page: Page, prefix: string): Promise<
   `, prefix);
 }
 
-/** The Library's toolbar subtitle, "N games", as a number. */
+/** The Games toolbar subtitle, "N games", as a number. */
 export async function libraryGameCount(page: Page): Promise<number> {
   const text = await page.getByText(/^\d+ games$/).innerText();
   return Number(text.split(" ")[0]);
@@ -891,7 +891,7 @@ export const videoDuration = (page: Page) => page.evaluate(() => document.queryS
 /** The sample game on its Game view, with its footage ready to seek. */
 export async function openSampleGame(page: Page): Promise<number> {
   await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { level: 1, name: "Games" })).toBeVisible({ timeout: 30_000 });
   const row = page.locator('a[href^="/matches/"]').filter({ hasText: "Sample game" }).first();
   await expect(row, "the test account has the sample game").toBeVisible({ timeout: 30_000 });
   await row.click();

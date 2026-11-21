@@ -83,8 +83,8 @@ export function MatchRow({
           <button
             type="button"
             className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,background-color,color] duration-100 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground focus-visible:opacity-100 active:scale-95"
-            title={match.archivedAt ? "Bring back to Library" : "Archive game"}
-            aria-label={match.archivedAt ? "Bring back to Library" : "Archive game"}
+            title={match.archivedAt ? "Bring back to Games" : "Archive game"}
+            aria-label={match.archivedAt ? "Bring back to Games" : "Archive game"}
             onClick={() => onArchive(!match.archivedAt)}
           >
             {match.archivedAt ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}

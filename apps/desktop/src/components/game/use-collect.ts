@@ -23,7 +23,7 @@ export type CollectVia = "row" | "now_bar" | "bulk" | "menu" | "selection";
 /** Why clips can't be sent from here, and what the coach does about it. */
 const UNSENDABLE: Record<UnsendableReason, string> = {
   sync: "Their game isn't synced yet. Set the tip-off in the game's Details, then send them.",
-  video: "Their game's video isn't on this computer. Link it in the Library, then send them.",
+  video: "Their game's video isn't on this computer. Link it in the game, then send them.",
   play: "Their plays couldn't be read. Check the connection and send them again.",
 };
 

@@ -30,7 +30,7 @@ test.afterEach(async ({ page }) => {
 
 test("the app opens on Playlists the first time", async ({ page, browserName }) => {
   const tracked = await recordAnalytics(page);
-  await open(page, "/matches", "Library");
+  await open(page, "/matches", "Games");
   await forgetLastPlaces(page);
   await launch(page);
   await expect(page).toHaveURL(/\/playlists$/, { timeout: 30_000 });
@@ -54,7 +54,7 @@ test("it reopens the last page", async ({ page }) => {
     .toEqual([{ page: "/reports", restored: true }]);
 });
 
-test("a game no longer open falls back to the Library", async ({ page }) => {
+test("a game no longer open falls back to Games", async ({ page }) => {
   await open(page, "/reports", "Reports");
   // The page is remembered under this user and space: point it at a game that isn't among the open ones.
   await page.evaluate(() => {
@@ -63,12 +63,12 @@ test("a game no longer open falls back to the Library", async ({ page }) => {
     localStorage.setItem(key, "/matches/00000000-0000-4000-8000-000000000000");
   });
   await launch(page);
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   expect(pathname(page)).toBe("/matches");
 });
 
 test("Back never returns to /", async ({ page }) => {
-  await open(page, "/matches", "Library");
+  await open(page, "/matches", "Games");
   await forgetLastPlaces(page);
   await launch(page);
   await expect(page).toHaveURL(/\/playlists$/, { timeout: 30_000 });
@@ -76,11 +76,11 @@ test("Back never returns to /", async ({ page }) => {
   await page.goBack();
   // `/` was replaced by Playlists, so Back is the page before it, not `/` sending the coach on again.
   await expect(page).toHaveURL(/\/matches$/, { timeout: 30_000 });
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
 });
 
 test("the sidebar starts with New playlist and Search, with no Home", async ({ page, browserName }) => {
-  await open(page, "/matches", "Library");
+  await open(page, "/matches", "Games");
   const aside = page.locator("aside");
   const names = await aside.locator("button").evaluateAll((buttons) =>
     buttons.map((b) => b.getAttribute("aria-label") ?? b.textContent?.trim() ?? ""),
@@ -100,7 +100,7 @@ test("the sidebar starts with New playlist and Search, with no Home", async ({ p
 test("New playlist in the sidebar starts a playlist from any page", async ({ page, browserName }) => {
   const newPlaylist = page.locator("aside").getByRole("button", { name: "New playlist", exact: true });
   const nameField = page.locator("input:focus");
-  for (const [path, title] of [["/matches", "Library"], ["/teams", "Teams"]] as const) {
+  for (const [path, title] of [["/matches", "Games"], ["/teams", "Teams"]] as const) {
     await open(page, path, title);
     await newPlaylist.click();
     await expect(page, `New playlist from ${title} opens Playlists`).toHaveURL(/\/playlists$/, { timeout: 30_000 });

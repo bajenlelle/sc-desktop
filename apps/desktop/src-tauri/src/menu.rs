@@ -266,7 +266,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let go_playlists = item("go-playlists", "Playlists", Some("CmdOrCtrl+1"))?;
     let go_reports = item("go-reports", "Reports", Some("CmdOrCtrl+2"))?;
     let go_my_playlists = item("go-my-playlists", "Shared Playlists", Some("CmdOrCtrl+3"))?;
-    let go_library = item("go-library", "Library", Some("CmdOrCtrl+4"))?;
+    let go_library = item("go-library", "Games", Some("CmdOrCtrl+4"))?;
     let go_teams = item("go-teams", "Teams", Some("CmdOrCtrl+5"))?;
     let go_organization = item("go-organization", "Organization", Some(ORGANIZATION_KEY))?;
     // The search over the space: the page opens its panel, and the same chord closes it (docs/search.md).

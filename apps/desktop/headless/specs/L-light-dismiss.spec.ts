@@ -50,8 +50,8 @@ test("the game's filter closes on a press on the title zone: the toolbar and the
 
 test("the search closes on a press on the window's title strip", async ({ page }) => {
   await emulateWindowDragRegions(page);
-  await goViaSidebar(page, "Library");
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   await page.locator("aside").getByRole("button", { name: "Search", exact: true }).click();
   await expect(searchPanel(page)).toBeVisible();
   // The strip is the title bar's height, kept so the window can be moved with the panel open.

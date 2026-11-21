@@ -159,7 +159,7 @@ the task's report. The harness itself is typechecked with
 `npx tsc --noEmit -p headless/tsconfig.json` in `apps/desktop` (the app's
 `npx tsc --noEmit`, and so check.yml, covers only `src`).
 
-The smoke spec (`specs/smoke.spec.ts`) is the harness's own proof: Library
+The smoke spec (`specs/smoke.spec.ts`) is the harness's own proof: the Games page
 lists games, the first game's Game view draws its play list and timeline, a
 playlist's Add clips lists events. It reads only. It needs the test account
 to have at least one game and one playlist.
@@ -200,6 +200,6 @@ picks them from the game's sync point). Both WebKit and Chrome play it through
 `/@fs`.
 
 A spec that only needs footage to move through, and writes nothing, can open
-the sample game instead (the Library row marked "Sample game"): its video
+the sample game instead (the Games row marked "Sample game"): its video
 plays from the network in both browsers, about twenty minutes of it, with no
 link to make or restore (`specs/H-game-player.spec.ts`).

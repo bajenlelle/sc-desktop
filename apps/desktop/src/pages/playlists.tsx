@@ -5642,7 +5642,7 @@ export function PlaylistsPage() {
       if (!m?.videoUrl || !isLocalPath(m.videoUrl))
         return "All games need a local video file for export";
       if (videoStatusByMatch.get(mId) === "missing" || videoStatusByMatch.get(mId) === "unreadable")
-        return "A game's video file can't be found — open the game in the Library to locate it";
+        return "A game's video file can't be found — open the game to locate it";
       if (!m.syncPoint)
         return "Every game needs its tip-off set to export";
     }

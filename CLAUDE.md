@@ -109,7 +109,7 @@ playlists, and share them with teams; players watch on web/mobile.
   allowance), never as a sweep over a library, and the game view is the only
   writer. Everything that reads them works without them.
 - **Archived games**: matches.archived_at hides a game from the desktop's
-  Library (behind the Archived group's Show button) and Add clips, and nothing
+  Games page (behind the Archived group's Show button) and Add clips, and nothing
   else. Playlists, shares, the editor's matchLookup, web
   and mobile keep every archived game; a re-import brings it back.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are

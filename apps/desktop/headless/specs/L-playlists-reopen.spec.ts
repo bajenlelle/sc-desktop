@@ -42,8 +42,8 @@ test.afterEach(async ({ page }) => {
 
 test("Playlists reopens the playlist opened last", async ({ page, browserName }) => {
   await openAlpha(page);
-  await goViaSidebar(page, "Library");
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   await goViaSidebar(page, "Playlists");
   await expect(heading(page), "the playlist opened last is open again").toHaveText(ALPHA, { timeout: 30_000 });
   await expect(page.getByText("Select a playlist", { exact: true })).toBeHidden();
@@ -58,8 +58,8 @@ test("a deleted remembered playlist opens nothing, quietly", async ({ page }) =>
     if (!key) throw new Error("headless: nothing was remembered");
     localStorage.setItem(key, JSON.stringify([{ kind: "playlist", id: "00000000-0000-4000-8000-000000000000", at: Date.now() }]));
   });
-  await goViaSidebar(page, "Library");
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   await goViaSidebar(page, "Playlists");
   await expect(page).toHaveURL(/\/playlists$/);
   await expect(page.locator("[data-playlist-id]").first(), "the list has loaded").toBeVisible({ timeout: 30_000 });
@@ -78,8 +78,8 @@ test("New playlist from Playlists itself starts a new one", async ({ page }) => 
 
 test("a fresh page asked to create doesn't reopen the last one", async ({ page }) => {
   await openAlpha(page);
-  await goViaSidebar(page, "Library");
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   await page.keyboard.press("Control+n");
   await expect(page).toHaveURL(/\/playlists$/);
   await expect(nameField(page), "the new playlist's name is asked for").toHaveValue("New Playlist", { timeout: 30_000 });
@@ -89,8 +89,8 @@ test("a fresh page asked to create doesn't reopen the last one", async ({ page }
 
 test("New playlist while Playlists is still loading doesn't reopen the last one", async ({ page }) => {
   await openAlpha(page);
-  await goViaSidebar(page, "Library");
-  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await goViaSidebar(page, "Games");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
   // The page's read of its list held back, so the ask comes while it loads.
   await page.route("**/rest/v1/playlists*", async (route) => {
     if (route.request().method() === "GET" && route.request().url().includes("playlist_clips")) {

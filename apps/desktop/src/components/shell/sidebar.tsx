@@ -121,7 +121,7 @@ export function Sidebar() {
           />
         );
       case "go-library":
-        return <NavItem key={page} to="/matches" icon={Film} label="Library" active={libraryActive} />;
+        return <NavItem key={page} to="/matches" icon={Film} label="Games" active={libraryActive} />;
       case "go-teams":
         return <NavItem key={page} to="/teams" icon={Shield} label="Teams" active={pathname.startsWith("/teams")} />;
     }
