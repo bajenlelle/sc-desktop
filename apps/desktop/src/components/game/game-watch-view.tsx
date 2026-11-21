@@ -47,7 +47,7 @@ import { GameNowBar, betweenPlays } from "./game-now-bar";
 import { GamePlayList } from "./game-play-list";
 import { GamePlayMenuContent } from "./game-play-menu";
 import { GAME_TIMELINE_HEIGHT, GameTimelineStrip, type GameTimelineHandle, type StripLandmark } from "./game-timeline-strip";
-import { useCollect } from "./use-collect";
+import { useCollect, type CollectScope } from "./use-collect";
 import { useGamePlayback } from "./use-game-playback";
 import { useWheelScrub } from "./use-wheel-scrub";
 
@@ -187,7 +187,8 @@ export function GameWatchView({
   }, [moments]);
 
   // ---- Labels, the playlist, the filters ------------------------------------
-  const labels = useClipLabels(activeOrgId, match.id, "game_view");
+  const labelGames = useMemo(() => [match.id], [match.id]);
+  const labels = useClipLabels(activeOrgId, labelGames, "game_view");
   // Presets are shared with Add clips. One keeps plays, shot types, situations and labels, never the
   // team or players (lib/filter-presets.ts): applying it leaves the Both/home/away control, the chosen
   // players, "on court", the search, the moment and the quarters as they are.
@@ -198,7 +199,11 @@ export function GameWatchView({
     presets.applied(p);
     if (presetLabelsGone(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
   };
-  const collect = useCollect({ match, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
+  const collectScope = useMemo<CollectScope>(
+    () => ({ key: match.id, games: [match], title: match.title, from: { matchId: match.id, title: match.title }, surface: "game_view" }),
+    [match],
+  );
+  const collect = useCollect({ scope: collectScope, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
 
   // One player chosen: their stints on the floor, for the strip and the "while on the floor" switch.
   const chosenPlayer = filters.clip.players.size === 1 ? (people.find((p) => p.name === [...filters.clip.players][0]) ?? null) : null;

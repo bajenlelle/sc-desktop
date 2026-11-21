@@ -2,7 +2,7 @@ import { createElement, useCallback, useEffect, useMemo, useRef, useState } from
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
-import { heldForPlayers, playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
+import { heldForPlayers, playlistIsShared, type HeldPlaylist } from "@scoutable/shared/lib/playlist-sharing";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
 import { isClipItem, type Playlist, type PlaylistClipItem, type PlaylistItem, type StoredMatch } from "@/types/match";
@@ -10,6 +10,7 @@ import { trackEvent } from "@/lib/analytics";
 import { listEventsForMatches, listMatchesByIds } from "@/lib/matches-db";
 import { appendClips, createPlaylist, listPlaylists, writePlaylistItems } from "@/lib/playlists-db";
 import { getCollectTarget, setAddClipsScope, setCollectTarget } from "@/lib/prefs";
+import { MAX_BROWSER_GAMES } from "@scoutable/shared/lib/add-clips-games";
 import { Sentry } from "@/lib/sentry";
 import { DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL, demoShipBlockReason, eventLookup, shipPlaylistClips } from "@/lib/ship-clips";
 import { emitUploaded, onUploaded, shipScheduler, useShipStatuses } from "@/lib/background-ship";
@@ -72,15 +73,38 @@ export function forgetPlaylistsRead(): void {
  * where each send stands, and `send` sends one now. `openPlaylist` opens a
  * playlist in the editor, with the way back to this game.
  */
+/**
+ * Where plays are collected from: one game in the game view, a team's games
+ * in its Plays view. The target is remembered under `key`.
+ */
+export interface CollectScope {
+  /** What the target is remembered under: a game's id, or `team:${competitionId}:${teamId}`. */
+  key: string;
+  /** The games whose plays are collected here. */
+  games: readonly StoredMatch[];
+  /** A new playlist's suggested name. */
+  title: string;
+  /** The editor's way back here, when it has one (a game). */
+  from: { matchId: string; title: string } | null;
+  /** On every collecting event. */
+  surface: "game_view" | "team_plays";
+}
+
+/** A clip key's game: `${matchId}:${eventId}`. */
+const matchOfKey = (key: string) => key.slice(0, key.lastIndexOf(":"));
+
 export function useCollect({
-  match,
+  scope,
   orgId,
   includeUnscoped,
 }: {
-  match: StoredMatch;
+  scope: CollectScope;
   orgId: string | null;
   includeUnscoped: boolean;
 }) {
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const gameIdsKey = scope.games.map((m) => m.id).join(",");
   const navigate = useNavigate();
   const key = `${orgId}|${includeUnscoped}`;
   const [playlists, setPlaylists] = useState<Playlist[] | null>(() => (lastList?.key === key ? lastList.list : null));
@@ -97,7 +121,7 @@ export function useCollect({
   /** The space this hook is in now; a read for an earlier one doesn't touch `saved`. */
   const keyNow = useRef(key);
   keyNow.current = key;
-  const [targetId, setTargetId] = useState<string | null>(() => getCollectTarget(match.id));
+  const [targetId, setTargetId] = useState<string | null>(() => getCollectTarget(scope.key));
   const targetIdRef = useRef(targetId);
   targetIdRef.current = targetId;
   const [pickerOpen, setPickerOpenState] = useState(false);
@@ -169,9 +193,9 @@ export function useCollect({
   useEffect(() => {
     if (readLanded && playlists && targetId && !playlists.some((p) => p.id === targetId)) {
       setTargetId(null);
-      setCollectTarget(match.id, null);
+      setCollectTarget(scope.key, null);
     }
-  }, [readLanded, playlists, targetId, match.id]);
+  }, [readLanded, playlists, targetId, scope.key]);
 
   /** Changes the shown list; before the read lands, also made again on the list it brings. */
   const edit = useCallback((change: (list: Playlist[] | null) => Playlist[] | null) => {
@@ -269,7 +293,7 @@ export function useCollect({
           // Every game in the playlist read now, this one too: a sync fixed while the clips waited is the one they are cut with.
           const ids = [...new Set(items.filter(isClipItem).map((c) => c.matchId))];
           const read = mergeEventsIntoMatches(await listMatchesByIds(ids), await listEventsForMatches(ids));
-          const games = read.some((m) => m.id === match.id) ? read : [match, ...read];
+          const games = [...scopeRef.current.games.filter((m) => !read.some((r) => r.id === m.id)), ...read];
           const matchLookup = new Map(games.map((m) => [m.id, m]));
           const demoBlock = demoShipBlockReason(toShip, matchLookup);
           if (demoBlock) {
@@ -307,7 +331,7 @@ export function useCollect({
           return "failed";
         }
       },
-    [match, mutate],
+    [mutate],
   );
 
   /** A shared playlist's new clips go out after a quiet spell (or when the coach moves on). */
@@ -331,7 +355,7 @@ export function useCollect({
       for (const p of plays) {
         if (present.has(p.key)) continue;
         present.add(p.key);
-        fresh.push({ type: "clip", matchId: match.id, eventId: p.event.eventId });
+        fresh.push({ type: "clip", matchId: matchOfKey(p.key), eventId: p.event.eventId });
       }
       if (fresh.length === 0) {
         toast(plays.length === 1 ? `Already in ${playlist.name}` : `All ${plays.length} are already in ${playlist.name}`, {
@@ -361,14 +385,14 @@ export function useCollect({
             trackEvent("clip_added_to_playlist", {
               playlist_id: playlist.id,
               match_id: clip.matchId,
-              surface: "game_view",
+              surface: scopeRef.current.surface,
               via,
               moment,
               to_target: toTarget,
             });
           }
           // The editor's Add clips starts on this game next time.
-          setAddClipsScope(playlist.id, { gameIds: [match.id], teams: [] });
+          setAddClipsScope(playlist.id, { gameIds: [...new Set(fresh.map((c) => c.matchId))].slice(0, MAX_BROWSER_GAMES), teams: [] });
         } catch (e) {
           if (!gone) Sentry.captureException(e);
           const failed = new Set(keys);
@@ -397,7 +421,7 @@ export function useCollect({
         action: { label: "Undo", onClick: () => undo(playlist, keys, "toast") },
       });
     },
-    [match.id, mutate, enqueue, undo, scheduleShip],
+    [mutate, enqueue, undo, scheduleShip],
   );
 
   /**
@@ -436,7 +460,7 @@ export function useCollect({
       // Moving on from a playlist sends what waits in it now, before it is out of sight.
       if (targetId && targetId !== playlist.id) void shipScheduler.flush(targetId, "switch");
       setTargetId(playlist.id);
-      setCollectTarget(match.id, playlist.id);
+      setCollectTarget(scope.key, playlist.id);
       setPickerOpenState(false);
       trackEvent("collect_target_set", { source, shared: playlistIsShared(playlist), via: pending?.via ?? "toolbar" });
       if (pending) {
@@ -444,13 +468,13 @@ export function useCollect({
         pending.onAdded?.();
       }
     },
-    [match.id, addToPlaylist, targetId],
+    [scope.key, addToPlaylist, targetId],
   );
 
   const createTarget = useCallback(
     async (name: string) => {
       const created = await createPlaylist(name, undefined, orgId ?? undefined);
-      trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: "game_view" });
+      trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: scopeRef.current.surface });
       saved.current.set(created.id, []);
       addCreated(created);
       chooseTarget(created, "new");
@@ -462,7 +486,7 @@ export function useCollect({
   const createAndAddTo = useCallback(
     async (name: string, plays: readonly TimedPlay[], via: CollectVia, moment: string | null) => {
       const created = await createPlaylist(name, undefined, orgId ?? undefined);
-      trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: "game_view" });
+      trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: scopeRef.current.surface });
       saved.current.set(created.id, []);
       addCreated(created);
       addToPlaylist(created, plays, via, moment, false);
@@ -497,14 +521,21 @@ export function useCollect({
    * the target's, and any other holding this game's. Derived from the
    * playlists, so it survives leaving the page.
    */
-  const held = useMemo(() => heldForPlayers(playlists ?? [], match.id, targetId), [playlists, match.id, targetId]);
+  const held = useMemo(() => {
+    // The target's, and any other holding clips of a game here, once each.
+    const out = new Map<string, HeldPlaylist<Playlist>>();
+    for (const id of gameIdsKey.split(",")) for (const h of heldForPlayers(playlists ?? [], id, targetId)) out.set(h.playlist.id, h);
+    // As heldForPlayers orders one game's: the target first, then the most held.
+    return [...out.values()].sort((a, b) => Number(b.playlist.id === targetId) - Number(a.playlist.id === targetId) || b.count - a.count);
+  }, [playlists, gameIdsKey, targetId]);
 
   /** Opens a playlist in the editor, which gets the way back to this game. */
   const openPlaylist = useCallback(
     (playlistId: string) => {
-      navigate("/playlists", { state: { restore: { playlistId }, from: { matchId: match.id, title: match.title } } });
+      const from = scopeRef.current.from;
+      navigate("/playlists", { state: from ? { restore: { playlistId }, from } : { restore: { playlistId } } });
     },
-    [match.id, match.title, navigate],
+    [navigate],
   );
 
   /**
@@ -532,9 +563,10 @@ export function useCollect({
   /** The playlists to choose from: those that already hold this game's clips first. */
   const candidates = useMemo(() => {
     const list = playlists ?? [];
-    const ofGame = (p: Playlist) => p.items.filter((i) => isClipItem(i) && i.matchId === match.id).length;
+    const here = new Set(gameIdsKey.split(","));
+    const ofGame = (p: Playlist) => p.items.filter((i) => isClipItem(i) && here.has(i.matchId)).length;
     return [...list].sort((a, b) => ofGame(b) - ofGame(a));
-  }, [playlists, match.id]);
+  }, [playlists, gameIdsKey]);
 
   return {
     loading: playlists === null,
@@ -558,7 +590,7 @@ export function useCollect({
     openTarget,
     /** How many clips this visit added (net of undos), for the closing event. */
     addedTotal,
-    suggestedName: match.title,
+    suggestedName: scope.title,
   };
 }
 

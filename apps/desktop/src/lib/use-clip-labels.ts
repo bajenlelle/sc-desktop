@@ -31,7 +31,7 @@ function toggleIn(map: Map<string, Set<string>>, keys: readonly string[], labelI
   }
 }
 
-/** This session's last look at each game's labels, by `${orgId}|${matchId}`: a visit shows them at once and reads again behind. */
+/** This session's last look at each game's (or set of games') labels, by `${orgId}|${matchIds}`: a visit shows them at once and reads again behind. */
 const lastRead = new Map<string, GameLabels>();
 
 /** Forgets every game's labels, so another user signing in never sees this one's. */
@@ -40,7 +40,7 @@ export function forgetLabelsRead(): void {
 }
 
 /**
- * A game's labels, for a page that isn't the editor: the space's vocabulary
+ * A game's labels (or a team's games', in its Plays view), for a page that isn't the editor: the space's vocabulary
  * and which labels sit on which of the game's plays, read once and written
  * through at once (a failed write is taken back and said). The same shape
  * the Add clips browser takes its handlers in, so the label picker works
@@ -52,8 +52,10 @@ export function forgetLabelsRead(): void {
  * its own change, never the clip's whole set from what is shown, and toggles
  * made before the fresh read lands are made again on what it brings.
  */
-export function useClipLabels(orgId: string | null, matchId: string, surface: string) {
-  const cacheKey = `${orgId}|${matchId}`;
+export function useClipLabels(orgId: string | null, matchIds: readonly string[], surface: string) {
+  // One key for the set of games: a single game's is what it always was.
+  const gamesKey = matchIds.join(",");
+  const cacheKey = `${orgId}|${gamesKey}`;
   const [labels, setLabels] = useState<Label[]>(() => lastRead.get(cacheKey)?.labels ?? []);
   const [assignments, setAssignments] = useState<Map<string, Set<string>>>(() => lastRead.get(cacheKey)?.assignments ?? new Map());
   /** The game and space the shown labels belong to, so they are never kept under another's key. */
@@ -75,7 +77,7 @@ export function useClipLabels(orgId: string | null, matchId: string, surface: st
     early.current = orgId ? [] : null;
     if (!orgId) return;
     let cancelled = false;
-    void Promise.all([listLabels(orgId), listAssignmentsForMatches(orgId, [matchId])])
+    void Promise.all([listLabels(orgId), listAssignmentsForMatches(orgId, gamesKey ? gamesKey.split(",") : [])])
       .then(([vocabulary, rows]) => {
         if (cancelled) return;
         shownKey.current = cacheKey;
@@ -98,7 +100,7 @@ export function useClipLabels(orgId: string | null, matchId: string, surface: st
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, orgId, matchId]);
+  }, [cacheKey, orgId, gamesKey]);
 
   // Kept current through every write, for the next visit.
   useEffect(() => {
