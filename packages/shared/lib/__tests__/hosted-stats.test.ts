@@ -100,9 +100,14 @@ describe("parseHostedPlayerStats", () => {
         tpa: 25,
         tpPct: 24.0,
         ftPct: 66.7,
+        ftaPg: 3.9,
         pmPg: -0.5,
       },
     });
+  });
+
+  it("keeps free throws attempted a game, weighted by games across teams", () => {
+    expect(players.get("2000004")!.line.ftaPg).toBeCloseTo((4.9 * 7 + 1.0 * 9) / 16, 6);
   });
 
   it("combines a player listed once per team, weighting by games", () => {
