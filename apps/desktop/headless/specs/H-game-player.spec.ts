@@ -487,3 +487,14 @@ test("a play's details are under the video, and its row is one line", async ({ p
   }
   expect(found, "one of the first plays tied the game, and the Now bar says so").toBe(true);
 });
+
+test("at the usual window a play row gives the player's name room", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openSampleGame(page);
+  const row = playRows(page).first();
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  // A usual name ("#5 Oliver Gehrke", the sample game's first play) shows whole at the list's default width.
+  const name = row.locator(":scope > span").nth(4).locator(":scope > span").first();
+  await expect(name).toHaveText(/^#\d+ \S+ \S+/);
+  expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth), "the name isn't cut short").toBe(true);
+});

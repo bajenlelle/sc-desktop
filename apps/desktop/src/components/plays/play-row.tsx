@@ -48,7 +48,7 @@ export function ActiveRowPill() {
  */
 export function playRowClass({ selected, menuOpen = false }: { selected: boolean; menuOpen?: boolean }): string {
   return cn(
-    "group @container/row relative flex h-8 w-full shrink-0 cursor-default select-none items-center gap-2.5 pr-2 pl-1 text-left text-sm outline-none transition-colors duration-100",
+    "group @container/row relative flex h-8 w-full shrink-0 cursor-default select-none items-center gap-1.5 pr-1.5 pl-1 text-left text-sm outline-none transition-colors duration-100",
     "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
     selected ? "bg-row-selected text-foreground" : "hover:bg-fill-1 active:bg-fill-2",
     menuOpen && "ring-2 ring-inset ring-selection",
@@ -202,9 +202,9 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
         {now && <Play aria-label="Playing" className="size-2.5 fill-current text-foreground" />}
       </span>
       <span className={cn(cell, "shrink-0 whitespace-nowrap text-muted-foreground nums", clock === "with-period" ? "w-16" : "w-10", faded)}>{clockText}</span>
-      {team && <span className={cn(cell, "w-9 shrink-0 truncate text-muted-foreground", faded)}>{teamCode(e) ?? ""}</span>}
+      {team && <span className={cn(cell, "w-8 shrink-0 truncate text-muted-foreground", faded)}>{teamCode(e) ?? ""}</span>}
       {pill && <span className={cn(cell, "shrink-0")}>{pill}</span>}
-      <span className={cn(cell, "flex w-[104px] shrink-0 items-center gap-1.5 @max-[400px]/row:w-[7px]", faded)} title={what}>
+      <span className={cn(cell, "flex w-24 shrink-0 items-center gap-1.5 @max-[400px]/row:w-[7px]", faded)} title={what}>
         <EventDot event={e} />
         <span className="truncate text-muted-foreground @max-[400px]/row:hidden">{what}</span>
       </span>
@@ -224,7 +224,7 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
       )}
       {score !== undefined && (
         <span
-          className={cn(cell, "flex w-10 shrink-0 justify-end text-muted-foreground nums", faded)}
+          className={cn(cell, "flex w-9 shrink-0 justify-end text-muted-foreground nums", faded)}
           aria-label={score ? `${score.home} to ${score.away}` : undefined}
         >
           {score && (
