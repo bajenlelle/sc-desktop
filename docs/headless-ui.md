@@ -164,6 +164,19 @@ lists games, the first game's Game view draws its play list and timeline, a
 playlist's Add clips lists events. It reads only. It needs the test account
 to have at least one game and one playlist.
 
+## A second space
+
+The test account is in one space. A spec that switches spaces calls
+`addSecondSpace(page)` in `headless/helpers.ts` before the page loads: the
+read of the account's orgs (`get_my_orgs`) gets a club it coaches added
+(`OTHER_SPACE`), the read of its team answers says it skipped the team
+question there, and the account's own space stays the open one.
+`switchSpace(page, OTHER_SPACE.name)` then switches through the sidebar's
+space menu. Every write that names the club (the sample-game seeding, any
+other) is answered in the browser and never reaches staging; it returns them
+so a spec can check nothing else was written. The club's reads go to staging,
+which has nothing of it, so the club is an empty space.
+
 ## The Add clips list
 
 The Add clips list is windowed: only the rows near the view are in the DOM, so
