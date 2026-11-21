@@ -41,7 +41,17 @@ function WhoDoesWhat({ rows }: { rows: TeamPlayerRow[] }) {
  * The team's players: who does what, then the league's season averages, most
  * minutes first. Season numbers: names and numbers open nothing.
  */
-export function TeamPlayersSection({ status, rows, retry }: { status: TeamPlayersStatus; rows: TeamPlayerRow[]; retry: () => void }) {
+export function TeamPlayersSection({
+  status,
+  rows,
+  retry,
+  onShowAll,
+}: {
+  status: TeamPlayersStatus;
+  rows: TeamPlayerRow[];
+  retry: () => void;
+  onShowAll?: () => void;
+}) {
   const [sort, setSort] = useState<{ key: SeasonCol; desc: boolean } | null>(null);
   const [all, setAll] = useState(false);
   const photos = usePlayerPhotos(useMemo(() => rows.map((r) => r.personId), [rows]));
@@ -141,7 +151,14 @@ export function TeamPlayersSection({ status, rows, retry }: { status: TeamPlayer
         title="Players"
         action={
           status === "ready" && rows.length > FIRST ? (
-            <Button variant="ghost" size="sm" onClick={() => setAll((a) => !a)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (!all) onShowAll?.();
+                setAll((a) => !a);
+              }}
+            >
               {all ? "Show fewer" : `Show all ${rows.length}`}
             </Button>
           ) : undefined

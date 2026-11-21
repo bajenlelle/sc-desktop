@@ -16,6 +16,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import { useLeague } from "@/lib/use-league";
 import { useLeagues } from "@/lib/use-leagues";
@@ -78,6 +79,7 @@ export function TeamsPage() {
     if (!c) return;
     remember(activeOrgId, c);
     setChosen(key);
+    trackEvent("teams_league_changed", { league: c.leagueId, season: c.seasonId });
   };
 
   return (

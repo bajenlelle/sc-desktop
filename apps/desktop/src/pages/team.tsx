@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft, Shield } from "lucide-react";
 import { teamKeys } from "@scoutable/shared/lib/team-keys";
@@ -13,6 +13,7 @@ import { TeamHeader } from "@/components/team/team-header";
 import { TeamKeysSection } from "@/components/team/team-keys-section";
 import { TeamProfileSection } from "@/components/team/team-profile-section";
 import { Button } from "@/components/ui/button";
+import { trackEvent } from "@/lib/analytics";
 import { useLeague } from "@/lib/use-league";
 import { useLeagues } from "@/lib/use-leagues";
 import { useLibraryGames } from "@/lib/use-library-games";
@@ -75,6 +76,25 @@ export function TeamPage() {
   const rows = useMemo(() => (payload ? teamGameRows(fixtures, payload, teamId, new Date()) : []), [fixtures, payload, teamId]);
   const keys = useMemo(() => (profile && league ? teamKeys(profile, league) : null), [profile, league]);
   const group = league?.groups.find((g) => g.group === profile?.group) ?? null;
+
+  // Once per open, when the season and the library are in (location.key changes with every visit).
+  const location = useLocation();
+  const viewedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!profile || !keys || !library.ready || viewedFor.current === location.key) return;
+    viewedFor.current = location.key;
+    const played = rows.filter((r) => r.status === "played");
+    trackEvent("team_page_viewed", {
+      league: where_?.leagueId ?? null,
+      season: where_?.seasonId ?? null,
+      games: played.length,
+      library_games: played.filter((r) => library.games.has(r.matchId)).length,
+      keys: keys.withBall.length + keys.withoutBall.length,
+      own_team: mine.has(teamId),
+      from: state.from ?? "other",
+    });
+  }, [profile, keys, library, rows, location.key, where_, mine, teamId, state.from]);
+  const action = useCallback((a: "open_game" | "import" | "open_team" | "show_all_players" | "show_all_games") => trackEvent("team_page_action", { action: a }), []);
   const where = useMemo(() => {
     if (!league || league.groups.length < 2 || !profile) return null;
     const i = league.groups.findIndex((g) => g.group === profile.group);
@@ -115,7 +135,7 @@ export function TeamPage() {
             <TeamHeader profile={profile} rows={rows} library={library.games} mine={mine} />
             {keys && <TeamKeysSection keys={keys} where={where} />}
             <TeamProfileSection profile={profile} group={group} where={where} />
-            <TeamPlayersSection status={players.status} rows={players.rows} retry={players.retry} />
+            <TeamPlayersSection status={players.status} rows={players.rows} retry={players.retry} onShowAll={() => action("show_all_players")} />
             <TeamGamesSection
               rows={rows}
               competitionId={competitionId!}
@@ -123,6 +143,7 @@ export function TeamPage() {
               library={library.games}
               mine={mine}
               importPick={importPick}
+              onAction={action}
             />
           </div>
         )}
