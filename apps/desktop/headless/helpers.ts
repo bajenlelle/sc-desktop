@@ -951,6 +951,8 @@ export interface GameReadPatch {
   teamless?: number;
   /** A home-side timeout on one game: when it was called and when play went on, as wall-clock moments of one of its quarters, and the game clock then. */
   timeout?: { matchId: string; eventId: number; period: number; clock: string; realWorldTime: string; resumeRealWorldTime: string };
+  /** null: every game read loses its video, as if none were linked on this computer; a path: every game read has that video. */
+  videoUrl?: string | null;
 }
 
 /**
@@ -977,6 +979,7 @@ export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<
       const home = o.home_team as { name: string; color: string };
       const away = o.away_team as { name: string; color: string };
       if (patch.names) [home.name, away.name] = patch.names;
+      if (patch.videoUrl !== undefined && "video_url" in o) o.video_url = patch.videoUrl;
       if (patch.colors) [home.color, away.color] = patch.colors;
       if (patch.timeout && o.id === patch.timeout.matchId) {
         const t = patch.timeout;

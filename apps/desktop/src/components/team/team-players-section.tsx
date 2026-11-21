@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { GroupHeader } from "@/components/ui/group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TeamPlayersStatus } from "@/lib/use-team-players";
+import { playersCell } from "@scoutable/shared/lib/team-copy";
+import type { TeamVideo } from "@scoutable/shared/lib/team-video";
+import { WatchLink } from "./watch-link";
 
 /** Players shown before "Show all". */
 const FIRST = 8;
@@ -37,20 +40,41 @@ function WhoDoesWhat({ rows }: { rows: TeamPlayerRow[] }) {
   );
 }
 
+/** A player's games and Watch in the coach's library, or that they have none there. */
+function InYourGames({ personId, name, video }: { personId: number; name: string; video: NonNullable<Parameters<typeof TeamPlayersSection>[0]["video"]> }) {
+  const p = video.players.get(personId);
+  return (
+    <td className="py-1.5 pr-4 pl-3 text-right whitespace-nowrap">
+      {p ? (
+        <span className="inline-flex items-baseline gap-2 text-subheadline nums">
+          <span className="text-muted-foreground">{playersCell(p.games)}</span>
+          <WatchLink onClick={() => video.onWatch(personId, name)} label={`Watch ${name}'s plays`} />
+        </span>
+      ) : (
+        <span className="text-subheadline text-muted-foreground">Not in your games</span>
+      )}
+    </td>
+  );
+}
+
 /**
  * The team's players: who does what, then the league's season averages, most
- * minutes first. Season numbers: names and numbers open nothing.
+ * minutes first. Season numbers: names and numbers open nothing. With any of
+ * the team's games in the coach's library, a last column says in how many of
+ * them each player has a play, and Watch opens those plays.
  */
 export function TeamPlayersSection({
   status,
   rows,
   retry,
   onShowAll,
+  video = null,
 }: {
   status: TeamPlayersStatus;
   rows: TeamPlayerRow[];
   retry: () => void;
   onShowAll?: () => void;
+  video?: { players: TeamVideo["players"]; onWatch: (personId: number, name: string) => void } | null;
 }) {
   const [sort, setSort] = useState<{ key: SeasonCol; desc: boolean } | null>(null);
   const [all, setAll] = useState(false);
@@ -100,6 +124,7 @@ export function TeamPlayersSection({
                     </button>
                   </th>
                 ))}
+                {video && <th className="py-2 pr-4 pl-3 text-right font-normal whitespace-nowrap">In your games</th>}
                 <th className="w-2" />
               </tr>
             </thead>
@@ -135,6 +160,7 @@ export function TeamPlayersSection({
                         {seasonCell(r.line, c.key)}
                       </td>
                     ))}
+                    {video && <InYourGames personId={Number(r.personId)} name={r.name} video={video} />}
                     <td />
                   </tr>
                 );

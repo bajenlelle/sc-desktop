@@ -11,7 +11,7 @@ import {
   renameFilterPreset,
 } from "@/lib/filter-presets-db";
 
-export type FilterPresetSurface = "add_clips" | "game_view";
+export type FilterPresetSurface = "add_clips" | "game_view" | "team_plays";
 
 const byName = (a: FilterPreset, b: FilterPreset) => a.name.localeCompare(b.name);
 /** The unique index compares lower(name); so does the check made here before writing. */

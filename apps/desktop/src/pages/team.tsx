@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChevronLeft, Shield } from "lucide-react";
-import { teamKeys } from "@scoutable/shared/lib/team-keys";
+import { teamKeys, type TeamKey } from "@scoutable/shared/lib/team-keys";
+import { flipPick, keyStatOf, teamLibraryGames, teamVideo, type PlaysPick, type PlaysSide } from "@scoutable/shared/lib/team-video";
+import { TeamPlaysView, type LatestImport } from "@/components/team/team-plays-view";
+import { TeamViewSwitch, type TeamView } from "@/components/team/team-view-switch";
+import { playedDay } from "@/components/team/dates";
+import { useClipLabels } from "@/lib/use-clip-labels";
+import { useAuth } from "@/lib/auth-context";
+import { CollectControl } from "@/components/game/collect-control";
+import { useCollect, type CollectScope } from "@/components/game/use-collect";
+import { cn } from "@/lib/utils";
+import type { ShotZone } from "@scoutable/shared/lib/game-shots";
+import { TeamShotsSection } from "@/components/team/team-shots-section";
+import { useTeamPlays } from "@/lib/use-team-plays";
 import { groupNames, teamGameRows, teamNames, type TeamGameRow } from "@scoutable/shared/lib/team-schedule";
 import { TeamGamesSection, type ImportPick } from "@/components/team/team-games-section";
 import { TeamPlayersSection } from "@/components/team/team-players-section";
@@ -22,11 +34,26 @@ import { useMyTeamIds } from "@/lib/use-my-team-ids";
 /** Where the page was opened from, as the links that open it say (team_page_viewed's `from`). */
 export type TeamPageFrom = "teams" | "game" | "search" | "team" | "other";
 
-/** What a link to a team's page carries: where it came from, and where Back goes when that isn't Teams. */
+/**
+ * What a link to a team's page carries: where it came from, where Back goes
+ * when that isn't Teams, and in Plays what Watch picked and which side.
+ */
 export interface TeamPageState {
   from?: TeamPageFrom;
   back?: { label: string; path: string };
+  pick?: PlaysPick | null;
+  side?: PlaysSide;
+  /** How Plays was opened, for team_plays_viewed. */
+  playsFrom?: PlaysFrom;
 }
+
+type PlaysFrom = "switch" | "watch_all" | "key" | "shots" | "player";
+const PLAYS_FROM: Record<"watch_all" | "watch_key" | "watch_shots" | "watch_player", PlaysFrom> = {
+  watch_all: "watch_all",
+  watch_key: "key",
+  watch_shots: "shots",
+  watch_player: "player",
+};
 
 function Skeleton() {
   return (
@@ -77,12 +104,18 @@ export function TeamPage() {
   const keys = useMemo(() => (profile && league ? teamKeys(profile, league) : null), [profile, league]);
   const group = league?.groups.find((g) => g.group === profile?.group) ?? null;
 
-  // Once per open, when the season and the library are in (location.key changes with every visit).
+  // The team's games in the coach's library and their plays, read once per team for both views.
+  const teamGames = useMemo(() => teamLibraryGames(rows, library.games), [rows, library.games]);
+  const plays = useTeamPlays(teamGames, `${competitionId}:${teamId}`, library.ready);
+  const video = useMemo(() => (plays.status === "ready" && plays.games.length > 0 ? teamVideo(plays.games) : null), [plays.status, plays.games]);
+
+  // Once per open, when the season and the library are in. An open is a mount: every route is keyed by its path
+  // (App.tsx), while Season | Plays, the side and the pick change only the search and the router state.
   const location = useLocation();
-  const viewedFor = useRef<string | null>(null);
+  const viewed = useRef(false);
   useEffect(() => {
-    if (!profile || !keys || !library.ready || viewedFor.current === location.key) return;
-    viewedFor.current = location.key;
+    if (!profile || !keys || !library.ready || viewed.current) return;
+    viewed.current = true;
     const played = rows.filter((r) => r.status === "played");
     trackEvent("team_page_viewed", {
       league: where_?.leagueId ?? null,
@@ -93,8 +126,72 @@ export function TeamPage() {
       own_team: mine.has(teamId),
       from: state.from ?? "other",
     });
-  }, [profile, keys, library, rows, location.key, where_, mine, teamId, state.from]);
+  }, [profile, keys, library, rows, where_, mine, teamId, state.from]);
   const action = useCallback((a: "open_game" | "import" | "open_team" | "show_all_players" | "show_all_games") => trackEvent("team_page_action", { action: a }), []);
+  // Watch: Plays with this pick and side; Back still goes where it went.
+  const watch = useCallback(
+    (pick: PlaysPick | null, side: PlaysSide, a: "watch_all" | "watch_key" | "watch_shots" | "watch_player", extra: Record<string, string> = {}) => {
+      trackEvent("team_page_action", { action: a, ...extra });
+      navigate(`${location.pathname}?view=plays`, { state: { ...state, pick, side, playsFrom: PLAYS_FROM[a] } satisfies TeamPageState });
+    },
+    [navigate, location.pathname, state],
+  );
+  const watchKey = useCallback(
+    (k: TeamKey) => {
+      const s = keyStatOf(k.end, k.metric);
+      if (s) watch({ kind: "stat", stat: s.stat, side: s.side }, s.side, "watch_key", { key: `${k.end}.${k.metric}` });
+    },
+    [watch],
+  );
+  // Season | Plays: the view is in the URL; what Plays shows (side, pick) rides in the router state, so a reload keeps it.
+  const [searchParams] = useSearchParams();
+  const view: TeamView = searchParams.get("view") === "plays" ? "plays" : "season";
+  const side: PlaysSide = state.side ?? "with";
+  const pick = state.pick ?? null;
+  const setView = (v: TeamView) =>
+    navigate(`${location.pathname}${v === "plays" ? "?view=plays" : ""}`, { replace: true, state: { ...state, playsFrom: v === "plays" ? "switch" : state.playsFrom } satisfies TeamPageState });
+  const setPlays = (next: Pick<TeamPageState, "side" | "pick">) =>
+    navigate(`${location.pathname}?view=plays`, { replace: true, state: { ...state, ...next } satisfies TeamPageState });
+  // Plays is mounted the first time it is shown and kept: switching back keeps its filters and its scroll, as Season keeps its own.
+  const [playsShown, setPlaysShown] = useState(view === "plays");
+  if (view === "plays" && !playsShown) setPlaysShown(true);
+  const teamKey = `${competitionId}:${teamId}`;
+  const { activeOrgId, activeOrgIsPersonal } = useAuth();
+  // Collecting from the team's games, into a target remembered per team.
+  const collectScope = useMemo<CollectScope>(
+    () => ({
+      key: `team:${teamKey}`,
+      games: teamGames.flatMap((g) => plays.matches.get(g.gameId) ?? []),
+      title: `Scout ${name || "Team"}`,
+      from: null,
+      surface: "team_plays",
+    }),
+    [teamKey, teamGames, plays.matches, name],
+  );
+  const collect = useCollect({ scope: collectScope, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
+  const labelGames = useMemo(() => teamGames.map((g) => g.gameId), [teamGames]);
+  const clipLabels = useClipLabels(playsShown ? activeOrgId : null, labelGames, "team_plays");
+  // The empty Plays view's one action: their latest played game that can be imported and isn't in the library.
+  const latestImport = useMemo<LatestImport | null>(() => {
+    const r = [...rows].reverse().find((x) => x.status === "played" && x.importable && !library.games.has(x.matchId));
+    if (!r) return null;
+    const p = importPick(r);
+    return { label: `${r.home ? "vs" : "at"} ${r.opponentName}, ${playedDay(r.at)}`, state: p ? { pick: p } : null };
+  }, [rows, library.games, importPick]);
+
+  // Once per open of Plays, when its games are read.
+  const playsViewed = useRef(false);
+  useEffect(() => {
+    if (view !== "plays" || plays.status === "reading" || playsViewed.current) return;
+    playsViewed.current = true;
+    trackEvent("team_plays_viewed", {
+      games: plays.games.length,
+      plays: video ? video.all[side] : 0,
+      from: state.playsFrom ?? "switch",
+      side,
+    });
+  }, [view, plays.status, plays.games.length, video, side, state.playsFrom]);
+
   const where = useMemo(() => {
     if (!league || league.groups.length < 2 || !profile) return null;
     const i = league.groups.findIndex((g) => g.group === profile.group);
@@ -105,14 +202,38 @@ export function TeamPage() {
     <Page>
       <Toolbar
         leading={
-          <Button variant="ghost" size="sm" className="-ml-1 min-w-0 shrink text-muted-foreground" onClick={() => navigate(back.path)}>
-            <ChevronLeft className="shrink-0" />
-            <span className="max-w-48 truncate">{back.label}</span>
-          </Button>
+          <>
+            <Button variant="ghost" size="sm" className="-ml-1 min-w-0 shrink text-muted-foreground" onClick={() => navigate(back.path)}>
+              <ChevronLeft className="shrink-0" />
+              <span className="max-w-48 truncate">{back.label}</span>
+            </Button>
+            {profile && <TeamViewSwitch value={view} onChange={setView} />}
+          </>
         }
         title={name || (status === "ready" ? "Team" : "")}
         subtitle={seasonLabel}
+        actions={view === "plays" && plays.status !== "none" ? <CollectControl collect={collect} /> : undefined}
       />
+      {playsShown && profile && (
+        <div className={cn("flex min-h-0 flex-1 flex-col pt-[var(--toolbar-height)]", view !== "plays" && "pointer-events-none invisible absolute inset-0")}>
+          <TeamPlaysView
+            key={teamKey}
+            orgId={activeOrgId}
+            plays={plays}
+            side={side}
+            onSide={(s) => setPlays({ side: s, pick: flipPick(pick, s) })}
+            pick={pick}
+            onClearPick={() => setPlays({ pick: null })}
+            latestImport={latestImport}
+            labels={clipLabels.labels}
+            labelsOf={clipLabels.labelsOf}
+            labelHandlers={clipLabels.handlers}
+            collect={collect}
+            active={view === "plays"}
+          />
+        </div>
+      )}
+      <div className={cn("flex min-h-0 flex-1 flex-col", view === "plays" && profile && "pointer-events-none invisible absolute inset-0")}>
       <PageContent width="wide">
         {status === "failed" ? (
           <EmptyState
@@ -132,10 +253,24 @@ export function TeamPage() {
           <EmptyState icon={<Shield />} title="This team isn't in this season." body="It may have played in another league or season." action={<GoToTeams />} />
         ) : (
           <div className="space-y-8">
-            <TeamHeader profile={profile} rows={rows} library={library.games} mine={mine} />
-            {keys && <TeamKeysSection keys={keys} where={where} />}
+            <TeamHeader
+              profile={profile}
+              rows={rows}
+              library={library.games}
+              mine={mine}
+              watchAll={video ? { plays: video.all.with, onWatch: () => watch(null, "with", "watch_all") } : null}
+              failedReads={plays.status === "ready" && plays.failed.length > 0 ? { failed: plays.failed.length, of: teamGames.length, retry: plays.retry } : null}
+            />
+            {keys && <TeamKeysSection keys={keys} where={where} video={video ? { video, onWatch: watchKey } : null} />}
             <TeamProfileSection profile={profile} group={group} where={where} />
-            <TeamPlayersSection status={players.status} rows={players.rows} retry={players.retry} onShowAll={() => action("show_all_players")} />
+            {video && <TeamShotsSection shots={video.shots} onWatch={(zone: ShotZone) => watch({ kind: "zone", zone }, "with", "watch_shots", { zone })} />}
+            <TeamPlayersSection
+              status={players.status}
+              rows={players.rows}
+              retry={players.retry}
+              onShowAll={() => action("show_all_players")}
+              video={video ? { players: video.players, onWatch: (personId, name) => watch({ kind: "player", personId, name }, "with", "watch_player") } : null}
+            />
             <TeamGamesSection
               rows={rows}
               competitionId={competitionId!}
@@ -148,6 +283,7 @@ export function TeamPage() {
           </div>
         )}
       </PageContent>
+      </div>
     </Page>
   );
 }

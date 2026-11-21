@@ -125,8 +125,9 @@ export type AnalyticsEvent =
   | "game_marks_filled" // outcome (filled | unsaved | failed | skipped), timeouts, error
   // The Teams pages (docs/teams.md)
   | "team_page_viewed" // once per open when the season is in: league, season, games (played), library_games, keys (sentences shown), own_team, from (teams | game | search | team | other)
-  | "team_page_action" // action (open_game | import | open_team | show_all_players | show_all_games)
+  | "team_page_action" // action (open_game | import | open_team | show_all_players | show_all_games | watch_all | watch_key | watch_shots | watch_player); key (end.metric) for watch_key, zone for watch_shots
   | "teams_league_changed" // league, season: the Teams page's league pop-up
+  | "team_plays_viewed" // once per open of a team's Plays when its games are read: games, plays (on the side shown), from (switch | watch_all | key | shots | player), side (with | without)
   // Distribution & virality
   | "video_exported"
   | "playlist_shipped"

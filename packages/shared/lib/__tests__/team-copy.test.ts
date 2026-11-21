@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { coverageLine, meetingLine, paceLine, placeTooltip } from "../team-copy";
+import { coverageLine, failedReadsLine, meetingLine, paceLine, pickLabel, placeTooltip, playersCell, videoKeyLine } from "../team-copy";
+import type { KeyStat, PlaysSide } from "../team-video";
 
 describe("meetingLine", () => {
   it("writes the next meeting from the coach's side", () => {
@@ -34,5 +35,50 @@ describe("paceLine", () => {
     expect(paceLine(78.2, 1, 12)).toBe("78 possessions a game, the fastest.");
     expect(paceLine(66, 12, 12)).toBe("66 possessions a game, the slowest.");
     expect(paceLine(70, null, 12)).toBe("70 possessions a game.");
+  });
+});
+
+describe("videoKeyLine", () => {
+  it.each([
+    ["threes", "with", { count: 98, made: 34 }, 3, "In your 3 games: 34 of 98 threes"],
+    ["oreb", "with", { count: 38, made: null }, 3, "In your 3 games: 38 offensive rebounds"],
+    ["tov", "with", { count: 41, made: null }, 3, "In your 3 games: 41 turnovers"],
+    ["tov", "without", { count: 44, made: null }, 3, "In your 3 games: 44 turnovers forced"],
+    ["oreb", "without", { count: 22, made: null }, 3, "In your 3 games: 22 offensive rebounds against them"],
+    ["threes", "without", { count: 81, made: 30 }, 3, "In your 3 games: 30 of 81 threes against them"],
+    ["oreb", "with", { count: 1, made: null }, 1, "In your game: 1 offensive rebound"],
+    ["tov", "with", { count: 1, made: null }, 2, "In your 2 games: 1 turnover"],
+    ["threes", "with", { count: 1, made: 1 }, 1, "In your game: 1 of 1 three"],
+    ["tov", "with", { count: 0, made: null }, 2, "In your 2 games: 0 turnovers"],
+  ])("%s %s", (stat, side, c, n, line) => expect(videoKeyLine(stat as KeyStat, side as PlaysSide, c, n as number)).toBe(line));
+});
+
+describe("pickLabel", () => {
+  it("names the pick and its count", () => {
+    expect(pickLabel({ kind: "stat", stat: "threes", side: "with" }, 98, 34)).toBe("Threes · 34 of 98");
+    expect(pickLabel({ kind: "stat", stat: "oreb", side: "with" }, 38, null)).toBe("Offensive rebounds · 38");
+    expect(pickLabel({ kind: "stat", stat: "tov", side: "with" }, 41, null)).toBe("Turnovers · 41");
+    expect(pickLabel({ kind: "stat", stat: "threes", side: "without" }, 81, 30)).toBe("Threes against them · 30 of 81");
+    expect(pickLabel({ kind: "stat", stat: "oreb", side: "without" }, 22, null)).toBe("Offensive rebounds against them · 22");
+    expect(pickLabel({ kind: "stat", stat: "tov", side: "without" }, 44, null)).toBe("Turnovers forced · 44");
+    expect(pickLabel({ kind: "zone", zone: "rim" }, 102, 58)).toBe("At the rim · 58 of 102");
+    expect(pickLabel({ kind: "zone", zone: "mid" }, 38, 14)).toBe("Mid-range · 14 of 38");
+    expect(pickLabel({ kind: "zone", zone: "three" }, 98, 34)).toBe("Threes · 34 of 98");
+    expect(pickLabel({ kind: "player", personId: 7, name: "Erik Lind" }, 112, null)).toBe("Erik Lind · 112");
+  });
+});
+
+describe("playersCell", () => {
+  it("counts the games", () => {
+    expect(playersCell(3)).toBe("3 games");
+    expect(playersCell(1)).toBe("1 game");
+  });
+});
+
+describe("failedReadsLine", () => {
+  it("says how many of the coach's games couldn't be read", () => {
+    expect(failedReadsLine(1, 1)).toBe("Couldn't read the plays of your game.");
+    expect(failedReadsLine(1, 3)).toBe("Couldn't read the plays of 1 of your 3 games.");
+    expect(failedReadsLine(3, 3)).toBe("Couldn't read the plays of your 3 games.");
   });
 });

@@ -1,0 +1,413 @@
+import { useCallback, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { Film } from "lucide-react";
+import { toast } from "sonner";
+import { EMPTY_CLIP_FILTERS, hasActiveFilters, playersByTeam, type ClipFilters } from "@scoutable/shared/lib/clip-filters";
+import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
+import { pickLabel } from "@scoutable/shared/lib/team-copy";
+import { pickKeys, sideNumber, sideOf, teamPlayRows, type PlaysPick, type PlaysSide, type TeamPlayRow } from "@scoutable/shared/lib/team-video";
+import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
+import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
+import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
+import type { ClipBrowserLabelHandlers } from "@/components/editor/clip-browser-panel";
+import { usePersistentVideo } from "@/components/editor/use-persistent-video";
+import type { Collect } from "@/components/game/use-collect";
+import { useHotkeys, useKeyScope } from "@/lib/key-scope";
+import { getRecentLabelIds, rememberLabelUsed } from "@/lib/recent-labels";
+import { togglePlayerMuted } from "@/lib/player-sound";
+import { DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL } from "@/lib/ship-clips";
+import { TeamPlaysStage } from "./team-plays-stage";
+import { useCrossGamePlayback } from "./use-cross-game-playback";
+import type { Label } from "@scoutable/shared/types/labels";
+import { EmptyState } from "@/components/empty-state";
+import { Button } from "@/components/ui/button";
+import { useFilterPresets } from "@/lib/use-filter-presets";
+import type { TeamPlays } from "@/lib/use-team-plays";
+import { TeamPlayList, type ListRow, type RowClick } from "./team-play-list";
+import { TeamPlaysFilters } from "./team-plays-filters";
+
+/** The team's latest played game that can be imported: the empty view's one action. */
+export interface LatestImport {
+  label: string;
+  /** The import page's state for that game; null opens the import page as from the sidebar. */
+  state: unknown;
+}
+
+/**
+ * Plays: the team's plays across the coach's games (docs/teams.md, "Plays"),
+ * one list newest game first, filtered as Add clips filters, with what Watch
+ * picked as one pill. A click plays a play, and playback runs on into the next
+ * game; plays are collected into the target playlist as in the game view.
+ */
+export function TeamPlaysView({
+  orgId,
+  plays,
+  side,
+  onSide,
+  pick,
+  onClearPick,
+  latestImport,
+  labels,
+  labelsOf,
+  labelHandlers,
+  collect,
+  active,
+}: {
+  orgId: string | null;
+  plays: TeamPlays;
+  side: PlaysSide;
+  onSide: (side: PlaysSide) => void;
+  pick: PlaysPick | null;
+  onClearPick: () => void;
+  latestImport: LatestImport | null;
+  labels: readonly Label[];
+  labelsOf: (key: string) => ReadonlySet<string> | undefined;
+  labelHandlers: ClipBrowserLabelHandlers;
+  collect: Collect;
+  /** Plays is the view shown: it owns the keys, and nothing plays while it is hidden. */
+  active: boolean;
+}) {
+  const [filters, setFiltersState] = useState<ClipFilters>(EMPTY_CLIP_FILTERS);
+  const setFilters = (change: (f: ClipFilters) => ClipFilters) => setFiltersState(change);
+  const [unticked, setUnticked] = useState<ReadonlySet<string>>(new Set());
+  const presets = useFilterPresets(orgId, "team_plays");
+  const labelIds = useMemo(() => labels.map((l) => l.id), [labels]);
+  const applyPreset = (p: FilterPreset) => {
+    setFiltersState((f) => applyPresetFilters(f, p.filters, labelIds));
+    presets.applied(p);
+    if (presetLabelsGone(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
+  };
+
+  const allGames = useMemo(() => plays.games.map((g) => g.game), [plays.games]);
+  const shown = useMemo(() => plays.games.filter((g) => !unticked.has(g.game.gameId)), [plays.games, unticked]);
+
+  // The picked plays over the games shown, and how many of them went in (threes, a shot zone).
+  const picked = useMemo(() => {
+    if (!pick) return null;
+    const keys = pickKeys(pick, side, shown);
+    const set = new Set(keys);
+    let made = 0;
+    for (const g of shown) for (const e of g.events) if (set.has(`${g.game.gameId}:${e.eventId}`) && e.isSuccessful === 1) made++;
+    const counted = pick.kind === "zone" || (pick.kind === "stat" && pick.stat === "threes");
+    return { set, label: pickLabel(pick, keys.length, counted ? made : null) };
+  }, [pick, side, shown]);
+
+  const playerGroups = useMemo(
+    () => playersByTeam(shown.flatMap((g) => g.events.filter((e) => sideOf(e) === sideNumber(g.game, side)))),
+    [shown, side],
+  );
+
+  const rows = useMemo<ListRow[]>(() => {
+    const out: ListRow[] = [];
+    for (const r of teamPlayRows(shown, side, picked?.set ?? null, filters, labelsOf)) {
+      out.push(r);
+      if (r.kind === "game") {
+        const why = plays.playable(r.game.gameId);
+        if (why !== "ok") out.push({ kind: "note", game: r.game, why });
+      }
+    }
+    return out;
+  }, [shown, side, picked, filters, labelsOf, plays]);
+  const playRows = useMemo(() => rows.filter((r): r is Extract<TeamPlayRow, { kind: "play" }> => r.kind === "play"), [rows]);
+  const playCount = playRows.length;
+  const gameCount = rows.filter((r) => r.kind === "game").length;
+
+  // ---- Playback ---------------------------------------------------------------
+  const video = usePersistentVideo();
+  const [speed, setSpeedState] = useState(1);
+  const setSpeed = (s: number) => {
+    setSpeedState(s);
+    video.playbackRate = s;
+  };
+  const playbackRows = useMemo(() => rows.filter((r): r is TeamPlayRow => r.kind !== "note"), [rows]);
+  const isOk = useCallback((id: string) => plays.playable(id) === "ok", [plays]);
+  const playback = useCrossGamePlayback({
+    video,
+    rows: playbackRows,
+    matches: plays.matches,
+    playable: isOk,
+    preRoll: DEFAULT_PRE_ROLL,
+    postRoll: DEFAULT_POST_ROLL,
+  });
+  // Hidden (Season shown), nothing plays on.
+  if (!active && !video.paused) video.pause();
+
+  // ---- Selection: ⌘-click toggles, Shift-click a range, ⌘A every listed play, Esc lets go ----
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const anchor = useRef<string | null>(null);
+  const onRowClick = useCallback(
+    (key: string, how: RowClick) => {
+      // The click is on the list now: a control that still has the keyboard (the toolbar's Season | Plays, whose
+      // arrows move between its options) lets go, so ↑ ↓ walk the plays. The row itself doesn't take focus.
+      const held = document.activeElement;
+      if (held instanceof HTMLElement && held !== document.body) held.blur();
+      if (how.toggle) {
+        setSelected((s) => {
+          const next = new Set(s);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+        anchor.current = key;
+        return;
+      }
+      if (how.range && anchor.current) {
+        const keys = playRows.map((r) => r.key);
+        const [a, b] = [keys.indexOf(anchor.current), keys.indexOf(key)].sort((x, y) => x - y);
+        if (a >= 0) setSelected(new Set(keys.slice(a, b + 1)));
+        return;
+      }
+      anchor.current = key;
+      setSelected(new Set());
+      playback.play(key);
+    },
+    [playRows, playback],
+  );
+
+  // ---- Collecting and labels: on the selection when there is one, else on the play shown ----
+  const targets = useCallback((): Extract<TeamPlayRow, { kind: "play" }>[] => {
+    if (selected.size > 0) return playRows.filter((r) => selected.has(r.key));
+    return playback.current ? [playback.current] : [];
+  }, [selected, playRows, playback]);
+  const timed = (rs: Extract<TeamPlayRow, { kind: "play" }>[]): TimedPlay[] =>
+    rs.map((r) => ({ key: r.key, event: r.event, time: 0, start: 0, reach: "in" }));
+  const add = (anchorEl: HTMLElement | null) => {
+    const rs = targets();
+    if (rs.length === 0) return;
+    collect.add(timed(rs), selected.size > 0 ? "selection" : "now_bar", null, anchorEl, () => setSelected(new Set()));
+  };
+  const [labelOpen, setLabelOpen] = useState(false);
+  const toggleLabel = (labelId: string) => {
+    const rs = targets();
+    if (rs.length === 0) return;
+    const on = rs.every((r) => labelsOf(r.key)?.has(labelId));
+    rememberLabelUsed(labelId);
+    if (rs.length === 1) void labelHandlers.onToggleClip(rs[0].game.gameId, rs[0].event.eventId, labelId, on ? "all" : "none");
+    else void labelHandlers.onBulkToggle(rs.map((r) => ({ matchId: r.game.gameId, eventId: r.event.eventId })), labelId, on ? "all" : "none");
+  };
+
+  // ---- Keys ---------------------------------------------------------------------
+  // The page's keys while Plays is shown, as the game view's are: focus is often on the toolbar's switch, so no container.
+  useKeyScope("team-plays", active);
+  useHotkeys(
+    "team-plays",
+    (e) => {
+      // A filter menu's type-ahead ("a" for Andersson) keeps its letters: the scope has no container to tell it from the page.
+      if (e.target instanceof Element && e.target.closest('[role="menu"],[role="listbox"],[role="dialog"]')) return;
+      const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+      if (plain && !e.shiftKey && e.code === "KeyA") {
+        e.preventDefault();
+        add(null);
+        return;
+      }
+      if (plain && !e.shiftKey && e.code === "KeyG") {
+        e.preventDefault();
+        if (playback.current) setLabelOpen(true);
+        return;
+      }
+      if (plain && e.shiftKey && e.code === "KeyG") {
+        e.preventDefault();
+        const last = getRecentLabelIds().find((id) => labels.some((l) => l.id === id));
+        if (last) toggleLabel(last);
+        return;
+      }
+      const slot = labelKeySlot(e);
+      if (slot !== null) {
+        e.preventDefault();
+        const l = labelForKey(labels, slot);
+        if (l && !e.repeat) toggleLabel(l.id);
+        return;
+      }
+      if (e.code === "Escape" && selected.size > 0) {
+        e.preventDefault();
+        setSelected(new Set());
+        return;
+      }
+      const action = resolvePlayerKey(e);
+      switch (action) {
+        case "select-all":
+          e.preventDefault();
+          setSelected(new Set(playRows.map((r) => r.key)));
+          return;
+        case "toggle-play":
+          e.preventDefault();
+          if (!playback.current) playback.playAll();
+          else if (video.paused) video.play().catch(() => {});
+          else video.pause();
+          return;
+        case "replay":
+          e.preventDefault();
+          playback.replay();
+          return;
+        case "next":
+          e.preventDefault();
+          if (playback.current) playback.next();
+          else playback.playAll();
+          return;
+        case "prev":
+          e.preventDefault();
+          playback.previous();
+          return;
+        case "toggle-mute":
+          e.preventDefault();
+          togglePlayerMuted({ announce: true });
+          return;
+        case "nudge-back":
+        case "nudge-forward":
+        case "nudge-back-far":
+        case "nudge-forward-far": {
+          e.preventDefault();
+          const far = action.endsWith("-far");
+          video.currentTime = Math.max(0, video.currentTime + (action.startsWith("nudge-back") ? -1 : 1) * (far ? NUDGE_FAR_SECONDS : NUDGE_SECONDS));
+          return;
+        }
+        case "shuttle-pause":
+          e.preventDefault();
+          video.pause();
+          return;
+        case "shuttle-forward":
+          e.preventDefault();
+          setSpeed(nextShuttleRate(speed));
+          if (video.paused) video.play().catch(() => {});
+          return;
+        case "shuttle-back":
+          // WebKit has no reverse playback; stepping back is the honest version.
+          e.preventDefault();
+          video.currentTime = Math.max(0, video.currentTime - 5);
+          return;
+      }
+    },
+    active,
+  );
+
+  const labelsByKey = useMemo(() => {
+    const out = new Map<string, Label[]>();
+    for (const r of rows) {
+      if (r.kind !== "play") continue;
+      const ids = labelsOf(r.key);
+      if (ids && ids.size > 0) out.set(r.key, labels.filter((l) => ids.has(l.id)));
+    }
+    return out;
+  }, [rows, labels, labelsOf]);
+
+  if (plays.status === "none") {
+    return (
+      <EmptyState
+        icon={<Film />}
+        title="None of their games are in your library."
+        body="Import one of their games to watch their plays here."
+        action={
+          latestImport ? (
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/upload" state={latestImport.state ?? undefined}>
+                Import their latest game: {latestImport.label}
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
+    );
+  }
+
+  const filtered = hasActiveFilters(filters);
+  return (
+    <div className="view-fade flex min-h-0 flex-1 flex-col">
+      <TeamPlaysFilters
+        side={side}
+        onSide={onSide}
+        games={allGames}
+        unticked={unticked}
+        onUntick={setUnticked}
+        filters={filters}
+        setFilters={setFilters}
+        playerGroups={playerGroups}
+        labels={labels}
+        presets={presets}
+        onApplyPreset={applyPreset}
+        pill={picked?.label ?? null}
+        onClearPick={onClearPick}
+      />
+      <div className="flex min-h-0 flex-1">
+        <section aria-label="Their plays" className="flex w-[42%] min-w-80 shrink-0 flex-col border-r border-separator">
+          <div className="flex h-8 shrink-0 items-center justify-between border-b border-separator px-4 text-subheadline text-muted-foreground nums">
+            <span>
+              {playCount} {playCount === 1 ? "play" : "plays"} in {gameCount} {gameCount === 1 ? "game" : "games"}
+            </span>
+            <span>Newest game first</span>
+          </div>
+          {plays.failed.length > 0 && (
+            <div className="flex shrink-0 items-center gap-3 border-b border-separator px-4 py-2">
+              <div className="min-w-0 flex-1 text-callout text-muted-foreground">
+                {plays.failed.map((g) => (
+                  <p key={g.gameId}>Couldn&apos;t load plays for {g.home ? "vs" : "at"} {g.opponentName}.</p>
+                ))}
+              </div>
+              <Button size="sm" variant="outline" onClick={plays.retry}>
+                Try again
+              </Button>
+            </div>
+          )}
+          {rows.length > 0 ? (
+            <TeamPlayList
+              rows={rows}
+              current={playback.currentKey}
+              selected={selected}
+              playable={plays.playable}
+              labelsByKey={labelsByKey}
+              onPlay={onRowClick}
+            />
+          ) : plays.status === "reading" ? (
+            <div className="space-y-2 p-4" aria-hidden>
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-5 animate-pulse rounded bg-fill-1" />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+              <p className="text-body text-muted-foreground">No plays match.</p>
+              {(filtered || pick) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setFiltersState(EMPTY_CLIP_FILTERS);
+                    onClearPick();
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
+          )}
+        </section>
+        <section aria-label="Video" className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+          <TeamPlaysStage
+            video={video}
+            playback={playback}
+            why={playback.current ? plays.playable(playback.current.game.gameId) : null}
+            speed={speed}
+            onSpeedChange={setSpeed}
+            labels={labels}
+            assigned={(playback.currentKey && labelsOf(playback.currentKey)) || new Set()}
+            labelHandlers={labelHandlers}
+            labelOpen={labelOpen}
+            onLabelOpenChange={setLabelOpen}
+            onAdd={add}
+            added={!!playback.currentKey && collect.statusOf(playback.currentKey) !== "none"}
+          />
+          {selected.size > 0 && (
+            <div className="flex items-center gap-2 px-1 text-subheadline text-muted-foreground nums">
+              {selected.size} selected
+              <Button size="sm" variant="outline" onClick={(e) => add(e.currentTarget)}>
+                Add {selected.size}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+                Deselect
+              </Button>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
