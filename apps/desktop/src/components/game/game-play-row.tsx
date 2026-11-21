@@ -1,17 +1,10 @@
-import { Fragment, memo, type ReactNode } from "react";
-import { motion } from "framer-motion";
-import { Check, Play, Plus, Tag } from "lucide-react";
+import { memo, type ReactNode } from "react";
 import { SITUATION_OPTIONS } from "@scoutable/shared/lib/clip-filters";
-import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
-import type { Score } from "@scoutable/shared/lib/game-flow";
+import type { GameFlow, Score } from "@scoutable/shared/lib/game-flow";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import type { Label } from "@scoutable/shared/types/labels";
-import { ActiveRowPill } from "@/components/editor/clip-rows";
-import { LabelChip } from "@/components/labels/LabelChip";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { springs } from "@/lib/motion";
+import { ActiveRowPill, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot, RowTip } from "@/components/plays/play-row";
 import { pressable } from "@/lib/pressable";
-import { cn } from "@/lib/utils";
 
 /** The feed's qualifiers in words, as the Add clips filters name them. */
 const QUALIFIER_WORDS = new Map(
@@ -20,27 +13,48 @@ const QUALIFIER_WORDS = new Map(
 
 export type CollectStatus = "none" | "in" | "added";
 
-const iconButton =
-  "flex size-6 shrink-0 items-center justify-center rounded-md outline-none transition-[background-color,transform,opacity] duration-100 hover:bg-fill-2 active:scale-90 active:bg-fill-3 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-selection [&_svg]:size-3.5";
+/** Words for a play outside the video, for its row's tooltip and the Now bar. */
+export function reachWords(play: TimedPlay): string | null {
+  if (play.reach === "before") return "Before the video starts";
+  if (play.reach === "after") return "After the video ends";
+  return null;
+}
 
 /**
- * One play in the game's list: the editor's two-line row (event and player;
- * clock, team and what the feed says about the play), with the score beside
- * every basket so the eye runs down the score like a scoresheet, the coach's
- * labels, and the two things to do with it: label it, add it to the playlist.
- * The row itself plays the play; ⌘ and Shift pick it into the list's
- * selection instead (`onPress`, as a Finder list does). Memoised: while
- * the game runs only the row that stops being current and the one that
- * becomes it are drawn again.
+ * What the game view's Now bar adds after the clock and the score: the feed's
+ * qualifiers in words ("In the paint"), what the play did to the game ("Lead
+ * change", "Tied at 51"), and where it is when it is outside the video. The
+ * play rows are one line; these were their second.
+ */
+export function playDetails(play: TimedPlay, flow: GameFlow): string[] {
+  const e = play.event;
+  const out = e.qualifiers.map((q) => QUALIFIER_WORDS.get(q)).filter((w): w is string => !!w);
+  const point = flow.points.find((p) => p.eventId === e.eventId);
+  if (flow.leadChanges.includes(e.eventId)) out.push("Lead change");
+  else if (flow.ties.includes(e.eventId) && point) out.push(`Tied at ${point.home}`);
+  const reach = reachWords(play);
+  if (reach) out.push(reach);
+  return out;
+}
+
+/**
+ * One play in the game's list: the shared play row (clock, the team's code
+ * when both teams are listed, the event, the player and the coach's labels,
+ * the score beside every basket so the eye runs down it like a scoresheet),
+ * and the two things to do with it: label it, add it to the playlist. The row
+ * itself plays the play; ⌘ and Shift pick it into the list's selection
+ * instead (`onPress`, as a Finder list does). Memoised: while the game runs
+ * only the row that stops being current and the one that becomes it are drawn
+ * again.
  */
 export const GamePlayRow = memo(function GamePlayRow({
   play,
   active,
   selected,
   playing,
+  showTeam,
   score,
   scored,
-  note,
   labels,
   collect,
   targetName,
@@ -57,12 +71,12 @@ export const GamePlayRow = memo(function GamePlayRow({
   selected: boolean;
   /** The current play, with footage on the stage (not merely selected). */
   playing: boolean;
+  /** Both teams are listed: the row names its team. */
+  showTeam: boolean;
   /** The score after the play; shown when the play scored. */
   score: Score | null;
   /** Which side the play scored for. */
   scored: 1 | 2 | null;
-  /** "Lead change", "Tied at 51". */
-  note: string | null;
   labels: readonly Label[];
   collect: CollectStatus;
   targetName: string | null;
@@ -77,28 +91,7 @@ export const GamePlayRow = memo(function GamePlayRow({
   onRemove: (play: TimedPlay) => void;
   onLabel: (play: TimedPlay) => void;
 }) {
-  const e = play.event;
-  const colors = eventColors(e);
-  const outside = play.reach !== "in";
-  const shown = labels.slice(0, 2);
-  const more = labels.length - shown.length;
-  const words = e.qualifiers.map((q) => QUALIFIER_WORDS.get(q)).filter(Boolean);
-  const number = e.player?.pno ? `#${e.player.pno} ` : "";
-  const quiet = "opacity-0 group-hover:opacity-100";
-  // On the selection's fill, what is quiet elsewhere stays readable.
-  const secondary = "text-muted-foreground";
-  const strong = "text-foreground";
-  const quietIcon = "text-muted-foreground hover:text-foreground";
-  // The second line, in the order it is read. A feed with no game clock leaves the clock out, not a dash.
-  const details: { key: string; node: ReactNode }[] = [];
-  if (e.gameClockTime) details.push({ key: "clock", node: <span className="shrink-0">{formatGameClock(e.gameClockTime)}</span> });
-  if (e.eventTeam?.teamName && e.player) details.push({ key: "team", node: <span className="truncate">{e.eventTeam.teamName}</span> });
-  if (words.length > 0) details.push({ key: "words", node: <span className="shrink-0">{words.join(", ")}</span> });
-  if (note) details.push({ key: "note", node: <span className={cn("shrink-0 font-medium", strong)}>{note}</span> });
-  if (outside) {
-    details.push({ key: "reach", node: <span className="shrink-0">{play.reach === "before" ? "Before the video starts" : "After the video ends"}</span> });
-  }
-
+  const outside = reachWords(play);
   return (
     <div
       {...pressable(() => onPress(play, { shift: false, toggle: false }), { space: false })}
@@ -111,105 +104,36 @@ export const GamePlayRow = memo(function GamePlayRow({
       data-row-key={play.key}
       data-selected={selected || undefined}
       aria-current={active || undefined}
-      className={cn(
-        "group relative flex min-h-11 w-full cursor-default scroll-my-16 select-none items-stretch gap-2 pr-2 text-left outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
-        selected ? "bg-row-selected text-foreground" : "hover:bg-fill-1 active:bg-fill-2",
-        outside && "opacity-50",
-        menuOpen && "ring-2 ring-inset ring-selection",
-      )}
+      title={outside ?? undefined}
+      className={`${playRowClass({ selected, menuOpen })} scroll-my-16`}
     >
       {active && !selected && <ActiveRowPill />}
-      <span className={cn("relative z-10 w-[3px] shrink-0 self-stretch", colors.strip)} aria-hidden />
-      <span className="relative z-10 flex min-w-0 flex-1 flex-col justify-center py-1.5 pl-1">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium", colors.badge)}>
-            {eventLabel(e)}
-          </span>
-          <span className="truncate text-sm font-medium">
-            {e.player ? `${number}${playerName(e)}` : (e.eventTeam?.teamName ?? "")}
-          </span>
-          {shown.map((l) => (
-            <LabelChip key={l.id} label={l} className="shrink-0 whitespace-nowrap" />
-          ))}
-          {more > 0 && <span className={cn("shrink-0 text-xs", secondary)}>+{more}</span>}
-        </span>
-        {details.length > 0 && (
-          <span className={cn("flex min-w-0 items-center gap-1 text-subheadline nums", secondary)}>
-            {details.map((d, i) => (
-              <Fragment key={d.key}>
-                {i > 0 && <span aria-hidden>·</span>}
-                {d.node}
-              </Fragment>
-            ))}
-          </span>
-        )}
-      </span>
-      {score && scored && (
-        <span className={cn("relative z-10 flex shrink-0 items-center text-sm nums", secondary)} aria-label={`${score.home} to ${score.away}`}>
-          <span className={cn(scored === 1 && cn("font-semibold", strong))}>{score.home}</span>
-          <span aria-hidden>–</span>
-          <span className={cn(scored === 2 && cn("font-semibold", strong))}>{score.away}</span>
-        </span>
-      )}
-      <span className="relative z-10 flex shrink-0 items-center gap-0.5" onClick={(ev) => ev.stopPropagation()}>
-        {playing && <Play aria-label="Playing" className="mr-0.5 size-3.5 fill-current text-primary" />}
-        {labelPicker ?? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label="Label this play"
-                className={cn(iconButton, quietIcon, !active && labels.length === 0 && quiet)}
-                onClick={() => onLabel(play)}
-              >
-                <Tag />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Label</TooltipContent>
-          </Tooltip>
-        )}
-        {collect === "none" ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={targetName ? `Add to ${targetName}` : "Add to a playlist"}
-                className={cn(iconButton, quietIcon, !active && quiet)}
-                onClick={(ev) => onAdd(play, ev.currentTarget)}
-              >
-                <Plus />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{targetName ? `Add to ${targetName}` : "Add to a playlist"}</TooltipContent>
-          </Tooltip>
-        ) : collect === "added" ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={`In ${targetName ?? "the playlist"}. Remove`}
-                className={cn(iconButton, "text-primary")}
-                onClick={() => onRemove(play)}
-              >
-                {/* The add, confirmed where it was made: the check arrives, it doesn't just appear. */}
-                <motion.span initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={springs.snappy} className="flex">
-                  <Check className="stroke-[2.5]" />
-                </motion.span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Remove from {targetName ?? "the playlist"}</TooltipContent>
-          </Tooltip>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className={cn("flex size-6 shrink-0 items-center justify-center", "text-muted-foreground")} aria-label={`Already in ${targetName ?? "the playlist"}`}>
-                <Check className="size-3.5" />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Already in {targetName ?? "the playlist"}</TooltipContent>
-          </Tooltip>
-        )}
-      </span>
+      <PlayRowCells
+        event={play.event}
+        clock="clock-only"
+        now={active && playing}
+        strong={active}
+        team={showTeam}
+        labels={labels}
+        score={score && scored ? { home: score.home, away: score.away, scored } : null}
+        dim={outside !== null}
+        actions={
+          <>
+            {labelPicker ?? (
+              <RowTip label="Label" keyHint="G">
+                <RowLabelButton visible={active || labels.length > 0} onClick={() => onLabel(play)} />
+              </RowTip>
+            )}
+            <RowPlaylistSlot
+              status={collect}
+              targetName={targetName}
+              visible={active}
+              onAdd={(anchor) => onAdd(play, anchor)}
+              onRemove={() => onRemove(play)}
+            />
+          </>
+        }
+      />
     </div>
   );
 });

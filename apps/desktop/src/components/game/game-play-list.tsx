@@ -48,6 +48,7 @@ export function GamePlayList({
   activeKey,
   selected,
   playing,
+  showTeam,
   flow,
   teams,
   labels,
@@ -78,6 +79,8 @@ export function GamePlayList({
   selected: ReadonlySet<string>;
   /** Footage is on the stage: the current row is playing, not merely selected. */
   playing: boolean;
+  /** Both teams are listed: each row names its team. */
+  showTeam: boolean;
   flow: GameFlow;
   teams: { home: string; away: string };
   labels: readonly Label[];
@@ -138,8 +141,6 @@ export function GamePlayList({
   }
 
   const pointBy = useMemo(() => new Map<number, ScorePoint>(flow.points.map((p) => [p.eventId, p])), [flow]);
-  const leadChanges = useMemo(() => new Set(flow.leadChanges), [flow]);
-  const ties = useMemo(() => new Set(flow.ties), [flow]);
 
   // Each labelled play's labels as one array that stays the same between renders, so its row isn't drawn again.
   const labelsByKey = useMemo(() => {
@@ -312,9 +313,9 @@ export function GamePlayList({
                     active={active}
                     selected={selected.has(row.key)}
                     playing={active && playing}
+                    showTeam={showTeam}
                     score={point ? { home: point.home, away: point.away } : null}
                     scored={point?.team ?? null}
-                    note={leadChanges.has(e.eventId) ? "Lead change" : ties.has(e.eventId) && point ? `Tied at ${point.home}` : null}
                     labels={labelsByKey.get(row.key) ?? NO_LABELS}
                     collect={statusOf(row.key)}
                     targetName={targetName}

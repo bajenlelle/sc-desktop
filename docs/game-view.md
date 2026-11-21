@@ -278,6 +278,16 @@ lead to it, as references in the text, not new buttons:
   match" instead of an empty frame. A run's row needs all of its baskets under
   it, so it is there unfiltered and under Runs only (`gameRows` in
   `game-list.ts`).
+- **A play's row** is the shared play row (`components/plays/play-row.tsx`,
+  the same in Teams Plays, Add clips and the editor), one line: the clock,
+  the team's code when both teams are listed ("SÖD", `teamCode`), the event as
+  a dot and a word, the player with up to two labels, the score after a
+  basket (the scoring side's number bold), then Label and the playlist slot
+  (+, or a ✓ once the play is in the target). What used to be the row's second
+  line is in the Now bar, after the clock and score: the feed's qualifiers in
+  words, "Lead change" or "Tied at 51", and "Before the video starts" for a
+  play outside the video (`playDetails`), whose row is dimmed with the same
+  words as its tooltip.
 - **On court**: with a player chosen, "While on the floor" lists the plays
   during that player's stints (from `onCourtHome` / `onCourtAway`, exact to
   the gap between two plays) and the strip shows the stints as a band.

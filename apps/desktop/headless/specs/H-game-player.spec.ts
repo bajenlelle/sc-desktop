@@ -461,3 +461,29 @@ test("the Now bar keeps room for the player's name in the narrowest column", asy
   await page.waitForTimeout(300);
   expect((await boxOf(name, "the player's name")).width, "the name is not cut down to its number sign").toBeGreaterThanOrEqual(64);
 });
+
+test("with both teams listed every play row says its team, and with one team none do", async ({ page }) => {
+  await openSampleGame(page);
+  const rows = playRows(page);
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  for (let i = 0; i < 6; i++) {
+    await expect(rows.nth(i).locator(":scope > span").nth(2), `row ${i} names its team`).toHaveText(/^[A-ZÅÄÖ0-9]{2,4}$/);
+  }
+  await page.getByRole("radiogroup", { name: "Team" }).getByRole("radio").nth(1).click();
+  await expect(rows.first().locator(":scope > span").nth(2)).not.toHaveText(/^[A-ZÅÄÖ0-9]{2,4}$/);
+});
+
+test("a play's details are under the video, and its row is one line", async ({ page }) => {
+  await openSampleGame(page);
+  const rows = playRows(page);
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  for (let i = 0; i < 6; i++) expect(Math.round((await rows.nth(i).boundingBox())!.height), `row ${i} is one line`).toBe(32);
+  // The sample game's third play tied it at 2; its row says nothing of that, the Now bar does.
+  let found = false;
+  for (let i = 0; i < 8 && !found; i++) {
+    await rows.nth(i).click();
+    found = /Tied at \d+/.test((await page.locator('[data-now="where"]').textContent()) ?? "");
+    if (found) await expect(rows.nth(i)).not.toContainText("Tied at");
+  }
+  expect(found, "one of the first plays tied the game, and the Now bar says so").toBe(true);
+});

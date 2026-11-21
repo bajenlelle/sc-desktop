@@ -62,6 +62,7 @@ export function GameNowBar({
   moment,
   score,
   breakScore,
+  details,
   labels,
   collect,
   targetName,
@@ -80,6 +81,8 @@ export function GameNowBar({
   score: Score | null;
   /** The score a break, the final whistle or a period that has just started stands at. */
   breakScore: Score | null;
+  /** After the clock and score: the play's qualifiers, what it did to the game, where it is outside the video. */
+  details: readonly string[];
   labels: readonly Label[];
   collect: CollectStatus;
   targetName: string | null;
@@ -113,10 +116,11 @@ export function GameNowBar({
   const e = play.event;
   const colors = eventColors(e);
   // Some feeds keep no game clock: the quarter and the score stand without it.
-  const where = [periodLabel(e.period), e.gameClockTime && formatGameClock(e.gameClockTime), scoreText(score)].filter(Boolean).join(" · ");
+  const where = [periodLabel(e.period), e.gameClockTime && formatGameClock(e.gameClockTime), scoreText(score), ...details].filter(Boolean).join(" · ");
   return (
     <div className="@container/now flex h-11 shrink-0 items-center gap-2 px-1">
-      <span data-now="where" className="shrink-0 text-callout text-muted-foreground nums">
+      {/* The play's details follow the clock and score: in a narrow bar the line gives way at its end, whole in its tooltip. */}
+      <span data-now="where" title={where} className="min-w-0 truncate text-callout text-muted-foreground nums">
         {where}
       </span>
       <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium", colors.badge)}>{eventLabel(e)}</span>
