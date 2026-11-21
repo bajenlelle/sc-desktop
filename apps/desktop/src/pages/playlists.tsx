@@ -921,6 +921,8 @@ export function PlaylistsPage() {
             setShareOnOpen(null);
           }
         } else if (createNew) {
+          // The browser holds the name field: show it even if the coach hid it (as handleNewPlaylist does).
+          setBrowserCollapsed(false);
           const tempId = `temp-${Date.now()}`;
           const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", items: [], folderId: undefined };
           setPendingNewPlaylistId(tempId);

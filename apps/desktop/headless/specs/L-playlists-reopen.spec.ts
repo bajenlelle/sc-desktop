@@ -1,12 +1,14 @@
 /**
  * Playlists opens where the coach left off (docs/superpowers/specs/2026-11-21-retire-home-design.md,
  * "Opening the app"): with no playlist asked for it reopens the one opened last in this space, and it
- * takes New playlist (⌘N, Ctrl+N on Windows) while it is already shown. With no games of its own the
- * right pane says to import one first. Creates playlists named `headless-<port> reopen …` and deletes
- * them. The keys are driven as the Windows build reads them (the native menu is mocked here).
+ * takes New playlist (⌘N, Ctrl+N on Windows, or the sidebar's row) while it is already shown, showing the
+ * playlist browser when the coach had hidden it. With no games of its own the right pane says to import one
+ * first. Creates playlists named `headless-<port> reopen …` and deletes them. The keys are driven as the
+ * Windows build reads them (the native menu is mocked here). The account has one space, so a second one is
+ * added in the browser (addSecondSpace): nothing of it is written to staging.
  */
 import type { Page, Route } from "@playwright/test";
-import { createPlaylist, deleteOwnRowsNamed, expect, goViaSidebar, openPlaylists, owned, shot, test, toastWith, waitForQuiet } from "../helpers";
+import { addSecondSpace, createPlaylist, deleteOwnRowsNamed, expect, goViaSidebar, OTHER_SPACE, owned, shot, switchSpace, test, toastWith, waitForQuiet } from "../helpers";
 
 test.use({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36" });
 
@@ -110,26 +112,45 @@ test("New playlist while Playlists is still loading doesn't reopen the last one"
 });
 
 test("another space doesn't reopen this space's playlist", async ({ page }) => {
+  // The account has one space: the page is told of a second (a club it coaches), whose writes are answered here.
+  const answered = await addSecondSpace(page);
   await openAlpha(page);
-  const switcher = page.locator("aside button").filter({ has: page.locator(".lucide-chevrons-up-down") });
-  await switcher.click();
-  const menu = page.getByRole("menu");
-  await expect(menu).toBeVisible();
-  // The spaces come first in the menu, up to its first separator; the open one carries the check.
-  const other = await menu.evaluate((m) => {
-    const spaces: Element[] = [];
-    for (const el of m.querySelectorAll('[role="menuitem"], [role="separator"]')) {
-      if (el.getAttribute("role") === "separator") break;
-      spaces.push(el);
-    }
-    if (spaces.length < 2) return -1;
-    return [...m.querySelectorAll('[role="menuitem"]')].findIndex((el) => spaces.includes(el) && !el.querySelector(".lucide-check"));
-  });
-  test.skip(other < 0, "the test account is in one space only");
-  await menu.getByRole("menuitem").nth(other).click();
-  await openPlaylists(page);
+  await switchSpace(page, OTHER_SPACE.name);
+  await expect(page.locator("aside").getByText(OTHER_SPACE.name), "the other space is the open one").toBeVisible();
+  await expect(page.getByText("No playlists yet", { exact: true }), "the other space's (empty) list has loaded").toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(500);
   await expect(heading(page), "nothing is open in the other space").toHaveText("Playlists");
+  await expect(page.getByText(ALPHA)).toHaveCount(0);
+  expect(answered.filter((w) => !w.includes("/rpc/seed_demo_match")), "nothing else the club was written").toEqual([]);
+});
+
+test("New playlist from the sidebar while Playlists is shown starts a new one", async ({ page }) => {
+  await openAlpha(page);
+  await page.locator("aside").getByRole("button", { name: "New playlist", exact: true }).click();
+  await expect(page).toHaveURL(/\/playlists$/);
+  await expect(nameField(page), "the new playlist's name is asked for").toHaveValue("New Playlist", { timeout: 30_000 });
+  await nameNewPlaylist(page);
+});
+
+test("New playlist with the playlist browser hidden shows it, with the name field", async ({ page, browserName }) => {
+  // The coach hid the browser (kept per machine): read when the app loads, so set before a load.
+  await page.goto("/matches");
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
+  await page.evaluate(() => localStorage.setItem("scoutable_playlist_browser_collapsed", "1"));
+  await waitForQuiet(page);
+  await page.reload();
+  await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
+  await page.locator("aside").getByRole("button", { name: "New playlist", exact: true }).click();
+  await expect(page).toHaveURL(/\/playlists$/, { timeout: 30_000 });
+  await expect(nameField(page), "the new playlist's name is asked for").toHaveValue("New Playlist", { timeout: 30_000 });
+  // A hidden browser keeps its rows laid out at full width inside a column of no width, marked aria-hidden.
+  await expect(nameField(page).locator("xpath=ancestor::*[@aria-hidden='true']"), "the browser is shown").toHaveCount(0);
+  await expect(nameField(page), "and the field is on screen").toBeInViewport({ ratio: 1 });
+  await expect(nameField(page)).toBeFocused();
+  // The browser springs open (a motion value, not a CSS animation): let it settle for the picture.
+  await page.waitForTimeout(800);
+  await shot(page, `${browserName}-L-playlists-new-browser-hidden`);
+  await nameNewPlaylist(page);
 });
 
 test("no games: the right pane says to import first", async ({ page, browserName }) => {
