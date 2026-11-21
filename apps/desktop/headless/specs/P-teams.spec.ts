@@ -23,6 +23,15 @@ test("the league table lists every team and opens one", async ({ page, browserNa
   await expect(page).toHaveURL(/\/teams\/\d+\/1$/);
 });
 
+test("Teams is a row in the sidebar", async ({ page }) => {
+  await mockLeague(page, madeUpLeague());
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Main" });
+  await nav.getByRole("link", { name: "Teams", exact: true }).click();
+  await expect(page).toHaveURL(/\/teams$/);
+  await expect(nav.getByRole("link", { name: "Teams", exact: true })).toHaveAttribute("aria-current", "page");
+});
+
 test("two groups make two titled tables", async ({ page }) => {
   await mockLeague(page, madeUpLeague({ groups: { Norra: [1, 2, 3], Södra: [4, 5, 6] } }));
   await page.goto("/teams");

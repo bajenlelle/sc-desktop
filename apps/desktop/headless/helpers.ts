@@ -564,11 +564,11 @@ export const addClipsSheet = (page: Page) =>
  * Goes to a sidebar page the way a coach does, without a full page load
  * (see waitForQuiet).
  */
-export async function goViaSidebar(page: Page, link: "Home" | "Playlists" | "Library"): Promise<void> {
+export async function goViaSidebar(page: Page, link: "Home" | "Playlists" | "Library" | "Teams"): Promise<void> {
   const nav = page.getByRole("navigation", { name: "Main" });
   if (!page.url().startsWith(BASE_URL) || !(await nav.isVisible())) {
     await waitForQuiet(page);
-    await page.goto(link === "Library" ? "/matches" : link === "Playlists" ? "/playlists" : "/");
+    await page.goto(link === "Library" ? "/matches" : link === "Playlists" ? "/playlists" : link === "Teams" ? "/teams" : "/");
     return;
   }
   await nav.getByRole("link", { name: link, exact: true }).click();

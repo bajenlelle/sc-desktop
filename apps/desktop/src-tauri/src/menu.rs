@@ -44,7 +44,7 @@ fn closes_what_is_in_front(id: &str) -> bool {
 /// The sidebar's pages in the Go menu, in the sidebar's order. Their number
 /// keys follow the rows the sidebar shows (`menu_set_go_keys`).
 #[cfg(target_os = "macos")]
-const GO_PAGES: [&str; 5] = ["go-home", "go-playlists", "go-reports", "go-my-playlists", "go-library"];
+const GO_PAGES: [&str; 6] = ["go-home", "go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams"];
 
 /// The key each page gets when the keys go to the pages in `order`: ⌘1 to
 /// the first, ⌘2 to the second, and so on. None unless `order` is every page
@@ -257,13 +257,14 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     // The sidebar's pages in the sidebar's order (GO_PAGES). ⌘n opens the nth row the sidebar shows:
     // the keys here are for a sidebar that shows every row, and the page moves them when it shows
     // other rows (`menu_set_go_keys`, packages/shared/lib/menu-shortcuts.ts goKeyOrder). Organization
-    // is not in the sidebar and keeps ⌘6, after the rows.
+    // is not in the sidebar and keeps ⌘7, after the rows.
     let go_home = item("go-home", "Home", Some("CmdOrCtrl+1"))?;
     let go_playlists = item("go-playlists", "Playlists", Some("CmdOrCtrl+2"))?;
     let go_reports = item("go-reports", "Reports", Some("CmdOrCtrl+3"))?;
     let go_my_playlists = item("go-my-playlists", "Shared Playlists", Some("CmdOrCtrl+4"))?;
     let go_library = item("go-library", "Library", Some("CmdOrCtrl+5"))?;
-    let go_organization = item("go-organization", "Organization", Some("CmdOrCtrl+6"))?;
+    let go_teams = item("go-teams", "Teams", Some("CmdOrCtrl+6"))?;
+    let go_organization = item("go-organization", "Organization", Some("CmdOrCtrl+7"))?;
     // The search over the space: the page opens its panel, and the same chord closes it (docs/search.md).
     let search = item("search", "Search…", Some("CmdOrCtrl+K"))?;
     // The editor's clip, in its game at that play (Final Cut's Reveal Source); on only while the editor has one.
@@ -278,6 +279,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .item(&go_reports)
         .item(&go_my_playlists)
         .item(&go_library)
+        .item(&go_teams)
         .separator()
         .item(&go_organization)
         .separator()
@@ -554,8 +556,8 @@ mod tests {
     #[test]
     fn the_number_keys_go_to_the_pages_in_the_order_given() {
         let order = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        // A personal space: the Library is the fourth row, and Shared Playlists, not shown, takes the key after the rows.
-        let keys = go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library", "go-my-playlists"])).unwrap();
+        // A personal space: the Library is the fourth row, Teams the fifth, and Shared Playlists, not shown, takes the key after the rows.
+        let keys = go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library", "go-teams", "go-my-playlists"])).unwrap();
         assert_eq!(
             keys,
             vec![
@@ -563,12 +565,13 @@ mod tests {
                 ("go-playlists", "CmdOrCtrl+2".to_string()),
                 ("go-reports", "CmdOrCtrl+3".to_string()),
                 ("go-library", "CmdOrCtrl+4".to_string()),
-                ("go-my-playlists", "CmdOrCtrl+5".to_string()),
+                ("go-teams", "CmdOrCtrl+5".to_string()),
+                ("go-my-playlists", "CmdOrCtrl+6".to_string()),
             ]
         );
         // Anything but each page once is refused: a key would be lost or shared.
-        assert!(go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library"])).is_none());
-        assert!(go_accelerators(&order(&["go-home", "go-home", "go-reports", "go-library", "go-my-playlists"])).is_none());
-        assert!(go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library", "settings"])).is_none());
+        assert!(go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library", "go-my-playlists"])).is_none());
+        assert!(go_accelerators(&order(&["go-home", "go-home", "go-reports", "go-library", "go-teams", "go-my-playlists"])).is_none());
+        assert!(go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library", "go-teams", "settings"])).is_none());
     }
 }

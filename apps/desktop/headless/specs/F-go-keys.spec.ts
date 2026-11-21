@@ -23,7 +23,7 @@ test("Ctrl with a number opens that row of the sidebar, and a number past the la
   expect(new URL(page.url()).pathname, "the first row is Home").toBe("/");
 
   // The number after the last row belongs to a page this sidebar doesn't show: nothing happens.
-  if (rows.length < 5) {
+  if (rows.length < 6) {
     await page.keyboard.press(`Control+${rows.length + 1}`);
     await page.waitForTimeout(400);
     await expect(current, "a number past the last row is left alone").toHaveText(rows[0]);
