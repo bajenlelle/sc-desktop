@@ -82,7 +82,14 @@ const PlayRow = memo(function PlayRow({
     <div
       {...pressable(() => onPlay(row.key, { toggle: false, range: false }), { space: false })}
       onClick={(ev) => onPlay(row.key, { toggle: ev.metaKey || ev.ctrlKey, range: ev.shiftKey })}
-      onMouseDown={(ev) => ev.preventDefault()}
+      // The row's label picker is a portal, and its events bubble here through React: a press in its field places
+      // the caret, and a right-click there keeps the system's Cut, Copy and Paste rather than the list's menu.
+      onMouseDown={(ev) => {
+        if (ev.currentTarget.contains(ev.target as Node)) ev.preventDefault();
+      }}
+      onContextMenu={(ev) => {
+        if (!ev.currentTarget.contains(ev.target as Node)) ev.stopPropagation();
+      }}
       data-key={row.key}
       aria-current={lit || undefined}
       aria-pressed={selected}

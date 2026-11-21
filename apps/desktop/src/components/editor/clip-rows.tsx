@@ -240,74 +240,77 @@ export function ClipRow({
         >
           {isActive && !isSelected && <ActiveRowPill />}
           {focused && <FocusRing onSelection={isSelected} />}
-          <PlayRowCells
-            event={event}
-            clock="with-period"
-            now={isActive}
-            strong={isActive}
-            team={false}
-            labels={assigned}
-            context={isMultiMatch && matchTitle ? matchTitle : undefined}
-            lead={<RowLead groupPos={groupPos} isSelected={isSelected} showCheckbox={anySelected} onSelect={onSelect} />}
-            pill={groupPos === "first" || groupPos === "only" ? <GroupPill size={groupSize} onUngroup={onUngroup} /> : undefined}
-            marks={
-              preOffset !== 0 || postOffset !== 0 || note ? (
+          <RowLead groupPos={groupPos} isSelected={isSelected} showCheckbox={anySelected} onSelect={onSelect} />
+          {/* The editor is a grid: the play's cells are its row's one cell, as a text card's are. */}
+          <div role="gridcell" className="relative z-10 flex h-full min-w-0 flex-1 items-center gap-1.5">
+            <PlayRowCells
+              event={event}
+              clock="with-period"
+              now={isActive}
+              strong={isActive}
+              team={false}
+              labels={assigned}
+              context={isMultiMatch && matchTitle ? matchTitle : undefined}
+              pill={groupPos === "first" || groupPos === "only" ? <GroupPill size={groupSize} onUngroup={onUngroup} /> : undefined}
+              marks={
+                preOffset !== 0 || postOffset !== 0 || note ? (
+                  <>
+                    {(preOffset !== 0 || postOffset !== 0) && (
+                      <span
+                        className="text-caption text-orange-400"
+                        title={`Pre ${preOffset >= 0 ? "+" : ""}${preOffset}s / Post ${postOffset >= 0 ? "+" : ""}${postOffset}s`}
+                      >
+                        ±
+                      </span>
+                    )}
+                    {note && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <MessageSquare className={cn("size-3 shrink-0", "text-primary/60")} />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-56 whitespace-pre-wrap">{note}</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </>
+                ) : undefined
+              }
+              actions={
                 <>
-                  {(preOffset !== 0 || postOffset !== 0) && (
-                    <span
-                      className="text-caption text-orange-400"
-                      title={`Pre ${preOffset >= 0 ? "+" : ""}${preOffset}s / Post ${postOffset >= 0 ? "+" : ""}${postOffset}s`}
-                    >
-                      ±
-                    </span>
+                  {labelControls && (
+                    <LabelPickerPopover
+                      trigger={
+                        <RowLabelButton
+                          title={labelControls.selection ? `Labels for the ${labelControls.selection.count} selected clips` : "Labels"}
+                          aria-label={labelControls.selection ? `Labels for the ${labelControls.selection.count} selected clips` : "Labels"}
+                        />
+                      }
+                      labels={labelControls.labels}
+                      assignedAllIds={labelControls.selection?.allIds ?? labelControls.assignedIds}
+                      assignedSomeIds={labelControls.selection?.someIds}
+                      onToggle={labelControls.selection?.onToggle ?? labelControls.onToggle}
+                      onCreate={labelControls.onCreate}
+                      onRename={labelControls.onRename}
+                      onRecolor={labelControls.onRecolor}
+                      onDelete={labelControls.onDelete}
+                      onSetKey={labelControls.onSetKey}
+                      onSeedDefaults={labelControls.onSeedDefaults}
+                    />
                   )}
-                  {note && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <MessageSquare className={cn("size-3 shrink-0", "text-primary/60")} />
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-56 whitespace-pre-wrap">{note}</TooltipContent>
-                    </Tooltip>
-                  )}
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[opacity,background-color] duration-100 hover:bg-destructive/10 hover:text-destructive active:scale-95",
+                      REVEAL,
+                    )}
+                    onClick={onRemove}
+                    title={removeCount > 1 ? `Remove the ${removeCount} selected items` : "Remove from playlist"}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
                 </>
-              ) : undefined
-            }
-            actions={
-              <>
-                {labelControls && (
-                  <LabelPickerPopover
-                    trigger={
-                      <RowLabelButton
-                        title={labelControls.selection ? `Labels for the ${labelControls.selection.count} selected clips` : "Labels"}
-                        aria-label={labelControls.selection ? `Labels for the ${labelControls.selection.count} selected clips` : "Labels"}
-                      />
-                    }
-                    labels={labelControls.labels}
-                    assignedAllIds={labelControls.selection?.allIds ?? labelControls.assignedIds}
-                    assignedSomeIds={labelControls.selection?.someIds}
-                    onToggle={labelControls.selection?.onToggle ?? labelControls.onToggle}
-                    onCreate={labelControls.onCreate}
-                    onRename={labelControls.onRename}
-                    onRecolor={labelControls.onRecolor}
-                    onDelete={labelControls.onDelete}
-                    onSetKey={labelControls.onSetKey}
-                    onSeedDefaults={labelControls.onSeedDefaults}
-                  />
-                )}
-                <button
-                  type="button"
-                  className={cn(
-                    "flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[opacity,background-color] duration-100 hover:bg-destructive/10 hover:text-destructive active:scale-95",
-                    REVEAL,
-                  )}
-                  onClick={onRemove}
-                  title={removeCount > 1 ? `Remove the ${removeCount} selected items` : "Remove from playlist"}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </>
-            }
-          />
+              }
+            />
+          </div>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>

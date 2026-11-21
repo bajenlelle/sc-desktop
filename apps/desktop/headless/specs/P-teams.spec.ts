@@ -622,6 +622,28 @@ test.describe("a play's row", () => {
     expect(await words.boundingBox()).toEqual(before);
   });
 
+  test("a row's label picker field takes the pointer as any field does", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    const row = playRow(page, 0);
+    await row.hover();
+    await row.getByRole("button", { name: "Label this play" }).click();
+    const field = page.getByPlaceholder("Search or create…");
+    await field.fill("abc");
+    // A click at the field's start puts the caret there (the row's press guard must not reach into the picker).
+    await field.click({ position: { x: 1, y: 8 } });
+    await page.keyboard.type("x");
+    await expect(field).toHaveValue("xabc");
+    // A right-click in the field keeps the system's Cut, Copy and Paste: nothing cancels its context menu.
+    await page.evaluate(() => {
+      // Kept from the capture phase and read once the event is done, whoever stops it on the way.
+      window.addEventListener("contextmenu", (e) => ((window as unknown as { menuEvent: Event }).menuEvent = e), { capture: true, once: true });
+    });
+    await field.click({ button: "right" });
+    expect(await page.evaluate(() => (window as unknown as { menuEvent?: Event }).menuEvent?.defaultPrevented)).toBe(false);
+    await expect(page.getByRole("menuitem")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  });
+
   test("the play on screen shows its actions without the pointer", async ({ page }) => {
     await alfaWithAPlayableGame(page);
     await playRow(page, 0).click();

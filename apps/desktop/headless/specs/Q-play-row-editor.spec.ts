@@ -54,6 +54,11 @@ test("a play row is one line and a text card keeps its height", async ({ page, b
   await shot(page, `${browserName}-Q-editor-rows`);
 });
 
+test("a play row is a row of the editor's grid with its cell", async ({ page }) => {
+  const keys = await newPlaylistWithClips(page, NAME, { count: 1 });
+  await expect(row(page, keys[0]).getByRole("gridcell")).toHaveCount(1);
+});
+
 test("a play row dragged past a text card lands after it", async ({ page }) => {
   const keys = await newPlaylistWithClips(page, NAME, { count: 3 });
   const card = await cardAbove(page, keys[1]);
