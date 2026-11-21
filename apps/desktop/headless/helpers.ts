@@ -575,6 +575,21 @@ export async function goViaSidebar(page: Page, link: "Home" | "Playlists" | "Lib
 }
 
 /**
+ * Forgets where the coach was on this computer: every list of what was opened
+ * last (`scoutable_recent_opens:*`), from which Playlists reopens the playlist
+ * opened last. For a spec that needs Playlists to load with nothing open.
+ * Goes to the app first when the page is elsewhere.
+ */
+export async function forgetLastPlaces(page: Page): Promise<void> {
+  await onAppOrigin(page);
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("scoutable_recent_opens:")) localStorage.removeItem(key);
+    }
+  });
+}
+
+/**
  * Opens the playlist on a freshly loaded Playlists page and its Add clips
  * sheet; returns the sheet. The sheet reads the plays of the games it shows
  * itself, so nothing the page loads replaces them; the fresh load starts each

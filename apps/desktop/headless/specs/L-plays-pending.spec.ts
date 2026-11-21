@@ -20,6 +20,7 @@ import {
   deleteOwnRowsNamed,
   expect,
   failPlaysReads,
+  forgetLastPlaces,
   newPlaylistWithClips,
   playlistClips,
   playlistIdNamed,
@@ -51,9 +52,13 @@ async function watchForNoClipsYet(page: Page): Promise<() => Promise<boolean>> {
   return () => page.evaluate(() => (window as unknown as { __sawNoClipsYet?: boolean }).__sawNoClipsYet === true);
 }
 
-/** /playlists loaded afresh (no plays in memory), and the playlist opened from its sidebar row. */
+/**
+ * /playlists loaded afresh (no plays in memory), and the playlist opened from its sidebar row. The page
+ * would reopen the playlist made in the setup by itself as it loads: forgotten first, so the row opens it.
+ */
 async function openAfresh(page: Page, id: string): Promise<void> {
   await waitForQuiet(page);
+  await forgetLastPlaces(page);
   await page.goto("/playlists");
   const row = page.locator(`[data-playlist-id="${id}"]`);
   await expect(row, "the playlist is in the list").toBeVisible({ timeout: 30_000 });
@@ -155,6 +160,8 @@ test("the list shows before the plays are in", async ({ page }) => {
   const id = await playlistIdNamed(page, NAME);
   const sawNoClipsYet = await watchForNoClipsYet(page);
   await delayPlaysReads(page, 2000);
+  // Opened from its row below, not reopened by the page as it loads.
+  await forgetLastPlaces(page);
   await waitForQuiet(page);
 
   // When each of the page's list reads came back (a dev double mount reads twice; the last one is the list shown).
