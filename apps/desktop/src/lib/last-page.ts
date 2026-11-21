@@ -35,9 +35,10 @@ export function rememberLastPage(scope: string | null, path: string): void {
 
 /**
  * Notes each page worth reopening as the coach reaches it (mounted once, in
- * RootLayout). Once per page reached, as soon as the user and space are known:
- * a space switch that leaves the page where it is (a game of the space left)
- * doesn't become the new space's last page.
+ * RootLayout). Once per page reached and once per space switch, as soon as the
+ * user and space are known: the page the coach is on after a switch is the new
+ * space's last page. A game of the space left is safe to note there, because
+ * the start page opens a game only while it is among that space's open games.
  */
 export function useRememberLastPage(): void {
   const { pathname } = useLocation();
@@ -45,8 +46,10 @@ export function useRememberLastPage(): void {
   const scope = lastPageScope(user?.id, activeOrgId);
   const noted = useRef<string | null>(null);
   useEffect(() => {
-    if (!scope || noted.current === pathname) return;
-    noted.current = pathname;
+    if (!scope) return;
+    const at = `${scope}\n${pathname}`;
+    if (noted.current === at) return;
+    noted.current = at;
     const path = rememberablePath(pathname);
     if (path) rememberLastPage(scope, path);
   }, [pathname, scope]);

@@ -3,9 +3,11 @@
  * coach left on in this space, else Playlists, and a game that is no longer open falls back to the
  * Library. The sidebar starts with New playlist and Search. Reads only, apart from New playlist's
  * name field, which is named `headless-<port> start …` and swept in case a press outside saves it.
+ * The account has one space, so a second one is added in the browser for the space switch
+ * (addSecondSpace): nothing of it is written to staging.
  */
 import type { Page } from "@playwright/test";
-import { deleteOwnRowsNamed, expect, forgetLastPlaces, owned, recordAnalytics, shot, test, waitForQuiet } from "../helpers";
+import { addSecondSpace, deleteOwnRowsNamed, expect, forgetLastPlaces, openLibraryGame, OTHER_SPACE, owned, recordAnalytics, shot, switchSpace, test, waitForQuiet } from "../helpers";
 
 const PREFIX = owned("start");
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
@@ -52,6 +54,38 @@ test("it reopens the last page", async ({ page }) => {
   await expect
     .poll(async () => (await tracked()).filter((e) => e.event === "start_page_opened").map((e) => e.properties))
     .toEqual([{ page: "/reports", restored: true }]);
+});
+
+test("it reopens a game that is still open", async ({ page }) => {
+  // The game joins Open games when it opens; the coach then leaves it for another page.
+  const game = await openLibraryGame(page, 0);
+  await open(page, "/reports", "Reports");
+  await page.evaluate((path) => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith("scoutable_last_page:"));
+    if (!key) throw new Error("headless: no page was remembered");
+    localStorage.setItem(key, path);
+  }, `/matches/${game.id}`);
+  await launch(page);
+  await expect(page).toHaveURL(new RegExp(`/matches/${game.id}$`), { timeout: 30_000 });
+  await expect(page.getByRole("radiogroup", { name: "View" }), "the game's page is up").toBeVisible({ timeout: 30_000 });
+});
+
+test("a space switch notes the page for the new space", async ({ page }) => {
+  // The account has one space: the page is told of a second (a club it coaches), whose writes are answered here.
+  const answered = await addSecondSpace(page);
+  await open(page, "/reports", "Reports");
+  await switchSpace(page, OTHER_SPACE.name);
+  await expect(page.locator("aside").getByText(OTHER_SPACE.name), "the other space is the open one").toBeVisible();
+  expect(pathname(page), "a switch leaves the page where it is").toBe("/reports");
+  await expect
+    .poll(() => page.evaluate((club) => Object.entries(localStorage).find(([k]) => k.startsWith("scoutable_last_page:") && k.endsWith(`:${club}`))?.[1] ?? null, OTHER_SPACE.id))
+    .toBe("/reports");
+  // Opened again in that space, the app comes back to it.
+  await launch(page);
+  await expect(page.locator("aside").getByText(OTHER_SPACE.name)).toBeVisible({ timeout: 30_000 });
+  await expect(heading(page)).toHaveText("Reports", { timeout: 30_000 });
+  expect(pathname(page)).toBe("/reports");
+  expect(answered.filter((w) => !w.includes("/rpc/seed_demo_match")), "nothing else the club was written").toEqual([]);
 });
 
 test("a game no longer open falls back to Games", async ({ page }) => {

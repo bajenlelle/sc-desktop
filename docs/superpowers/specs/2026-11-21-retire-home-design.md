@@ -173,8 +173,8 @@ Where `/` goes, in order:
 The redirect uses `replace`, so Back never returns to `/`.
 
 **What's remembered:** the last page the coach was on in this space, written
-on every route change, keyed by user and space (localStorage, wrapped in
-try/catch like the other prefs). Only these count: the sidebar's pages
+on every route change and every space change, keyed by user and space
+(localStorage, wrapped in try/catch like the other prefs). Only these count: the sidebar's pages
 (`/playlists`, `/reports`, `/my-playlists`, `/matches`, `/teams` and a team
 page under it) and an open game (`/matches/:id`). Everything else
 (settings, profile, organization, upload, auth, onboarding) leaves the
