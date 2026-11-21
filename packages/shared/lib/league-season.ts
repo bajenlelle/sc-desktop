@@ -79,8 +79,8 @@ function values(team: TeamGame[], opp: TeamGame[], games: number, withPace: bool
   };
 }
 
-/** Whether a higher value is the better one at that end. */
-function higherIsBetter(end: End, key: ProfileKey): boolean {
+/** Whether a higher value is the better one at that end: more is better with the ball, less is better allowed, turnovers the other way round. */
+export function higherIsBetter(end: End, key: ProfileKey): boolean {
   if (end === "own") return key !== "tovRate";
   return key === "tovRate";
 }
