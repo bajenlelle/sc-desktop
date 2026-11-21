@@ -202,7 +202,7 @@ Kept from DESIGN.md: no eyebrow labels above headings (Apple agrees), league nam
 ## 5. Kept on purpose
 
 - Every capability of 0.7.0: import, tip-off suggestion, reorder with multi-selection blocks and groups, drops onto sidebar playlists and folders, text cards, trims, notes, labels, grouping, filters, export in 16:9 and 9:16, send to phone, share with who-watched, fullscreen, the onboarding highlight ring.
-- Keyboard shortcuts and the native menu (⌘1–6, ⌘B, ⌘E, ⌘O, ⌘N, ⌘⇧F, zoom), extended rather than replaced. ⌘n opens the nth row the sidebar shows, whatever the space and the role show there (the Library is ⌘4 in a personal space and ⌘5 in a club, where Shared playlists stands before it); ⌘6 is Organization. The sidebar draws its rows from the list the keys follow (`sidebarPages` and `goKeyOrder` in `packages/shared/lib/menu-shortcuts.ts`), and the native menu moves its keys when the rows change (`menu_set_go_keys`).
+- Keyboard shortcuts and the native menu (⌘1–6, ⌘B, ⌘E, ⌘O, ⌘N, ⌘⇧F, zoom), extended rather than replaced. ⌘n opens the nth row the sidebar shows, whatever the space and the role show there (Games is ⌘3 in a personal space and ⌘4 in a club, where Shared playlists stands before it); ⌘6 is Organization. The sidebar draws its rows from the list the keys follow (`sidebarPages` and `goKeyOrder` in `packages/shared/lib/menu-shortcuts.ts`), and the native menu moves its keys when the rows change (`menu_set_go_keys`).
 - The eight colour themes and cross-device sync.
 - The event colour palette and the Free-plan watermark.
 - Windows: standard window, opaque sidebar, same layout.

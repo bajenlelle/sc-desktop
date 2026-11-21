@@ -268,7 +268,7 @@ Existing accounts were backfilled as dismissed, so only new signups see it.
 
 | Home section | After |
 |---|---|
-| Next up: import your first game | Playlists with no own games: the right pane's "Select a playlist" empty state becomes "Import your first game" + Import game (+ "Browse the sample game" when the space has one). Library's empty state already does this. |
+| Next up: import your first game | Playlists when the space has no own games and no playlists: the right pane's "Select a playlist" empty state becomes "Import your first game" + Import game (+ "Browse the sample game" when the space has one). Library's empty state already does this. |
 | Next up: build your first playlist | Playlists' existing empty state ("No playlists yet" + New playlist). |
 | Next up: add clips / share / export | Covered by the checklist for new coaches. For everyone else, dropped. |
 | Next up: remind players who haven't finished | Already on the Shared playlists dashboard (per playlist). Dropped from here. |
