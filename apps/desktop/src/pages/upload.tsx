@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { PauseCircle } from "lucide-react";
+import type { ImportPick } from "@/components/team/team-games-section";
 import { UploadZone } from "@/components/upload-zone";
 import { ImportGuideLauncher, ImportGuideRoot } from "@/components/import/import-guide";
 import { EmptyState } from "@/components/empty-state";
@@ -14,6 +15,8 @@ export function UploadPage() {
   const { myOrgs, activeOrg, activeOrgId, activeOrgRole, activeOrgIsPersonal, profileLoading } =
     useAuth();
   const navigate = useNavigate();
+  // A team page's Import arrives with its game chosen (components/team/team-games-section.tsx).
+  const pick = ((useLocation().state ?? null) as { pick?: ImportPick } | null)?.pick ?? null;
   const canAccess = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
   const [ntOrgs, setNtOrgs] = useState<OrgMembership[]>([]);
   const [hasClubAccess, setHasClubAccess] = useState(false);
@@ -52,7 +55,7 @@ export function UploadPage() {
           />
         ) : (
           <ImportGuideRoot>
-            <UploadZone ntMemberships={ntOrgs} hasClubAccess={hasClubAccess} />
+            <UploadZone ntMemberships={ntOrgs} hasClubAccess={hasClubAccess} initialPick={pick} />
           </ImportGuideRoot>
         )}
       </PageContent>

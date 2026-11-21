@@ -1,8 +1,11 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft, Shield } from "lucide-react";
 import { teamKeys } from "@scoutable/shared/lib/team-keys";
-import { groupNames, teamGameRows, teamNames } from "@scoutable/shared/lib/team-schedule";
+import { groupNames, teamGameRows, teamNames, type TeamGameRow } from "@scoutable/shared/lib/team-schedule";
+import { TeamGamesSection, type ImportPick } from "@/components/team/team-games-section";
+import { TeamPlayersSection } from "@/components/team/team-players-section";
+import { useTeamPlayers } from "@/lib/use-team-players";
 import { EmptyState } from "@/components/empty-state";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
@@ -48,13 +51,20 @@ export function TeamPage() {
   const back = state.back ?? { label: "Teams", path: "/teams" };
 
   const leagues = useLeagues();
-  const seasonLabel = useMemo(() => {
+  const where_ = useMemo(() => {
     for (const l of leagues) {
       const s = l.seasons.find((x) => x.competitionId === competitionId);
-      if (s) return `${l.name} · ${s.label}`;
+      if (s) return { leagueId: l.id, seasonId: s.id, label: `${l.name} · ${s.label}`, current: l.seasons[0] === s };
     }
-    return undefined;
+    return null;
   }, [leagues, competitionId]);
+  const seasonLabel = where_?.label;
+  const players = useTeamPlayers(competitionId, teamId, where_?.current ?? false);
+  const importPick = useCallback(
+    (row: TeamGameRow): ImportPick | null =>
+      where_ ? { leagueId: where_.leagueId, seasonId: where_.seasonId, matchId: row.matchId, matchType: row.regular ? "REGULAR" : "FINALS" } : null,
+    [where_],
+  );
 
   const { status, payload, fixtures, league, retry } = useLeague(competitionId);
   const library = useLibraryGames();
@@ -105,6 +115,15 @@ export function TeamPage() {
             <TeamHeader profile={profile} rows={rows} library={library.games} mine={mine} />
             {keys && <TeamKeysSection keys={keys} where={where} />}
             <TeamProfileSection profile={profile} group={group} where={where} />
+            <TeamPlayersSection status={players.status} rows={players.rows} retry={players.retry} />
+            <TeamGamesSection
+              rows={rows}
+              competitionId={competitionId!}
+              teamName={name || "Team"}
+              library={library.games}
+              mine={mine}
+              importPick={importPick}
+            />
           </div>
         )}
       </PageContent>

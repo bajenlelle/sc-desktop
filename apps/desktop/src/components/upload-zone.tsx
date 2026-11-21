@@ -43,6 +43,7 @@ import { useMyTeam } from "@/lib/my-team";
 import { TeamDialog } from "@/components/team-dialog";
 import { ImportViewToggle, type ImportView } from "@/components/import/import-view-toggle";
 import { ImportedTag, TeamGamesPanel, type PickedFrom } from "@/components/import/team-games-panel";
+import type { ImportPick } from "@/components/team/team-games-section";
 import { choiceFor, spacesSharingAnswer, teamRoleIn, teamSpaces } from "@scoutable/shared/lib/league-teams";
 import { getTeamSources } from "@scoutable/shared/lib/league-teams-db";
 import { fromTeamSide, stageForMatchType, teamGames, teamSeasons, type TeamGame, type TeamSeason } from "@scoutable/shared/lib/team-games";
@@ -203,9 +204,12 @@ function GameRow({
 export function UploadZone({
   ntMemberships = [],
   hasClubAccess = false,
+  initialPick = null,
 }: {
   ntMemberships?: OrgMembership[];
   hasClubAccess?: boolean;
+  /** A team page's Import: open the full list on this game's league, season and stage, and choose the game once its schedule is in. */
+  initialPick?: ImportPick | null;
 }) {
   const { activeOrgId, activeOrg, activeOrgPlan, myOrgs, profile } = useAuth();
   const { choices, loaded: teamsLoaded } = useMyTeam();
@@ -262,8 +266,8 @@ export function UploadZone({
     const key = `${activeOrgId}:${teamId}`;
     if (viewDecidedFor.current === key) return;
     viewDecidedFor.current = key;
-    setView(teamId && readImportView(activeOrgId) !== "all" ? "team" : "all");
-  }, [teamsLoaded, activeOrgId, teamId]);
+    setView(teamId && !initialPick && readImportView(activeOrgId) !== "all" ? "team" : "all");
+  }, [teamsLoaded, activeOrgId, teamId, initialPick]);
 
   const [teamSeasonList, setTeamSeasonList] = useState<TeamSeason[] | null>(null);
   const [teamSeason, setTeamSeason] = useState<TeamSeason | null>(null);
@@ -469,6 +473,30 @@ export function UploadZone({
       cancelled = true;
     };
   }, [selectedLeague, selectedSeason, selectedStage]);
+
+  // A team page's Import: open the full list on the game's league, season and
+  // stage, then choose the game once that schedule is in. Once only: after
+  // that the picker is the coach's.
+  const pickDone = useRef(false);
+  useEffect(() => {
+    if (!initialPick || pickDone.current) return;
+    const league = leagueList.find((l) => l.id === initialPick.leagueId);
+    const season = league?.seasons.find((s) => s.id === initialPick.seasonId);
+    if (!league || !season) return;
+    leagueTouched.current = true;
+    setSelectedLeague(league);
+    setSelectedSeason(season);
+    setSelectedStage(stageForMatchType(season, initialPick.matchType) ?? season.stages[0] ?? null);
+  }, [initialPick, leagueList]);
+  useEffect(() => {
+    if (!initialPick || pickDone.current || scheduleStatus === "loading") return;
+    if (selectedLeague?.id !== initialPick.leagueId || selectedSeason?.id !== initialPick.seasonId) return;
+    pickDone.current = true;
+    const game = scheduleGames.find((g) => g.uuid === String(initialPick.matchId));
+    if (game) void handleSelectGame(game);
+    // handleSelectGame reads the selection just set; it isn't a dependency of when to pick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPick, scheduleStatus, scheduleGames, selectedLeague, selectedSeason]);
 
   // Duplicate detection: same fixture (stable league uuid) in this space.
   useEffect(() => {

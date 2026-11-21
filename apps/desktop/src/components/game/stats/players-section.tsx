@@ -6,7 +6,6 @@ import { onCourtStints, type GameFlow } from "@scoutable/shared/lib/game-flow";
 import { gameLineups } from "@scoutable/shared/lib/game-lineups";
 import { playerRows, type PlayerRow } from "@scoutable/shared/lib/game-players";
 import type { HostedSeasonPlayer } from "@scoutable/shared/lib/hosted-stats";
-import { LEADER_MIN_3PA } from "@scoutable/shared/lib/report-leaders";
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { Button } from "@/components/ui/button";
 import { GroupHeader } from "@/components/ui/group";
@@ -14,6 +13,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { trackEvent } from "@/lib/analytics";
 import { recallGameView, rememberGameView } from "@/lib/game-tabs";
 import { cn } from "@/lib/utils";
+import { SEASON_COLS, seasonLineValue, type SeasonCol } from "./season-columns";
 import { StatCell, type OpenPlays, type PlaySet } from "./stat-cell";
 import { useSeasonPlayers, type useGameBoxScore } from "./use-game-box-score";
 
@@ -23,7 +23,6 @@ interface Row extends PlayerRow {
 }
 
 type GameCol = BoxStat | "min" | "pm" | "season_pts";
-type SeasonCol = "gp" | "mpg" | "ppg" | "rpg" | "apg" | "spg" | "bpg" | "topg" | "tpm" | "tpa" | "tpPct" | "ftPct";
 type SortKey = GameCol | SeasonCol;
 
 const GAME_COLS: { key: GameCol; label: string; title: string }[] = [
@@ -43,21 +42,6 @@ const GAME_COLS: { key: GameCol; label: string; title: string }[] = [
   { key: "season_pts", label: "Season PTS", title: "Points per game this season, from the league" },
 ];
 
-const SEASON_COLS: { key: SeasonCol; label: string; title: string }[] = [
-  { key: "gp", label: "GP", title: "Games played" },
-  { key: "mpg", label: "MPG", title: "Minutes per game" },
-  { key: "ppg", label: "PPG", title: "Points per game" },
-  { key: "rpg", label: "RPG", title: "Rebounds per game" },
-  { key: "apg", label: "APG", title: "Assists per game" },
-  { key: "spg", label: "SPG", title: "Steals per game" },
-  { key: "bpg", label: "BPG", title: "Blocks per game" },
-  { key: "topg", label: "TOPG", title: "Turnovers per game" },
-  { key: "tpm", label: "3PM/G", title: "Threes made per game" },
-  { key: "tpa", label: "3PA/G", title: "Threes attempted per game" },
-  { key: "tpPct", label: "3P%", title: `Three-point percentage, from ${LEADER_MIN_3PA} attempts` },
-  { key: "ftPct", label: "FT%", title: "Free-throw percentage" },
-];
-
 /** Columns that a source may not record at all; dropped when neither team has one. */
 const MAY_BE_UNRECORDED: readonly BoxStat[] = ["oreb", "dreb", "ast", "tov", "stl", "blk", "pf"];
 
@@ -65,20 +49,7 @@ const minutes = (seconds: number | null) => (seconds === null ? "–" : String(M
 const signed = (n: number | null) => (n === null ? "–" : n > 0 ? `+${n}` : n < 0 ? `−${-n}` : "0");
 const one = (n: number | null | undefined) => (n === null || n === undefined ? "–" : n.toFixed(1));
 
-function seasonValue(row: Row, key: SeasonCol): number | null {
-  const l = row.season?.line;
-  if (!l) return null;
-  switch (key) {
-    case "tpm":
-      return l.tpm !== null && l.gp > 0 ? l.tpm / l.gp : null;
-    case "tpa":
-      return l.tpa !== null && l.gp > 0 ? l.tpa / l.gp : null;
-    case "tpPct":
-      return l.tpa !== null && l.tpa >= LEADER_MIN_3PA ? l.tpPct : null;
-    default:
-      return l[key];
-  }
-}
+const seasonValue = (row: Row, key: SeasonCol): number | null => seasonLineValue(row.season?.line, key);
 
 function gameValue(row: Row, key: GameCol): number | null {
   if (key === "min") return row.min;

@@ -4,7 +4,7 @@
  * mocked with, so nothing depends on real standings.
  */
 import type { Page } from "@playwright/test";
-import { expect, mockLeague, shot, test } from "../helpers";
+import { expect, mockLeague, mockRoster, shot, test, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const teamRow = (page: Page, name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
@@ -74,6 +74,71 @@ test("a team the season doesn't list says so", async ({ page }) => {
   await expect(page.getByText("This team isn't in this season.")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("link", { name: "Go to Teams" }).click();
   await expect(page).toHaveURL(/\/teams$/);
+});
+
+/** One of the test account's own Genius games, in the space the app opens on. */
+async function aLibraryGame(page: Page): Promise<{ id: string; sourceGameId: number }> {
+  await page.goto("/matches");
+  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  const game = await withAppModule<null, { id: string; sourceGameId: number } | null>(
+    page,
+    "/src/lib/supabase/client.ts",
+    `
+    const c = mod.createClient();
+    const { data: { user } } = await c.auth.getUser();
+    const { data, error } = await c.from("matches").select("id, source_game_id, org_id").eq("user_id", user.id);
+    if (error) throw new Error("headless: " + error.message);
+    const space = Object.keys(localStorage).map((k) => localStorage.getItem(k)).find((v) => v && data.some((m) => m.org_id === v));
+    const row = data.find((m) => /^\\d+$/.test(m.source_game_id ?? "") && (!space || m.org_id === space));
+    return row ? { id: row.id, sourceGameId: Number(row.source_game_id) } : null;
+  `,
+    null,
+  );
+  expect(game, "the test account has a Genius game of its own").not.toBeNull();
+  return game!;
+}
+
+test("games link to the library and to import", async ({ page, browserName }) => {
+  const mine = await aLibraryGame(page);
+  await mockLeague(page, madeUpLeague({ libraryGame: mine.sourceGameId }));
+  await page.goto("/teams");
+  await expect(teamRow(page, "Alfa")).toContainText("1 game", { timeout: 30_000 });
+  await page.getByRole("link", { name: "Alfa", exact: true }).click();
+  await expect(page.getByText("6 games played · 1 in your library")).toBeVisible({ timeout: 30_000 });
+  const games = page.getByRole("region", { name: "Games" });
+  await expect(games.getByRole("row")).toHaveCount(1 + 1 + 5); // the header, one still to play, five played
+  await games.getByRole("button", { name: "Show all 6" }).click();
+  await expect(games.getByRole("row")).toHaveCount(1 + 1 + 6);
+  await shot(page, `${browserName}-P-team-games`);
+  await games.getByRole("link", { name: "Import" }).first().click();
+  await expect(page).toHaveURL(/\/upload$/);
+  await expect(page.getByText(/Alfa/).first()).toBeVisible({ timeout: 30_000 }); // the import page opened on that game
+  await page.goBack();
+  // The library game is the oldest: WebKit folds it away again under "Show all" on the way back, Chrome keeps it open.
+  const again = page.getByRole("region", { name: "Games" });
+  await expect(again.getByRole("button", { name: /^Show (all 6|fewer)$/ })).toBeVisible({ timeout: 30_000 });
+  const showAll = again.getByRole("button", { name: "Show all 6" });
+  if (await showAll.isVisible()) await showAll.click();
+  await again.getByRole("link", { name: "In your library" }).click();
+  await expect(page).toHaveURL(new RegExp(`/matches/${mine.id}\\?view=stats`));
+});
+
+test("an opponent's name opens that team", async ({ page }) => {
+  await mockLeague(page, madeUpLeague());
+  await page.goto("/teams");
+  await page.getByRole("link", { name: "Alfa", exact: true }).click();
+  await page.getByRole("region", { name: "Games" }).getByRole("link", { name: "Beta", exact: true }).first().click();
+  await expect(page.getByRole("heading", { level: 1, name: "Beta" })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Alfa" }).click(); // Back goes to the team it came from
+  await expect(page.getByRole("heading", { level: 1, name: "Alfa" })).toBeVisible();
+});
+
+test("a team without a roster says so", async ({ page }) => {
+  await mockRoster(page, []);
+  await mockLeague(page, madeUpLeague());
+  await page.goto("/teams");
+  await page.getByRole("link", { name: "Alfa", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Players" }).getByText("No roster for this team yet.")).toBeVisible({ timeout: 30_000 });
 });
 
 test("a failed read and an older function say so", async ({ page }) => {
