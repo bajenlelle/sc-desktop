@@ -314,7 +314,7 @@ test("Plays with none of their games offers their latest game", async ({ page })
   await mockLeague(page, madeUpLeague());
   await openTeam(page, "Beta");
   await page.getByRole("radio", { name: "Plays" }).click();
-  await expect(page.getByText("None of their games are in your library.")).toBeVisible();
+  await expect(page.getByText("None of their games are imported yet.")).toBeVisible();
   await page.getByRole("link", { name: /^Import their latest game: / }).click();
   await expect(page).toHaveURL(/\/upload$/);
 });
@@ -351,9 +351,9 @@ test("another team while plays are reading shows only its own games", async ({ p
   await page.getByRole("button", { name: "Teams" }).click();
   await page.getByRole("link", { name: "Beta", exact: true }).click();
   await page.getByRole("radio", { name: "Plays" }).click();
-  await expect(page.getByText("None of their games are in your library.")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("None of their games are imported yet.")).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(5000); // past Alfa's held read
-  await expect(page.getByText("None of their games are in your library.")).toBeVisible();
+  await expect(page.getByText("None of their games are imported yet.")).toBeVisible();
   await expect(page.getByRole("list", { name: "Plays" })).toHaveCount(0);
   await release();
 });
@@ -436,7 +436,7 @@ test("Plays never says none of their games are yours before the library is read"
     await route.fallback();
   });
   await page.reload();
-  const none = page.getByText("None of their games are in your library.");
+  const none = page.getByText("None of their games are imported yet.");
   await expect(page.getByRole("radio", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
   for (let i = 0; i < 24; i++) {
     await expect(none).toHaveCount(0);

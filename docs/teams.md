@@ -45,8 +45,8 @@ store a section in a report and the web page will draw it):
 - **Header:** the standing line, the next or last meeting with the coach's
   team ("You play them Sat 28 Nov, away."), a bar per regular-season game (up
   for a win, down for a loss, as tall as the margin up to 20; a dot under a
-  game in the library, which opens it on Stats), and "12 games played · 3 in
-  your library" (`team-copy.ts`, `formStrip`).
+  game you have imported, which opens it on Stats), and "12 games played · 3
+  imported" (`team-copy.ts`, `formStrip`).
 - **What stands out** (`team-keys.ts`): up to three keys with the ball and
   three without, as sentences. A number is a key when the team has played 5
   regular-season games (`MIN_KEY_GAMES`), sits among the best or worst two of
@@ -66,7 +66,7 @@ store a section in a report and the web page will draw it):
   `league_player_teams` for this season's team id; the lines are the league's
   season page. Earlier seasons have no roster.
 - **Games:** the next two still to play, then the played ones newest first:
-  "In your library" opens the game on Stats, **Import** opens the import page
+  "Imported" opens the game on Stats, **Import** opens the import page
   with that game chosen (`ImportPick`), else "No play-by-play" or the tip-off.
 
 A team is measured against its own group: places, averages and keys count only
@@ -75,7 +75,7 @@ view ranks within the group too (`seasonContext`), so the two pages agree.
 Values equal but for rounding in the sums share a place and are never a key
 (`apart`).
 
-"In your library" is per coach: a coach reads only their own games
+"Imported" is per coach: a coach reads only their own games
 (`useLibraryGames`, `listMatchesLight` with `ownOnly`), archived ones included.
 
 ## Plays
@@ -146,7 +146,7 @@ it, and playback skips it.
   keeps each view's scroll and Plays' filters, and nothing plays while Season
   shows. Plays fades in the first time it shows (150 ms; none with reduced
   motion). Until the coach's library is read, Plays shows its skeleton, never
-  "None of their games are in your library."; a filter menu's type-ahead keeps
+  "None of their games are imported yet."; a filter menu's type-ahead keeps
   its letters (Plays' keys ignore keys inside a menu, list box or dialog).
 
 ## Data

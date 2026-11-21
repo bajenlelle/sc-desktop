@@ -294,7 +294,7 @@ export function TeamPlaysView({
     return (
       <EmptyState
         icon={<Film />}
-        title="None of their games are in your library."
+        title="None of their games are imported yet."
         body="Import one of their games to watch their plays here."
         action={
           latestImport ? (

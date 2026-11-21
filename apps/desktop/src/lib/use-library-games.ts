@@ -16,7 +16,7 @@ const EMPTY: LibraryGames = { games: new Map(), newestLeagueId: null, ready: fal
 
 /**
  * Which league games the coach has. Only their own: a coach can't read a
- * colleague's games, so "in your library" is per coach, as the Library is.
+ * colleague's games, so "Imported" is per coach, as Games is.
  */
 export function useLibraryGames(): LibraryGames {
   const { activeOrgId } = useAuth();
