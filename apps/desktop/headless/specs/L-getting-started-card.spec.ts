@@ -11,24 +11,35 @@
 import type { Page, Route } from "@playwright/test";
 import { expect, shot, test, waitForQuiet } from "../helpers";
 
-/** Answers the profile with an un-dismissed checklist until the app dismisses it; returns whether it has. */
-async function freshChecklist(page: Page): Promise<() => string | null> {
-  let dismissedAt: string | null = null;
+/** What the profile read is answered with, over the account's own row; the app's writes of these land here. */
+interface ProfileAnswers {
+  onboarding_checklist_dismissed_at: string | null;
+  /** Left out: the account's own role. */
+  declared_role?: string | null;
+}
+
+/**
+ * Answers the profile with an un-dismissed checklist until the app dismisses it. The app's writes of the
+ * dismissal and of the role are answered here, never reaching staging, and read back from then on.
+ */
+async function freshChecklist(page: Page): Promise<ProfileAnswers> {
+  const answers: ProfileAnswers = { onboarding_checklist_dismissed_at: null };
   await page.route("**/rest/v1/profiles*", async (route: Route) => {
     const request = route.request();
     const url = request.url();
-    if (request.method() === "PATCH" && (request.postData() ?? "").includes("onboarding_checklist_dismissed_at")) {
-      const body = request.postDataJSON() as { onboarding_checklist_dismissed_at?: string };
-      dismissedAt = body.onboarding_checklist_dismissed_at ?? new Date().toISOString();
+    if (request.method() === "PATCH") {
+      const body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
+      if (!("onboarding_checklist_dismissed_at" in body) && !("declared_role" in body)) return route.fallback();
+      Object.assign(answers, body);
       return route.fulfill({ status: 204, body: "" });
     }
     if (request.method() !== "GET" || !url.includes("onboarding_checklist_dismissed_at")) return route.fallback();
     const response = await route.fetch();
     const body = (await response.json()) as Record<string, unknown> | Record<string, unknown>[];
-    const patch = (row: Record<string, unknown>) => ({ ...row, onboarding_checklist_dismissed_at: dismissedAt });
+    const patch = (row: Record<string, unknown>) => ({ ...row, ...answers });
     await route.fulfill({ response, json: Array.isArray(body) ? body.map(patch) : patch(body) });
   });
-  return () => dismissedAt;
+  return answers;
 }
 
 /** The space as the page is told it: no playlists, and of the games only the sample. */
@@ -51,10 +62,10 @@ async function earlySpace(page: Page): Promise<void> {
 const card = (page: Page) => page.locator("aside").getByRole("button", { name: /^Getting started/ });
 const popover = (page: Page) => page.getByRole("dialog").filter({ hasText: "Welcome to Scoutable" });
 
-let dismissed: () => string | null;
+let profile: ProfileAnswers;
 
 test.beforeEach(async ({ page }) => {
-  dismissed = await freshChecklist(page);
+  profile = await freshChecklist(page);
   await earlySpace(page);
   await page.goto("/matches");
   await expect(card(page), "the card is in the sidebar").toBeVisible({ timeout: 30_000 });
@@ -90,6 +101,23 @@ test("pressing it opens the checklist, and a step closes it and goes there", asy
   await expect(page).toHaveURL(/\/upload$/);
 });
 
+test("answering the role question keeps the checklist open", async ({ page, browserName }) => {
+  // An OAuth signup: no role yet, so the checklist asks first.
+  profile.declared_role = null;
+  await waitForQuiet(page);
+  await page.reload();
+  await card(page).click();
+  await expect(popover(page)).toBeVisible();
+  await expect(popover(page).getByText("What describes you best?", { exact: true })).toBeVisible();
+  await popover(page).getByRole("button", { name: /^Coach/ }).click();
+  await expect.poll(() => profile.declared_role, { message: "the role was written" }).toBe("coach");
+  await expect(popover(page).getByText("What describes you best?", { exact: true }), "the question is answered").toBeHidden();
+  await waitForQuiet(page);
+  await expect(popover(page), "the checklist stays open").toBeVisible();
+  await expect(popover(page).getByRole("button", { name: /^Build your first playlist/ })).toBeEnabled();
+  await shot(page, `${browserName}-L-getting-started-role-answered`);
+});
+
 test("× on the card dismisses it for good", async ({ page }) => {
   // The × sits on the card and shows while it's hovered (the update card, the sidebar's other ×, never shows here).
   await card(page).hover();
@@ -97,7 +125,7 @@ test("× on the card dismisses it for good", async ({ page }) => {
   await expect(close).toHaveCSS("opacity", "1");
   await close.click();
   await expect(card(page), "the card is gone").toBeHidden();
-  await expect.poll(dismissed, { message: "the dismissal was written" }).not.toBeNull();
+  await expect.poll(() => profile.onboarding_checklist_dismissed_at, { message: "the dismissal was written" }).not.toBeNull();
   await waitForQuiet(page);
   await page.reload();
   await expect(page.locator("aside").getByRole("navigation", { name: "Main" })).toBeVisible({ timeout: 30_000 });

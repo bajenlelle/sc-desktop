@@ -61,7 +61,12 @@ interface AuthContextValue {
    */
   activeOrgCanManage: boolean;
   setActiveOrg: (orgId: string) => void;
-  reloadProfile: () => Promise<void>;
+  /**
+   * Reads the profile and spaces again. `silent` keeps the app on screen
+   * (no profileLoading): for a small change the user made in place, like
+   * answering the role question in Getting started.
+   */
+  reloadProfile: (opts?: { silent?: boolean }) => Promise<void>;
   /**
    * Call when the user is sent off to Stripe (checkout or billing portal).
    * The plan-tier write happens via an async webhook, so this polls the org
@@ -359,9 +364,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     loadProfileRef.current = loadProfile;
   });
-  const reloadProfile = useCallback(async () => {
+  const reloadProfile = useCallback(async (opts?: { silent?: boolean }) => {
     const u = userRef.current;
-    if (u) await loadProfileRef.current(u.id);
+    if (u) await loadProfileRef.current(u.id, opts);
   }, []);
 
   // Deliberately bypasses the bootedUserIdRef guard: retrying the gate is an

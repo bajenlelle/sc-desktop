@@ -70,12 +70,14 @@ export function GettingStartedCard() {
     };
   }, [wanted, activeOrgId, activeOrgIsPersonal]);
 
-  // The card goes with the sidebar; it doesn't come back open.
+  // Whenever the card is off screen (the sidebar collapsed, another space still
+  // loading, the checklist hidden), its popover closes: it never comes back open.
+  const shown = !collapsed && checklist.show && loaded;
   useEffect(() => {
-    if (collapsed) setOpen(false);
-  }, [collapsed]);
+    if (!shown) setOpen(false);
+  }, [shown]);
 
-  if (collapsed || !checklist.show || !loaded) return null;
+  if (!shown) return null;
 
   const { steps, doneCount, next } = checklist;
 

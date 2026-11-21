@@ -10,7 +10,7 @@ import { hasSharedAnyPlaylist } from "@/lib/playlists-db";
 import { PLAYLISTS_CHANGED } from "@/lib/playlist-events";
 import { deriveOrgSetupProgress, type OrgSetupProgress } from "@scoutable/shared/lib/org-setup";
 import { getHasExported } from "@/lib/prefs";
-import { trackEvent } from "@/lib/analytics";
+import { identifyUser, trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import type { Playlist, StoredMatch } from "@/types/match";
@@ -126,9 +126,15 @@ export function useChecklist(matches: StoredMatch[], playlists: Playlist[]): Che
   // a declared-player invited as club coach should read coach copy there.
   const isPlayer = activeOrgIsPersonal && profile?.declaredRole === "player";
 
+  // Silently: a full reload takes the sidebar, and this card with it, off
+  // screen while it reads. A silent one skips the persona identify that a
+  // full one sends, so that is sent here.
   function declareRole(role: "coach" | "player") {
     setDeclaredRole(role)
-      .then(() => reloadProfile())
+      .then(() => reloadProfile({ silent: true }))
+      .then(() => {
+        if (user) identifyUser(user.id, { declared_role: role });
+      })
       .catch((err) => console.error("[onboarding] failed to save role:", err));
   }
   const hasOwnGame = matches.some((m) => !m.isDemo);
