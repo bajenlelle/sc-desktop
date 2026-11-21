@@ -4,7 +4,7 @@
  * mocked with, so nothing depends on real standings.
  */
 import type { Page } from "@playwright/test";
-import { delayPlaysReads, deleteOwnedPlaylists, expect, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
+import { delayPlaysReads, deleteOwnedPlaylists, expect, failPlaysReads, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const teamRow = (page: Page, name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
@@ -407,6 +407,91 @@ test.describe("playing and collecting", () => {
     await expect(litRow(page)).toHaveAttribute("data-key", second);
     await page.keyboard.press("g");
     await expect(page.getByPlaceholder("Search or create…")).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
+});
+
+test("a game whose plays can't be read is said on Season, and Try again reads it", async ({ page }) => {
+  const mine = await aLibraryGame(page);
+  await mockLeague(page, madeUpLeague({ libraryGame: mine.sourceGameId }));
+  const release = await failPlaysReads(page);
+  await openTeam(page, "Alfa");
+  const said = page.getByText("Couldn't read the plays of your game.");
+  await expect(said).toBeVisible({ timeout: 30_000 });
+  await release();
+  await page.getByRole("region", { name: "Season" }).getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("button", { name: /^Watch all \d+ plays$/ })).toBeVisible({ timeout: 30_000 });
+  await expect(said).toHaveCount(0);
+});
+
+test("Plays never says none of their games are yours before the library is read", async ({ page }) => {
+  const mine = await aLibraryGame(page);
+  await mockLeague(page, madeUpLeague({ libraryGame: mine.sourceGameId }));
+  await openTeam(page, "Alfa");
+  await page.getByRole("radio", { name: "Plays" }).click();
+  await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
+  // The Library's read held back: a reload into Plays must wait for it, not say the team has none of the coach's games.
+  await page.route("**/rest/v1/matches*", async (route) => {
+    if (route.request().method() === "GET" && !route.request().url().includes("play_by_play_events")) await new Promise((r) => setTimeout(r, 8000));
+    await route.fallback();
+  });
+  await page.reload();
+  const none = page.getByText("None of their games are in your library.");
+  await expect(page.getByRole("radio", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
+  for (let i = 0; i < 24; i++) {
+    await expect(none).toHaveCount(0);
+    await page.waitForTimeout(250);
+  }
+  await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
+});
+
+test("opening a team counts as one view however often its views switch", async ({ page }) => {
+  const tracked = await recordAnalytics(page);
+  const mine = await aLibraryGame(page);
+  await mockLeague(page, madeUpLeague({ libraryGame: mine.sourceGameId }));
+  await openTeam(page, "Alfa");
+  await expect(page.getByRole("button", { name: /^Watch all \d+ plays$/ })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("radio", { name: "Plays" }).click();
+  await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("radio", { name: "Without the ball" }).click();
+  await page.getByRole("radio", { name: "Season" }).click();
+  await page.getByRole("radio", { name: "Plays" }).click();
+  await page.waitForTimeout(1000);
+  const events = await tracked();
+  expect(events.filter((e) => e.event === "team_page_viewed")).toHaveLength(1);
+  expect(events.filter((e) => e.event === "team_plays_viewed")).toHaveLength(1);
+});
+
+test.describe("collecting from a team", () => {
+  test.afterEach(async ({ page }) => {
+    await deleteOwnedPlaylists(page, [PLAYS_TARGET]);
+  });
+
+  test("another team's Plays starts without the last team's playlist", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    await page.getByRole("list", { name: "Plays" }).getByRole("button").first().click();
+    await page.keyboard.press("a");
+    await page.getByPlaceholder("Search or create…").fill(PLAYS_TARGET);
+    await page.getByRole("button", { name: `Create “${PLAYS_TARGET}”` }).click();
+    await expect(page.getByRole("button", { name: `Adding to ${PLAYS_TARGET}. Change playlist` })).toBeVisible({ timeout: 15_000 });
+    // Zeta played that same game: its page, from Alfa's games, is the same page with another team.
+    await page.getByRole("radio", { name: "Season" }).click();
+    await page.getByRole("region", { name: "Games" }).getByRole("link", { name: "Zeta", exact: true }).first().click();
+    await expect(page.getByRole("heading", { level: 1, name: "Zeta" })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("radio", { name: "Plays" }).click();
+    await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("button", { name: "Choose the playlist to add plays to" })).toBeVisible();
+    await expect(page.getByRole("button", { name: `Adding to ${PLAYS_TARGET}. Change playlist` })).toHaveCount(0);
+  });
+
+  test("a letter typed in a filter menu doesn't add or label the play", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    await page.getByRole("list", { name: "Plays" }).getByRole("button").first().click();
+    await page.getByRole("button", { name: "Player" }).click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("a");
+    await page.keyboard.press("g");
+    await expect(page.getByPlaceholder("Search or create…")).toHaveCount(0);
     await page.keyboard.press("Escape");
   });
 });

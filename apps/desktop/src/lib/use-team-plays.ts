@@ -29,7 +29,7 @@ export interface TeamPlays {
  * has moved on from never lands. The plays come through the shared cache
  * (`listEventsForMatchesChecked`), so a game the coach opens next is already read.
  */
-export function useTeamPlays(teamGames: readonly TeamGame[], key: string): TeamPlays {
+export function useTeamPlays(teamGames: readonly TeamGame[], key: string, libraryReady = true): TeamPlays {
   const [state, setState] = useState<{
     key: string;
     games: GamePlays[];
@@ -53,7 +53,9 @@ export function useTeamPlays(teamGames: readonly TeamGame[], key: string): TeamP
     const live = () => !cancelled && keyNow.current === key;
     const fresh = !retrying.current || state.key !== key;
     retrying.current = false;
-    const toRead = fresh ? [...byId.keys()] : state.failed.filter((id) => byId.has(id));
+    // A retry reads every game that hasn't landed: the failed ones, and any a read cut short by the retry never reached.
+    const landed = new Set(state.games.map((g) => g.game.gameId));
+    const toRead = fresh ? [...byId.keys()] : [...byId.keys()].filter((id) => !landed.has(id));
     if (fresh) setState({ key, games: [], matches: new Map(), video: new Map(), failed: [], done: new Set() });
     else setState((s) => ({ ...s, failed: [], done: new Set([...s.done].filter((id) => !toRead.includes(id))) }));
 
@@ -113,7 +115,8 @@ export function useTeamPlays(teamGames: readonly TeamGame[], key: string): TeamP
     [matches, video],
   );
 
-  if (!ids) return { status: "none", games: [], matches: EMPTY_MATCHES, playable, failed: [], retry };
+  // Until the library is read, no games is not yet "none of their games".
+  if (!ids) return { status: libraryReady ? "none" : "reading", games: [], matches: EMPTY_MATCHES, playable, failed: [], retry };
   const done = current ? state.done : new Set<string>();
   return {
     status: [...byId.keys()].every((id) => done.has(id)) ? "ready" : "reading",

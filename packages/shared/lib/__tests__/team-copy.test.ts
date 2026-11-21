@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coverageLine, meetingLine, paceLine, pickLabel, placeTooltip, playersCell, videoKeyLine } from "../team-copy";
+import { coverageLine, failedReadsLine, meetingLine, paceLine, pickLabel, placeTooltip, playersCell, videoKeyLine } from "../team-copy";
 import type { KeyStat, PlaysSide } from "../team-video";
 
 describe("meetingLine", () => {
@@ -72,5 +72,13 @@ describe("playersCell", () => {
   it("counts the games", () => {
     expect(playersCell(3)).toBe("3 games");
     expect(playersCell(1)).toBe("1 game");
+  });
+});
+
+describe("failedReadsLine", () => {
+  it("says how many of the coach's games couldn't be read", () => {
+    expect(failedReadsLine(1, 1)).toBe("Couldn't read the plays of your game.");
+    expect(failedReadsLine(1, 3)).toBe("Couldn't read the plays of 1 of your 3 games.");
+    expect(failedReadsLine(3, 3)).toBe("Couldn't read the plays of your 3 games.");
   });
 });

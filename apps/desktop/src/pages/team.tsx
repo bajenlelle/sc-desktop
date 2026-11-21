@@ -106,15 +106,16 @@ export function TeamPage() {
 
   // The team's games in the coach's library and their plays, read once per team for both views.
   const teamGames = useMemo(() => teamLibraryGames(rows, library.games), [rows, library.games]);
-  const plays = useTeamPlays(teamGames, `${competitionId}:${teamId}`);
+  const plays = useTeamPlays(teamGames, `${competitionId}:${teamId}`, library.ready);
   const video = useMemo(() => (plays.status === "ready" && plays.games.length > 0 ? teamVideo(plays.games) : null), [plays.status, plays.games]);
 
-  // Once per open, when the season and the library are in (location.key changes with every visit).
+  // Once per open, when the season and the library are in. An open is a mount: every route is keyed by its path
+  // (App.tsx), while Season | Plays, the side and the pick change only the search and the router state.
   const location = useLocation();
-  const viewedFor = useRef<string | null>(null);
+  const viewed = useRef(false);
   useEffect(() => {
-    if (!profile || !keys || !library.ready || viewedFor.current === location.key) return;
-    viewedFor.current = location.key;
+    if (!profile || !keys || !library.ready || viewed.current) return;
+    viewed.current = true;
     const played = rows.filter((r) => r.status === "played");
     trackEvent("team_page_viewed", {
       league: where_?.leagueId ?? null,
@@ -125,7 +126,7 @@ export function TeamPage() {
       own_team: mine.has(teamId),
       from: state.from ?? "other",
     });
-  }, [profile, keys, library, rows, location.key, where_, mine, teamId, state.from]);
+  }, [profile, keys, library, rows, where_, mine, teamId, state.from]);
   const action = useCallback((a: "open_game" | "import" | "open_team" | "show_all_players" | "show_all_games") => trackEvent("team_page_action", { action: a }), []);
   // Watch: Plays with this pick and side; Back still goes where it went.
   const watch = useCallback(
@@ -179,17 +180,17 @@ export function TeamPage() {
   }, [rows, library.games, importPick]);
 
   // Once per open of Plays, when its games are read.
-  const playsViewedFor = useRef<string | null>(null);
+  const playsViewed = useRef(false);
   useEffect(() => {
-    if (view !== "plays" || plays.status === "reading" || playsViewedFor.current === location.key) return;
-    playsViewedFor.current = location.key;
+    if (view !== "plays" || plays.status === "reading" || playsViewed.current) return;
+    playsViewed.current = true;
     trackEvent("team_plays_viewed", {
       games: plays.games.length,
       plays: video ? video.all[side] : 0,
       from: state.playsFrom ?? "switch",
       side,
     });
-  }, [view, plays.status, plays.games.length, location.key, video, side, state.playsFrom]);
+  }, [view, plays.status, plays.games.length, video, side, state.playsFrom]);
 
   const where = useMemo(() => {
     if (!league || league.groups.length < 2 || !profile) return null;
@@ -258,6 +259,7 @@ export function TeamPage() {
               library={library.games}
               mine={mine}
               watchAll={video ? { plays: video.all.with, onWatch: () => watch(null, "with", "watch_all") } : null}
+              failedReads={plays.status === "ready" && plays.failed.length > 0 ? { failed: plays.failed.length, of: teamGames.length, retry: plays.retry } : null}
             />
             {keys && <TeamKeysSection keys={keys} where={where} video={video ? { video, onWatch: watchKey } : null} />}
             <TeamProfileSection profile={profile} group={group} where={where} />

@@ -192,6 +192,8 @@ export function TeamPlaysView({
   useHotkeys(
     "team-plays",
     (e) => {
+      // A filter menu's type-ahead ("a" for Andersson) keeps its letters: the scope has no container to tell it from the page.
+      if (e.target instanceof Element && e.target.closest('[role="menu"],[role="listbox"],[role="dialog"]')) return;
       const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
       if (plain && !e.shiftKey && e.code === "KeyA") {
         e.preventDefault();
@@ -354,7 +356,7 @@ export function TeamPlaysView({
               labelsByKey={labelsByKey}
               onPlay={onRowClick}
             />
-          ) : plays.status === "reading" && plays.games.length === 0 ? (
+          ) : plays.status === "reading" ? (
             <div className="space-y-2 p-4" aria-hidden>
               {[0, 1, 2, 3, 4].map((i) => (
                 <div key={i} className="h-5 animate-pulse rounded bg-fill-1" />

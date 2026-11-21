@@ -1,6 +1,7 @@
 import type { TeamProfile } from "@scoutable/shared/lib/league-season";
 import { standingLine } from "@scoutable/shared/lib/season-copy";
-import { coverageLine, meetingLine } from "@scoutable/shared/lib/team-copy";
+import { coverageLine, failedReadsLine, meetingLine } from "@scoutable/shared/lib/team-copy";
+import { Button } from "@/components/ui/button";
 import { meeting, type TeamGameRow } from "@scoutable/shared/lib/team-schedule";
 import { gameDay, playedDay } from "./dates";
 import { FormStrip } from "./form-strip";
@@ -16,6 +17,7 @@ export function TeamHeader({
   library,
   mine,
   watchAll,
+  failedReads = null,
 }: {
   profile: TeamProfile;
   rows: readonly TeamGameRow[];
@@ -23,6 +25,8 @@ export function TeamHeader({
   mine: ReadonlySet<number>;
   /** Every play of theirs in the coach's games, once read: "Watch all n plays". */
   watchAll?: { plays: number; onWatch: () => void } | null;
+  /** Some of the coach's games of theirs couldn't be read: the counts below leave them out, so this says so. */
+  failedReads?: { failed: number; of: number; retry: () => void } | null;
 }) {
   const m = meeting(rows, mine);
   const meetLine = mine.has(profile.teamId)
@@ -46,6 +50,14 @@ export function TeamHeader({
           <WatchLink onClick={watchAll.onWatch} icon className="nums">
             Watch all {watchAll.plays} {watchAll.plays === 1 ? "play" : "plays"}
           </WatchLink>
+        )}
+        {failedReads && (
+          <span className="inline-flex items-center gap-2 text-subheadline text-muted-foreground nums">
+            {failedReadsLine(failedReads.failed, failedReads.of)}
+            <Button variant="outline" size="xs" onClick={failedReads.retry}>
+              Try again
+            </Button>
+          </span>
         )}
       </div>
     </section>

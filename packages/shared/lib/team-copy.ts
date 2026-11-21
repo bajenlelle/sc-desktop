@@ -70,6 +70,13 @@ export function pickLabel(pick: PlaysPick, count: number, made: number | null): 
   return `${pick.name} · ${count}`;
 }
 
+/** Some of the coach's games of a team couldn't be read: "Couldn't read the plays of 1 of your 3 games." */
+export function failedReadsLine(failed: number, of: number): string {
+  if (of === 1) return "Couldn't read the plays of your game.";
+  if (failed === of) return `Couldn't read the plays of your ${of} games.`;
+  return `Couldn't read the plays of ${failed} of your ${of} games.`;
+}
+
 /** A player's games in the coach's library, in the Players table. */
 export function playersCell(games: number): string {
   return plural(games, "game", "games");
