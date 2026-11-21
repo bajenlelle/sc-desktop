@@ -6,7 +6,7 @@
  * its own uncertainty explains. Shooting (eFG%) and the free-throw rate are
  * never keys: over a season this short they are the least settled numbers.
  */
-import { higherIsBetter, type End, type LeagueSeason, type TeamProfile } from "./league-season";
+import { apart, higherIsBetter, type End, type LeagueSeason, type TeamProfile } from "./league-season";
 import { ordinal } from "./season-copy";
 
 /** Games a team needs before anything is called out. */
@@ -54,8 +54,8 @@ function keysAt(end: End, profile: TeamProfile, league: LeagueSeason): TeamKey[]
     const swing = league.swing[end][metric];
     if (value === null || place === null || mean === null || swing === null) continue;
     if (place > KEY_EDGE && place <= profile.of - KEY_EDGE) continue;
+    if (!apart(value, mean)) continue;
     const gap = Math.abs(value - mean);
-    if (!(gap > 0)) continue;
     const se = swing / Math.sqrt(profile.games);
     if (gap < KEY_ERRORS * se) continue;
     out.push({ end, metric, high: value > mean, value, place, of: profile.of, score: se > 0 ? gap / se : Infinity });

@@ -41,6 +41,41 @@ test("two groups make two titled tables", async ({ page }) => {
   await expect(teamRow(page, "Delta")).toContainText("1"); // first in Södra
 });
 
+test("a team's page leads with what stands out", async ({ page, browserName }) => {
+  await mockLeague(page, madeUpLeague());
+  await page.goto("/teams");
+  await page.getByRole("link", { name: "Alfa", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Alfa" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("6 games played · none in your library yet")).toBeVisible();
+  const keys = page.getByRole("region", { name: "What stands out" });
+  await expect(keys.getByText("Shoot a lot of threes: 69% of shots, most in the league.", { exact: true })).toBeVisible();
+  await expect(keys.getByRole("listitem")).toHaveCount(1);
+  await expect(keys.getByText("Nothing stands out.", { exact: true })).toBeVisible(); // without the ball
+  const play = page.getByRole("region", { name: "How they play" });
+  await expect(play.getByText("Share of shots from three")).toBeVisible();
+  await expect(play.getByRole("button")).toHaveCount(0); // season numbers open nothing
+  await expect(play.locator("[data-season-mark]").first()).toBeAttached();
+  await shot(page, `${browserName}-P-team-top`);
+  await page.getByRole("button", { name: "Teams" }).click();
+  await expect(page).toHaveURL(/\/teams$/);
+});
+
+test("too early to say with fewer than five games", async ({ page }) => {
+  await mockLeague(page, madeUpLeague({ gamesEach: 3 }));
+  await page.goto("/teams");
+  await page.getByRole("link", { name: "Alfa", exact: true }).click();
+  await expect(page.getByText("Too early to say what stands out: 3 games played.")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Places appear after 5 games.")).toBeVisible();
+});
+
+test("a team the season doesn't list says so", async ({ page }) => {
+  await mockLeague(page, madeUpLeague());
+  await page.goto("/teams/48974/999");
+  await expect(page.getByText("This team isn't in this season.")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("link", { name: "Go to Teams" }).click();
+  await expect(page).toHaveURL(/\/teams$/);
+});
+
 test("a failed read and an older function say so", async ({ page }) => {
   await mockLeague(page, { season: "fail", fixtures: [] });
   await page.goto("/teams");

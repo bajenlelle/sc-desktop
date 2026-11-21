@@ -72,6 +72,14 @@ describe("leagueSeason", () => {
     expect(l.swing.own.pace).not.toBeNull();
   });
 
+  it("ties values that differ only by rounding in the sums", () => {
+    // 0.1 + 0.2 sums differently from 0.3: the same numbers reached two ways must share a place.
+    const p = payload([g(100, tg(1, { pts: 0.1 + 0.2, fga: 1, oreb: 0, tov: 0, fta: 0 }), tg(2, { pts: 0.3, fga: 1, oreb: 0, tov: 0, fta: 0 }))], two);
+    const l = leagueSeason(p);
+    expect(l.teams.get(1)!.place.own.ppp).toBe(1);
+    expect(l.teams.get(2)!.place.own.ppp).toBe(1);
+  });
+
   it("reads the SBL Herr season as one group of eleven", () => {
     const l = leagueSeason(sblHerr as SeasonPayload);
     expect(l.groups).toHaveLength(1);

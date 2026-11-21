@@ -85,10 +85,18 @@ export function higherIsBetter(end: End, key: ProfileKey): boolean {
   return key === "tovRate";
 }
 
+/** Two values closer than this, relative to their size, are the same number reached by different sums. */
+const SAME = 1e-9;
+
+/** Whether `a` is more than rounding away from `b`. */
+export function apart(a: number, b: number): boolean {
+  return Math.abs(a - b) > SAME * Math.max(1, Math.abs(a), Math.abs(b));
+}
+
 function placeOf(end: End, key: ProfileKey, value: number | null, all: (number | null)[]): number | null {
   if (value === null) return null;
   const higher = higherIsBetter(end, key);
-  return 1 + all.filter((v) => v !== null && (higher ? v > value : v < value)).length;
+  return 1 + all.filter((v) => v !== null && apart(v, value) && (higher ? v > value : v < value)).length;
 }
 
 const mean = (xs: (number | null)[]): number | null => {

@@ -93,6 +93,10 @@ describe("teamKeys", () => {
     expect(teamKeys(at(prof(), "own", "threeRate", 0.45, 1), lg(0)).withBall[0].score).toBe(Infinity);
   });
 
+  it("takes a gap of rounding noise as no gap, even when every game is alike", () => {
+    expect(teamKeys(at(prof(), "own", "ppp", 1.0 + 1e-15, 1), lg(0)).withBall).toEqual([]);
+  });
+
   it("has no key without a swing", () => {
     expect(teamKeys(at(prof(), "own", "threeRate", 0.6, 1), lg(null)).withBall).toEqual([]);
   });

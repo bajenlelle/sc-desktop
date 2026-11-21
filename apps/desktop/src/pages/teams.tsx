@@ -6,6 +6,7 @@ import { choiceKey, leagueChoices, pickTeamsLeague, type LeagueChoice } from "@s
 import { EmptyState } from "@/components/empty-state";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
+import { gameDay } from "@/components/team/dates";
 import { LeagueTable, LeagueTableSkeleton } from "@/components/team/league-table";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,11 +40,6 @@ function remember(orgId: string | null, choice: LeagueChoice): void {
   } catch {
     // A convenience only: the page still opens on a sensible league without it.
   }
-}
-
-/** "Sat 28 Nov". */
-export function gameDay(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 }
 
 /**
