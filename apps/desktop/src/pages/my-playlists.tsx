@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clipWatchEffects } from "@scoutable/shared/lib/watch-queue";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ChevronLeft, Clapperboard, Loader2, X } from "lucide-react";
+import { ChevronLeft, Clapperboard, Loader2, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { playableClips, toFeedPlaylists, sharerFilterOptions } from "@scoutable/shared/lib/playlist-feed";
 import { collectReferencedPlays, mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
@@ -110,7 +110,7 @@ function WelcomeCallout() {
 }
 
 export function MyPlaylistsPage() {
-  const { activeOrgId, activeOrgIsPersonal, profileLoading, myOrgs, setActiveOrg } = useAuth();
+  const { activeOrgId, activeOrgIsPersonal, activeOrgCanManage, profileLoading, myOrgs, setActiveOrg } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -471,6 +471,22 @@ export function MyPlaylistsPage() {
     </>
   );
 
+  // Staff who manage the club can invite its players from here (it was Home's "Invite players").
+  const invitePlayers =
+    isCoachOrAdmin && activeOrgCanManage && !activeOrgIsPersonal ? (
+      <Button variant="ghost" size="sm" onClick={() => navigate("/organization", { state: { invite: true, inviteRole: "player" } })}>
+        <UserPlus />
+        Invite players
+      </Button>
+    ) : null;
+  const toolbarActions =
+    invitePlayers || feedFilterButtons ? (
+      <>
+        {feedFilterButtons}
+        {invitePlayers}
+      </>
+    ) : undefined;
+
   return (
     <Page>
       <Toolbar
@@ -489,7 +505,7 @@ export function MyPlaylistsPage() {
           ) : undefined
         }
         search={search}
-        actions={feedFilterButtons || undefined}
+        actions={toolbarActions}
       />
       <PageContent width="medium">
         {loading ? (
