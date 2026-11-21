@@ -279,7 +279,8 @@ export async function newPlaylistWithClips(
   options: { count?: number; pick?: (rowKeys: string[]) => Promise<string[]> | string[] } = {},
 ): Promise<string[]> {
   await openPlaylists(page);
-  await page.getByRole("button", { name: "New playlist" }).first().click();
+  await expect(listNewPlaylist(page)).toBeEnabled({ timeout: 30_000 });
+  await listNewPlaylist(page).click();
   const field = page.locator("input:focus");
   await field.fill(name);
   await field.press("Enter");
@@ -724,19 +725,30 @@ export async function focusedField(page: Page): Promise<{ value: string; start: 
   });
 }
 
-/** Opens /playlists and waits until the sidebar has loaded (its footer's New Playlist shows once loading ends). */
+/**
+ * The playlist list's own New playlist, in its header beside New folder: there whether or not a playlist is
+ * open (the toolbar's and the empty states' share its name, so it is found through its header).
+ */
+export function listNewPlaylist(page: Page): Locator {
+  return page
+    .getByLabel("Search playlists")
+    .locator("xpath=ancestor::div[.//button[@aria-label='New folder']][1]")
+    .getByRole("button", { name: "New playlist", exact: true });
+}
+
+/** Opens /playlists and waits until the list has loaded (its New playlist is enabled once loading ends). */
 export async function openPlaylistsSidebar(page: Page): Promise<void> {
   await page.goto("/playlists");
-  await expect(page.getByRole("button", { name: "New Playlist", exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(listNewPlaylist(page)).toBeEnabled({ timeout: 30_000 });
 }
 
 /**
- * The sidebar's New Playlist (or, with `folder`, the New folder button), named
+ * The playlist list's New playlist (or, with `folder`, the New folder button), named
  * through the field it opens. Waits for the saved row. Inherits the selected
  * playlist's folder, like the button does.
  */
 export async function createInSidebar(page: Page, kind: "playlist" | "folder", name: string): Promise<Locator> {
-  if (kind === "playlist") await page.getByRole("button", { name: "New Playlist", exact: true }).click();
+  if (kind === "playlist") await listNewPlaylist(page).click();
   else await page.getByRole("button", { name: "New folder", exact: true }).click();
   const field = page.locator("input:focus");
   await expect(field).toHaveValue(kind === "playlist" ? "New Playlist" : "New Folder");

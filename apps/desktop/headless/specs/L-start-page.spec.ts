@@ -1,8 +1,9 @@
 /**
  * Home is retired (docs/superpowers/specs/2026-11-21-retire-home-design.md): `/` opens the page the
  * coach left on in this space, else Playlists, and a game that is no longer open falls back to the
- * Library. The sidebar starts with New playlist and Search. Reads only, apart from New playlist's
- * name field, which is named `headless-<port> start …` and swept in case a press outside saves it.
+ * Library. The sidebar starts with Search (New playlist lives in the playlist list's header and on ⌘N).
+ * Reads only, apart from New playlist's name field, which is named `headless-<port> start …` and swept
+ * in case a press outside saves it.
  * The account has one space, so a second one is added in the browser for the space switch
  * (addSecondSpace): nothing of it is written to staging.
  */
@@ -113,36 +114,33 @@ test("Back never returns to /", async ({ page }) => {
   await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
 });
 
-test("the sidebar starts with New playlist and Search, with no Home", async ({ page, browserName }) => {
+test("the sidebar starts with Search, with no Home and no New playlist", async ({ page, browserName }) => {
   await open(page, "/matches", "Games");
   const aside = page.locator("aside");
-  const names = await aside.locator("button").evaluateAll((buttons) =>
-    buttons.map((b) => b.getAttribute("aria-label") ?? b.textContent?.trim() ?? ""),
-  );
-  const at = names.indexOf("New playlist");
-  expect(at, "the sidebar has New playlist").toBeGreaterThanOrEqual(0);
-  expect(names.slice(at, at + 2), "New playlist, then Search").toEqual(["New playlist", "Search"]);
-  // Above the pages: nothing in the Main navigation comes before them.
-  const newBox = await aside.getByRole("button", { name: "New playlist", exact: true }).boundingBox();
+  // Above the pages: nothing in the Main navigation comes before it.
+  const searchBox = await aside.getByRole("button", { name: "Search", exact: true }).boundingBox();
   const navBox = await aside.getByRole("navigation", { name: "Main" }).boundingBox();
-  expect(newBox!.y).toBeLessThan(navBox!.y);
+  expect(searchBox!.y).toBeLessThan(navBox!.y);
   await expect(aside.getByRole("link", { name: "Home", exact: true }), "no Home row").toHaveCount(0);
-  await expect(aside.getByRole("button", { name: "New playlist", exact: true })).not.toHaveAttribute("aria-current");
+  await expect(aside.getByRole("button", { name: "New playlist", exact: true }), "New playlist lives with the playlists").toHaveCount(0);
   await shot(page, `${browserName}-L-start-page-sidebar`);
 });
 
-test("New playlist in the sidebar starts a playlist from any page", async ({ page, browserName }) => {
-  const newPlaylist = page.locator("aside").getByRole("button", { name: "New playlist", exact: true });
-  const nameField = page.locator("input:focus");
-  for (const [path, title] of [["/matches", "Games"], ["/teams", "Teams"]] as const) {
-    await open(page, path, title);
-    await newPlaylist.click();
-    await expect(page, `New playlist from ${title} opens Playlists`).toHaveURL(/\/playlists$/, { timeout: 30_000 });
-    await expect(nameField, `the new playlist's name is asked for, from ${title}`).toHaveValue("New Playlist", { timeout: 30_000 });
-    if (title === "Teams") await shot(page, `${browserName}-L-start-page-new-playlist`);
-    // Let it go without saving it.
-    await nameField.fill(`${PREFIX} ${title}`);
-    await nameField.press("Escape");
-    await expect(nameField).toHaveCount(0);
-  }
+test.describe("the keys, as the Windows build reads them (the native menu is mocked here)", () => {
+  test.use({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36" });
+
+  test("Ctrl+N starts a playlist from any page", async ({ page, browserName }) => {
+    const nameField = page.locator("input:focus");
+    for (const [path, title] of [["/matches", "Games"], ["/teams", "Teams"]] as const) {
+      await open(page, path, title);
+      await page.keyboard.press("Control+n");
+      await expect(page, `New playlist from ${title} opens Playlists`).toHaveURL(/\/playlists$/, { timeout: 30_000 });
+      await expect(nameField, `the new playlist's name is asked for, from ${title}`).toHaveValue("New Playlist", { timeout: 30_000 });
+      if (title === "Teams") await shot(page, `${browserName}-L-start-page-new-playlist`);
+      // Let it go without saving it.
+      await nameField.fill(`${PREFIX} ${title}`);
+      await nameField.press("Escape");
+      await expect(nameField).toHaveCount(0);
+    }
+  });
 });

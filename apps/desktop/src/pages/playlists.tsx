@@ -6540,6 +6540,26 @@ export function PlaylistsPage() {
             </TooltipTrigger>
             <TooltipContent>New folder</TooltipContent>
           </Tooltip>
+          {/* New playlist beside the list it adds to, there whether or not a playlist is open (the toolbar's
+              is the editor's while one is): as Notes keeps its compose button over its list. ⌘N does the same. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="New playlist"
+                aria-keyshortcuts={IS_MACOS ? "Meta+N" : "Control+N"}
+                disabled={loading}
+                onClick={() => handleNewPlaylist()}
+              >
+                <ListPlus className="text-primary" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="flex items-center gap-1.5">
+              New playlist
+              <Kbd>{IS_MACOS ? "\u2318N" : "Ctrl N"}</Kbd>
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         {playerClub && (
@@ -6712,18 +6732,6 @@ export function PlaylistsPage() {
         )}
         </div>
 
-        {!loading && (
-          <div className="shrink-0 border-t border-separator p-1.5">
-            <button
-              type="button"
-              onClick={() => handleNewPlaylist()}
-              className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm text-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
-            >
-              <ListPlus className="size-4 text-primary" />
-              New Playlist
-            </button>
-          </div>
-        )}
       </BrowserColumn>
 
       {/* RIGHT — the editor */}

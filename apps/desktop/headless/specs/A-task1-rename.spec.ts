@@ -7,6 +7,7 @@
  */
 import type { Locator, Page, Request, Route } from "@playwright/test";
 import {
+  listNewPlaylist,
   createInSidebar,
   deleteSidebarRowsNamed,
   expect,
@@ -78,7 +79,7 @@ test("A task 1: double-click renames a playlist and a folder, name selected, wri
   await openPlaylistsSidebar(page);
 
   // ── New Playlist: the field opens with "New Playlist" selected, so typing replaces it.
-  await page.getByRole("button", { name: "New Playlist", exact: true }).click();
+  await listNewPlaylist(page).click();
   await expectWholeNameSelected(page, "New Playlist", "New Playlist");
   await page.keyboard.type(PLAYLIST);
   await shot(page, name("new-playlist-typed"));

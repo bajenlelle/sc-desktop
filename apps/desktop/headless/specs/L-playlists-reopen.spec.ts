@@ -1,14 +1,14 @@
 /**
  * Playlists opens where the coach left off (docs/superpowers/specs/2026-11-21-retire-home-design.md,
  * "Opening the app"): with no playlist asked for it reopens the one opened last in this space, and it
- * takes New playlist (⌘N, Ctrl+N on Windows, or the sidebar's row) while it is already shown, showing the
+ * takes New playlist (⌘N, Ctrl+N on Windows, or the list's own New playlist) while it is already shown, showing the
  * playlist browser when the coach had hidden it. With no games of its own the right pane says to import one
  * first. Creates playlists named `headless-<port> reopen …` and deletes them. The keys are driven as the
  * Windows build reads them (the native menu is mocked here). The account has one space, so a second one is
  * added in the browser (addSecondSpace): nothing of it is written to staging.
  */
 import type { Page, Route } from "@playwright/test";
-import { addSecondSpace, createPlaylist, deleteOwnRowsNamed, expect, goViaSidebar, OTHER_SPACE, owned, shot, switchSpace, test, toastWith, waitForQuiet } from "../helpers";
+import { addSecondSpace, createPlaylist, deleteOwnRowsNamed, expect, goViaSidebar, listNewPlaylist, OTHER_SPACE, owned, shot, switchSpace, test, toastWith, waitForQuiet } from "../helpers";
 
 test.use({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36" });
 
@@ -78,6 +78,16 @@ test("New playlist from Playlists itself starts a new one", async ({ page }) => 
   await nameNewPlaylist(page);
 });
 
+test("with a playlist open, the list's New playlist starts a new one", async ({ page, browserName }) => {
+  await openAlpha(page);
+  await expect(listNewPlaylist(page), "the list offers New playlist with a playlist open").toBeVisible();
+  await expect(page.getByRole("button", { name: "New Playlist", exact: true }), "no second New at the list's foot").toHaveCount(0);
+  await listNewPlaylist(page).click();
+  await expect(nameField(page), "the new playlist's name is asked for").toHaveValue("New Playlist");
+  await shot(page, `${browserName}-L-playlists-list-new`);
+  await nameNewPlaylist(page);
+});
+
 test("a fresh page asked to create doesn't reopen the last one", async ({ page }) => {
   await openAlpha(page);
   await goViaSidebar(page, "Games");
@@ -102,10 +112,10 @@ test("New playlist while Playlists is still loading doesn't reopen the last one"
   });
   await goViaSidebar(page, "Playlists");
   await expect(heading(page)).toHaveText("Playlists");
-  await expect(page.getByRole("button", { name: "New Playlist", exact: true }), "the list is still loading").toBeHidden();
+  await expect(listNewPlaylist(page), "the list is still loading").toBeDisabled();
   await page.keyboard.press("Control+n");
   await expect(nameField(page), "the new playlist's name is asked for").toHaveValue("New Playlist", { timeout: 30_000 });
-  await expect(page.getByRole("button", { name: "New Playlist", exact: true }), "the list has loaded").toBeVisible();
+  await expect(listNewPlaylist(page), "the list has loaded").toBeEnabled();
   await expect(heading(page), "the playlist opened last stays closed").toHaveText("Playlists");
   await nameNewPlaylist(page);
   await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -124,14 +134,6 @@ test("another space doesn't reopen this space's playlist", async ({ page }) => {
   expect(answered.filter((w) => !w.includes("/rpc/seed_demo_match")), "nothing else the club was written").toEqual([]);
 });
 
-test("New playlist from the sidebar while Playlists is shown starts a new one", async ({ page }) => {
-  await openAlpha(page);
-  await page.locator("aside").getByRole("button", { name: "New playlist", exact: true }).click();
-  await expect(page).toHaveURL(/\/playlists$/);
-  await expect(nameField(page), "the new playlist's name is asked for").toHaveValue("New Playlist", { timeout: 30_000 });
-  await nameNewPlaylist(page);
-});
-
 test("New playlist with the playlist browser hidden shows it, with the name field", async ({ page, browserName }) => {
   // The coach hid the browser (kept per machine): read when the app loads, so set before a load.
   await page.goto("/matches");
@@ -140,7 +142,7 @@ test("New playlist with the playlist browser hidden shows it, with the name fiel
   await waitForQuiet(page);
   await page.reload();
   await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });
-  await page.locator("aside").getByRole("button", { name: "New playlist", exact: true }).click();
+  await page.keyboard.press("Control+n");
   await expect(page).toHaveURL(/\/playlists$/, { timeout: 30_000 });
   await expect(nameField(page), "the new playlist's name is asked for").toHaveValue("New Playlist", { timeout: 30_000 });
   // A hidden browser keeps its rows laid out at full width inside a column of no width, marked aria-hidden.

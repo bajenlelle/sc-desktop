@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { BookOpen, FileText, Film, ListPlus, ListVideo, Plus, Search, Share2, Shield } from "lucide-react";
+import { BookOpen, FileText, Film, ListVideo, Plus, Search, Share2, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { UpdateCard } from "@/components/UpdateChecker";
@@ -26,7 +26,7 @@ import { UserMenu } from "./user-menu";
 /** Keep in step with --sidebar-width in index.css. */
 const SIDEBAR_WIDTH = 220;
 
-/** The action rows above the pages (New playlist, Search): a page row's look, never selected. */
+/** The action row above the pages (Search): a page row's look, never selected. */
 const ACTION_ROW =
   "flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection";
 
@@ -161,23 +161,11 @@ export function Sidebar() {
           />
         )}
 
-        {/* The two actions a coach takes most, above the pages: New playlist, then the search over the
-            space, where Notion and Mail keep theirs. Buttons, not destinations, so never selected:
-            New playlist does what ⌘N does (pages/playlists.tsx takes `createNew` also while it is open),
-            Search opens the panel (components/search/quick-search.tsx). */}
+        {/* The search over the space, above the pages, where Notion and Mail keep theirs. A button, not a
+            destination, so never selected: it opens the panel (components/search/quick-search.tsx). New
+            playlist is not here: it sits in the playlist list's header, and ⌘N works from any page. */}
         {ready && isCoachOrAdmin && (
           <div className="mt-3 flex flex-col gap-0.5 px-2">
-            <button
-              type="button"
-              onClick={() => navigate("/playlists", { state: { createNew: true } })}
-              aria-label="New playlist"
-              aria-keyshortcuts={IS_MACOS ? "Meta+N" : "Control+N"}
-              className={ACTION_ROW}
-            >
-              <ListPlus className="size-4 shrink-0 text-primary" />
-              <span className="truncate">New playlist</span>
-              <Kbd aria-hidden className="ml-auto">{IS_MACOS ? "\u2318N" : "Ctrl N"}</Kbd>
-            </button>
             <button
               type="button"
               onClick={() => openQuickSearch("sidebar")}

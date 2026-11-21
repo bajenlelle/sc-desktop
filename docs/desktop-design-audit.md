@@ -43,7 +43,7 @@ What it shows: a native title bar; a 56 px icon rail (104 px with a second colum
 
 ### 2.2 Home
 
-Home was retired on 2026-11-21: the app opens where the coach left off, and New playlist and Search lead the sidebar ([design](superpowers/specs/2026-11-21-retire-home-design.md)). The findings below are kept for history.
+Home was retired on 2026-11-21: the app opens where the coach left off, and Search leads the sidebar ([design](superpowers/specs/2026-11-21-retire-home-design.md)). New playlist moved out of the sidebar the same day: it sits in the playlist list's header beside New folder, there whether or not a playlist is open, and ⌘N works from any page. The findings below are kept for history.
 
 What it shows: "Home" title with three buttons (Invite players, New playlist, Import game); a "NEXT UP" card; "Team engagement" tiles; a 3×2 grid of playlist cards; recent imports.
 
