@@ -98,6 +98,7 @@ export function OpenGames() {
         trackEvent("game_tabs_reordered", { tabs: order.length });
       }}
       rowData={{ "data-open-game": "" }}
+      noun="game"
     />
   );
 }

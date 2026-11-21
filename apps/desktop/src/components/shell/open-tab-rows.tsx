@@ -41,6 +41,7 @@ export function OpenTabRows({
   onCloseOthers,
   onReorder,
   rowData,
+  noun,
 }: {
   label: string;
   /** After the caption: Open games' +. */
@@ -55,6 +56,8 @@ export function OpenTabRows({
   onReorder: (order: string[]) => void;
   /** Extra data attributes on each row's button (Open games' `data-open-game`, which keeps its focus on a switch). */
   rowData?: Record<`data-${string}`, string>;
+  /** What a row is, for its × while its title loads: "Close game". */
+  noun: string;
 }) {
   const reduced = useReducedMotionSafe();
 
@@ -190,7 +193,7 @@ export function OpenTabRows({
                       {closable && (
                         <button
                           type="button"
-                          aria-label={`Close ${tab.title || "tab"}`}
+                          aria-label={`Close ${tab.title || noun}`}
                           // For the pointer: the keyboard closes a row with Delete.
                           tabIndex={-1}
                           // In the capture phase: the row's drag listens on the row itself, below React's own handlers,

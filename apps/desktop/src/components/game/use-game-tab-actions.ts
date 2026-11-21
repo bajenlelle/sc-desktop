@@ -14,11 +14,11 @@ import {
 
 /**
  * Before a switch: the field being typed in is left, since Details saves on blur and the page is gone after
- * `navigate`. A row of the open games keeps the focus: the keyboard chose it, and goes on from it.
+ * `navigate`. A row of the sidebar's open games or teams keeps the focus: the keyboard chose it, and goes on from it.
  */
 export function leaveField() {
   const focused = document.activeElement;
-  if (focused instanceof HTMLElement && !focused.hasAttribute("data-open-game")) focused.blur();
+  if (focused instanceof HTMLElement && !focused.hasAttribute("data-open-tab")) focused.blur();
 }
 
 /**

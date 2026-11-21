@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { teamTabId, teamTabOfPath, teamTabPath } from "../team-tabs";
+import { teamStateToRestore, teamTabId, teamTabOfPath, teamTabPath } from "../team-tabs";
 
 describe("team tabs", () => {
   it("an open team's id is its season and team", () => {
@@ -26,5 +26,26 @@ describe("team tabs", () => {
     expect(teamTabOfPath("/teams/find/55")).toBeNull();
     expect(teamTabOfPath("/matches/abc")).toBeNull();
     expect(teamTabOfPath("/teams/4121/7/extra")).toBeNull();
+  });
+});
+
+describe("a team as it was left", () => {
+  it("keeps the side and the pick", () => {
+    const pick = { kind: "stat", stat: "threes", side: "with" };
+    expect(teamStateToRestore({ side: "without", pick })).toEqual({ side: "without", pick });
+  });
+
+  it("keeps Back only when it leads to a team page or the league", () => {
+    expect(teamStateToRestore({ back: { label: "Alfa", path: "/teams/1/1" } })).toEqual({ back: { label: "Alfa", path: "/teams/1/1" } });
+    expect(teamStateToRestore({ back: { label: "vs Beta", path: "/matches/abc" } })).toEqual({});
+  });
+
+  it("drops how it was first opened", () => {
+    expect(teamStateToRestore({ from: "game", playsFrom: "key" })).toEqual({});
+  });
+
+  it("anything else is nothing to restore", () => {
+    expect(teamStateToRestore(null)).toEqual({});
+    expect(teamStateToRestore("x")).toEqual({});
   });
 });

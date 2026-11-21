@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { teamTabOfPath, teamTabPath } from "@scoutable/shared/lib/team-tabs";
+import { teamStateToRestore, teamTabOfPath, teamTabPath } from "@scoutable/shared/lib/team-tabs";
+import { leaveField } from "@/components/game/use-game-tab-actions";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import { gameTabsScope } from "@/lib/game-tabs";
@@ -28,7 +29,9 @@ export function OpenTeams() {
       const path = teamTabPath(id);
       if (!path) return;
       const was = recallTeamLeft(id);
-      const state = { ...((was?.state as TeamPageState | null) ?? {}), from: "open_teams" } satisfies TeamPageState;
+      const state = { ...(teamStateToRestore(was?.state) as Pick<TeamPageState, "side" | "pick" | "back">), from: "open_teams" } satisfies TeamPageState;
+      // A field being typed in saves on blur, and the row's press keeps the focus where it was.
+      leaveField();
       navigate(`${path}${was?.search ?? ""}`, { replace, state });
     },
     [navigate],
@@ -48,7 +51,8 @@ export function OpenTeams() {
   const closeOthers = (keepId: string) => {
     closeOtherTeamTabs(scope, keepId);
     trackEvent("team_tab_closed", { via: "close_others", tabs: 1 });
-    if (shownId && shownId !== keepId) go(keepId, true);
+    // Only from an open team's page: a team without a row (the season doesn't list it) stays on screen.
+    if (shownId && shownId !== keepId && tabs.tabs.some((t) => t.id === shownId)) go(keepId, true);
   };
 
   return (
@@ -62,6 +66,7 @@ export function OpenTeams() {
       }))}
       shownId={shownId}
       canClose={() => true}
+      noun="team"
       onChoose={(id) => go(id)}
       onClose={close}
       onCloseOthers={closeOthers}

@@ -20,3 +20,20 @@ export function teamTabOfPath(pathname: string): string | null {
   const m = /^\/teams\/(\d+)\/(\d+)$/.exec(pathname);
   return m ? `${m[1]}:${m[2]}` : null;
 }
+
+/**
+ * What of a team page's router state a row of Open teams brings back: the
+ * side and the pick, and Back only while it leads to a team page or the
+ * league (a game it once led to may be closed, deleted or moved since). How
+ * the page was first opened (`from`, `playsFrom`) is not brought back: the
+ * row is a new way in.
+ */
+export function teamStateToRestore(state: unknown): { side?: unknown; pick?: unknown; back?: { label: string; path: string } } {
+  if (!state || typeof state !== "object") return {};
+  const { side, pick, back } = state as { side?: unknown; pick?: unknown; back?: { label?: unknown; path?: unknown } };
+  const out: { side?: unknown; pick?: unknown; back?: { label: string; path: string } } = {};
+  if (side !== undefined) out.side = side;
+  if (pick !== undefined) out.pick = pick;
+  if (back && typeof back.label === "string" && typeof back.path === "string" && /^\/teams(\/|$)/.test(back.path)) out.back = { label: back.label, path: back.path };
+  return out;
+}
