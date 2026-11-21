@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { EMPTY_CLIP_FILTERS } from "../clip-filters";
 import { SHOT_ZONES } from "../game-shots";
-import { flipPick, keyStatOf, pickKeys, playability, teamLibraryGames, teamVideo, type GamePlays } from "../team-video";
+import { flipPick, keyStatOf, pickKeys, playability, nextPlayable, previousPlayable, teamLibraryGames, teamPlayRows, teamVideo, type GamePlays, type TeamPlayRow } from "../team-video";
 import { ev, row, tgame, who } from "./helpers/plays";
 
 describe("teamLibraryGames", () => {
@@ -180,5 +181,75 @@ describe("teamVideo", () => {
     const v = teamVideo(GAMES);
     expect(v.players.get(7)).toEqual({ games: 2, plays: 3 });
     expect(v.players.get(8)).toEqual({ games: 1, plays: 2 });
+  });
+});
+
+const older: GamePlays = { game: tgame({ gameId: "old", at: "2026-11-01T18:00:00Z", leagueMatchId: 1 }), events: [ev(1, "turnover", 1), ev(2, "foul", 2)] };
+const newer: GamePlays = {
+  game: tgame({ gameId: "new", at: "2026-11-08T18:00:00Z", leagueMatchId: 2 }),
+  // Stored out of order: the list puts them in game order.
+  events: [ev(2, "2pt", 1), ev(1, "turnover", 1), ev(3, "steal", 2), ev(4, "rebound", 1, { player: null, subType: "offensivedeadball" })],
+};
+const shape = (rows: TeamPlayRow[]) => rows.map((r) => (r.kind === "game" ? `# ${r.game.gameId} ${r.plays}` : r.key));
+
+describe("teamPlayRows", () => {
+  it("newest game first, each game in game order, a header per game", () => {
+    expect(shape(teamPlayRows([older, newer], "with", null, EMPTY_CLIP_FILTERS))).toEqual(["# new 2", "new:1", "new:2", "# old 1", "old:1"]);
+  });
+
+  it("only the side asked for", () => {
+    expect(shape(teamPlayRows([older, newer], "without", null, EMPTY_CLIP_FILTERS))).toEqual(["# new 1", "new:3", "# old 1", "old:2"]);
+  });
+
+  it("a pick narrows, and a game left with nothing has no header", () => {
+    expect(shape(teamPlayRows([older, newer], "with", new Set(["new:2"]), EMPTY_CLIP_FILTERS))).toEqual(["# new 1", "new:2"]);
+  });
+
+  it("a pick that matches nothing lists nothing", () => {
+    expect(teamPlayRows([older, newer], "with", new Set(), EMPTY_CLIP_FILTERS)).toEqual([]);
+  });
+
+  it("filters and labels narrow within the pick", () => {
+    const types = { ...EMPTY_CLIP_FILTERS, types: new Set(["turnover"]) };
+    expect(shape(teamPlayRows([older, newer], "with", null, types))).toEqual(["# new 1", "new:1", "# old 1", "old:1"]);
+    const labelled = { ...EMPTY_CLIP_FILTERS, labels: new Set(["L"]) };
+    const labelsOf = (key: string) => (key === "old:1" ? new Set(["L"]) : undefined);
+    expect(shape(teamPlayRows([older, newer], "with", null, labelled, labelsOf))).toEqual(["# old 1", "old:1"]);
+  });
+
+  it("25 games stay newest first", () => {
+    const games = Array.from({ length: 25 }, (_, i): GamePlays => ({
+      game: tgame({ gameId: `g${i}`, leagueMatchId: i, at: `2026-10-${String(i + 1).padStart(2, "0")}T18:00:00Z` }),
+      events: [ev(1, "turnover", 1)],
+    }));
+    const shuffled = [...games].sort((a, b) => (a.game.leagueMatchId * 7) % 25 - (b.game.leagueMatchId * 7) % 25);
+    const heads = teamPlayRows(shuffled, "with", null, EMPTY_CLIP_FILTERS).flatMap((r) => (r.kind === "game" ? [r.game.at] : []));
+    expect(heads).toHaveLength(25);
+    expect(heads).toEqual([...heads].sort().reverse());
+  });
+});
+
+describe("nextPlayable", () => {
+  const a: GamePlays = { game: tgame({ gameId: "a", at: "2026-11-03T18:00:00Z" }), events: [ev(1, "2pt", 1), ev(2, "2pt", 1)] };
+  const b: GamePlays = { game: tgame({ gameId: "b", at: "2026-11-02T18:00:00Z" }), events: [ev(1, "2pt", 1)] };
+  const c: GamePlays = { game: tgame({ gameId: "c", at: "2026-11-01T18:00:00Z" }), events: [ev(1, "2pt", 1), ev(2, "2pt", 1)] };
+  const rows = teamPlayRows([a, b, c], "with", null, EMPTY_CLIP_FILTERS);
+  const ok = (id: string) => id !== "b";
+
+  it("skips the plays of a game that can't play, and stops at the end", () => {
+    expect(nextPlayable(rows, "a:1", ok)).toBe("a:2");
+    expect(nextPlayable(rows, "a:2", ok)).toBe("c:1");
+    expect(nextPlayable(rows, "c:2", ok)).toBeNull();
+    expect(nextPlayable(rows, null, ok)).toBe("a:1");
+    expect(nextPlayable(rows, null, () => false)).toBeNull();
+  });
+
+  it("goes back the same way", () => {
+    expect(previousPlayable(rows, "c:1", ok)).toBe("a:2");
+    expect(previousPlayable(rows, "a:1", ok)).toBeNull();
+  });
+
+  it("a key no longer listed starts from the top", () => {
+    expect(nextPlayable(rows, "gone:1", ok)).toBe("a:1");
   });
 });

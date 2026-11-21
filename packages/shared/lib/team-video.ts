@@ -10,7 +10,8 @@
  * view says.
  */
 import type { PlayByPlayEvent } from "../types/match";
-import { isBookkeepingEvent } from "./events";
+import { applyClipFiltersByKey, type ClipFilters } from "./clip-filters";
+import { isBookkeepingEvent, sortPlaysChronologically } from "./events";
 import { gameBox, type BoxStat } from "./game-box";
 import { gameShots, SHOT_ZONES, type ChartShot, type ShotZone } from "./game-shots";
 import type { End } from "./league-season";
@@ -232,4 +233,57 @@ export function teamVideo(games: readonly GamePlays[]): TeamVideo {
   }
 
   return { games: games.length, all, stats, shots: { games: shotGames, withoutPositions, dots, zones }, players };
+}
+
+/** A row of the Plays list: a game's header, or one of its plays. */
+export type TeamPlayRow =
+  | { kind: "game"; game: TeamGame; plays: number }
+  | { kind: "play"; key: string; game: TeamGame; event: PlayByPlayEvent };
+
+/**
+ * The Plays list: newest game first, each game's plays in game order, only the
+ * side asked for, narrowed by the picked plays (null: none picked) and by the
+ * filters (labels through `labelsOf`). A game with nothing listed has no
+ * header; a header counts its listed plays.
+ */
+export function teamPlayRows(
+  games: readonly GamePlays[],
+  side: PlaysSide,
+  picked: ReadonlySet<string> | null,
+  filters: ClipFilters,
+  labelsOf?: (key: string) => ReadonlySet<string> | undefined,
+): TeamPlayRow[] {
+  const out: TeamPlayRow[] = [];
+  for (const g of [...games].sort((a, b) => newestFirst(a.game, b.game))) {
+    const n = sideNumber(g.game, side);
+    const entries = sortPlaysChronologically(g.events)
+      .filter((e) => !isBookkeepingEvent(e) && sideOf(e) === n)
+      .map((event) => ({ event, key: keyOf(g.game, event.eventId) }))
+      .filter((x) => !picked || picked.has(x.key));
+    const kept = applyClipFiltersByKey(entries, filters, labelsOf ? (x) => labelsOf(x.key) : undefined);
+    if (kept.length === 0) continue;
+    out.push({ kind: "game", game: g.game, plays: kept.length });
+    for (const x of kept) out.push({ kind: "play", key: x.key, game: g.game, event: x.event });
+  }
+  return out;
+}
+
+function stepPlayable(rows: readonly TeamPlayRow[], fromKey: string | null, playable: (gameId: string) => boolean, dir: 1 | -1): string | null {
+  const from = fromKey === null ? -1 : rows.findIndex((r) => r.kind === "play" && r.key === fromKey);
+  if (from < 0 && dir === -1) return null;
+  for (let i = from < 0 ? 0 : from + dir; i >= 0 && i < rows.length; i += dir) {
+    const r = rows[i];
+    if (r.kind === "play" && playable(r.game.gameId)) return r.key;
+  }
+  return null;
+}
+
+/** The next listed play whose game can play (the first with no key, or a key no longer listed); null past the last. */
+export function nextPlayable(rows: readonly TeamPlayRow[], fromKey: string | null, playable: (gameId: string) => boolean): string | null {
+  return stepPlayable(rows, fromKey, playable, 1);
+}
+
+/** The listed play before, whose game can play; null before the first. */
+export function previousPlayable(rows: readonly TeamPlayRow[], fromKey: string | null, playable: (gameId: string) => boolean): string | null {
+  return stepPlayable(rows, fromKey, playable, -1);
 }
