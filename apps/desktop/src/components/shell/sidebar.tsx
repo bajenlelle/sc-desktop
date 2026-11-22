@@ -1,3 +1,4 @@
+import * as React from "react";
 import { motion } from "framer-motion";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { BookOpen, FileText, Film, ListVideo, Plus, Search, Share2, Shield } from "lucide-react";
@@ -66,11 +67,53 @@ function NavItem({
   );
 }
 
+/** How far the scroll-edge fade reaches into the list, in px. */
+const EDGE_FADE = 12;
+
+/**
+ * Which ends of a scroller have content hidden past them, kept current as it
+ * scrolls and as it or its content changes size (an open game added, the
+ * window made shorter).
+ */
+function useScrollEdges(ref: React.RefObject<HTMLElement | null>) {
+  const [edges, setEdges] = React.useState({ top: false, bottom: false });
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const top = el.scrollTop > 0;
+      // A pixel of slack: fractional heights can leave scrollTop just short of the end.
+      const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+      setEdges((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    for (const child of Array.from(el.children)) ro.observe(child);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, [ref]);
+  return edges;
+}
+
+/** A mask that fades the list out under whichever edge has more past it. */
+function edgeMask({ top, bottom }: { top: boolean; bottom: boolean }): React.CSSProperties | undefined {
+  if (!top && !bottom) return undefined;
+  const image = `linear-gradient(to bottom, ${top ? "transparent" : "black"}, black ${EDGE_FADE}px, black calc(100% - ${EDGE_FADE}px), ${bottom ? "transparent" : "black"})`;
+  return { WebkitMaskImage: image, maskImage: image };
+}
+
 /**
  * The macOS source list: labelled rows, the space at the top, the account
  * at the bottom, the traffic lights inset in the strip above it all. On
  * macOS the system paints vibrancy behind it; on Windows it is an opaque
  * column with a separator. Collapsing animates the width with a spring.
+ * The space and the account stay put; everything between them scrolls when
+ * the window is too short for it, as Finder's and Mail's lists do, fading
+ * out at an edge only while there is more past it.
  */
 export function Sidebar() {
   const {
@@ -88,6 +131,8 @@ export function Sidebar() {
   const collapsed = useSidebarCollapsed();
   const reduced = useReducedMotionSafe();
   const importQuota = useImportQuota();
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const edges = useScrollEdges(scrollRef);
 
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const ready = !!user && !profileLoading;
@@ -161,6 +206,16 @@ export function Sidebar() {
           />
         )}
 
+        {/* The scrolling middle. `layoutScroll` lets the open games' and teams' drag-to-reorder measure rows
+            against the scrolled position. Its inner column is at least as tall as the scroller, so the cards
+            below sit at the bottom while there is room and scroll with the rest when there is not. */}
+        <motion.div
+          ref={scrollRef}
+          layoutScroll
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]"
+          style={edgeMask(edges)}
+        >
+        <div className="flex min-h-full flex-col">
         {/* The search over the space, above the pages, where Notion and Mail keep theirs. A button, not a
             destination, so never selected: it opens the panel (components/search/quick-search.tsx). New
             playlist is not here: it sits in the playlist list's header, and ⌘N works from any page. */}
@@ -208,12 +263,16 @@ export function Sidebar() {
         {/* The teams visited, after the games (components/shell/open-teams.tsx). */}
         {ready && <OpenTeams />}
 
-        <div className="mt-auto flex flex-col gap-2 p-2">
-          {/* New signups' checklist, until it's done or dismissed (getting-started-card.tsx). */}
+        {/* New signups' checklist, until it's done or dismissed (getting-started-card.tsx), and the update
+            card: tall, so they scroll with the list rather than squeeze it. */}
+        <div className="mt-auto flex flex-col gap-2 px-2 pt-4 empty:hidden">
           {ready && <GettingStartedCard />}
           <UpdateCard />
-          {user && <UserMenu user={user} />}
         </div>
+        </div>
+        </motion.div>
+
+        <div className="shrink-0 p-2">{user && <UserMenu user={user} />}</div>
       </div>
     </motion.aside>
   );
