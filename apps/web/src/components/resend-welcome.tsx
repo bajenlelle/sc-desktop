@@ -17,7 +17,7 @@ const RESULT_COPY: Record<Result, string> = {
 
 /**
  * Phone variant of the get-started welcome: the download address to type on a computer, and a button that
- * emails the link now. The automatic welcome is held 10–15 minutes (20261118100000_onboarding_emails), so the
+ * emails the link now. The automatic welcome is held 3–4 minutes (20261122100000_welcome_hold_3_minutes), so the
  * page must not claim it has already gone out.
  */
 export function ResendWelcome() {
