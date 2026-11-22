@@ -103,7 +103,7 @@ function two(): ReportDraft {
 
 describe("an empty draft", () => {
   it("has no players, no placements and no header of its own", () => {
-    expect(emptyDraft()).toEqual({ v: 1, title: null, opponent: null, intro: "", sections: [], placements: {}, order: [] });
+    expect(emptyDraft()).toEqual({ v: 1, title: null, opponent: null, intro: "", sections: [], placements: {}, order: [], team: null, game: null });
   });
 });
 

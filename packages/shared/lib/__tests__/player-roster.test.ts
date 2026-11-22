@@ -136,6 +136,31 @@ describe("playerRoster", () => {
   it("is empty for a playlist with no clips", () => {
     expect(playerRoster({ items: [], eventByKey, matches })).toEqual([]);
   });
+
+  describe("in a report started from a team", () => {
+    const seasonRoster = [
+      { personId: "4", name: "Ines Ek", number: "6" },
+      { personId: "77", name: "Sara Vik", number: "10" },
+      { personId: "1", name: "Alva Berg", number: "7" },
+    ];
+
+    it("lists the team's season players before there is a clip", () => {
+      const roster = playerRoster({ items: [], eventByKey, matches, seasonRoster, seasonTeamName: "AIK" });
+      expect(roster.map((p) => [p.name, p.teamName, p.clips, p.matchId])).toEqual([
+        ["Ines Ek", "AIK", 0, ""],
+        ["Sara Vik", "AIK", 0, ""],
+        ["Alva Berg", "AIK", 0, ""],
+      ]);
+    });
+
+    it("puts them after the clipped players and before the rest of the games, each once", () => {
+      const roster = playerRoster({ items: [clip("m1", 1)], eventByKey, matches, seasonRoster, seasonTeamName: "AIK", taken: new Set(["77"]) });
+      expect(names(roster)).toEqual(["Alva Berg", "Ines Ek", "Sara Vik", "Benny Holm", "Ola Nilsson", "Ulf Sand"]);
+      // A season player who is in the games reads their numbers from that game first.
+      expect(roster.find((p) => p.playerId === "4")).toMatchObject({ teamName: "AIK", matchId: "m1" });
+      expect(roster.find((p) => p.playerId === "77")?.taken).toBe(true);
+    });
+  });
 });
 
 describe("rosterByTeam", () => {

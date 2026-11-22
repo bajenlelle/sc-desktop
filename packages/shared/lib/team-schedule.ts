@@ -62,6 +62,16 @@ export function groupNames(fixtures: readonly GeniusFixture[]): Map<number, stri
   return out;
 }
 
+/**
+ * The group a team is measured in, as its page names it ("Norra"); null in a
+ * league played as one table. A group the fixtures don't name is "Group n".
+ */
+export function teamGroupLabel(league: Pick<LeagueSeason, "groups">, group: number | null, fixtures: readonly GeniusFixture[]): string | null {
+  if (league.groups.length < 2) return null;
+  const i = league.groups.findIndex((g) => g.group === group);
+  return (group !== null ? groupNames(fixtures).get(group) : undefined) ?? `Group ${i + 1}`;
+}
+
 function statusOf(f: GeniusFixture, now: Date): TeamGameRow["status"] {
   if (f.matchStatus === "COMPLETE") return "played";
   if (f.matchStatus === "CANCELLED") return "off";

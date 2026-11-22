@@ -162,6 +162,52 @@ players open from a link, and that "Save as PDF" prints.
     (true) is what a new report carries, and the page doesn't read it (see the
     page, below).
 
+## Starting from a team (`packages/shared/lib/team-report.ts`, `apps/desktop/src/lib/team-report.ts`)
+
+A coach thinks "we play AIK on Saturday", so a report can start from the
+opponent instead of from a playlist. Step A of the report-flow proposal
+(artifact "Scouting report flow", 2026-11-22): the report still lives in its
+playlist's Report view.
+
+- **Where**: **New report** in the Team page's toolbar (both Season and Plays),
+  beside Teams' "Your next game", and on Reports (the toolbar, and the empty
+  state's action). The Team page and Teams' button reads **Open report** once
+  the team has its report: one report per game against the space's team
+  (the draft's `game`), or, when they don't meet again this season, one with
+  no game (`findTeamReport`, over `listReportDrafts` and the space's playlists,
+  read again on `PLAYLISTS_CHANGED` and window focus).
+- **Reports' New report** (`components/report/new-report-popover.tsx`): the
+  space's next opponent first ("Your next game · Sat 28 Nov"), then this
+  season's catalogue teams (`useTeamCatalog`, the space's own league first),
+  and `New report for “name”` for anyone else. A catalogue team is opened by
+  its newest season (`resolveLeagueTeam`, which `/teams/find/:id` uses too);
+  its next game against the space's team is read, and its existing report for
+  that game opens instead of a second one. A typed name makes a playlist of
+  that name with a draft that holds only `opponent` (`createNamedReport`).
+- **What a team report starts with** (`createTeamReport`, the Team page's own
+  cached reads): the playlist named `teamReportName` ("AIK · Sat 28 Nov", or
+  "AIK" without a game), and a draft with `opponent` = the team, `team`
+  (`{competitionId, teamId, name}`), `game` (`{id, at, home}`, the opponent's
+  side), the intro "What stands out:" and up to three of the team's keys,
+  surest first (`teamReportIntro`; empty under five games), and up to three
+  players with their season cards already made (`pickReportPlayers`: the
+  leading three-point shooter, offensive rebounder and free-throw getter,
+  then the most minutes; `makeSeasonCard` from the team's season page). A
+  playlist whose draft can't be saved is deleted again. The team's collect
+  target (`team:<competition>:<team>`) becomes the new playlist, so Plays'
+  + adds into the report.
+- **The picker** of a report with a `team` lists the team's season roster after
+  the clipped players (`playerRoster`'s `seasonRoster`), so a section can be
+  about anyone on the team before any clip exists; their numbers come from
+  that season (`leaderCompetition` falls back to it, and `readInto` reads the
+  season line when the player has no game in the playlist).
+- `team` and `game` are optional draft fields, added without a migration
+  (the table's check reads only `v`, `sections`, `placements`). A desktop
+  before them drops both when it saves; the report itself is unchanged.
+- Analytics: `scouting_report_started` (`from`: team_page, next_game,
+  reports; `opponent`: league, typed; `players`, `keys`, `game`), and
+  `playlist_created` with `surface: "report"`.
+
 ## Player photos (`packages/shared/lib/player-photos.ts`, `supabase/migrations/20261119100000_genius_players.sql`)
 
 A player's section shows their roster photo with the number as a badge on it; without a photo it shows the number circle as before. The player picker shows a small photo on each row.
@@ -194,6 +240,8 @@ A player's section shows their roster photo with the number as a badge on it; wi
   stopped report offers Share again, which adds `share: true` so the Report
   view opens with the share sheet (`autoOpenShare`): an expired one keeps its
   link (the publish updates its row), a stopped one gets a new one.
+- **New report** in the toolbar (once there is a report) and as the empty
+  state's action: see "Starting from a team".
 - Live reports are listed on the Reports page, and the share sheet's done step
   links to it ("See all reports").
 - Analytics: `scouting_report_list_action` (action, status) for each row

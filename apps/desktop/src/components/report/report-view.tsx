@@ -12,7 +12,7 @@ import { IS_MACOS } from "@/lib/platform";
 import { pool, type GenerateOutcome } from "@/lib/scouting-report";
 import type { MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
-import { leagueSeasonsOf, loadSeasonPlayers, seasonOf, statsKindOf } from "@/lib/stats-card-data";
+import { leagueSeasonsOf, loadSeasonPlayer, loadSeasonPlayers, seasonOf, statsKindOf } from "@/lib/stats-card-data";
 import { cn } from "@/lib/utils";
 import type { HostedSeasonPlayer } from "@scoutable/shared/lib/hosted-stats";
 import { pruneSelection } from "@scoutable/shared/lib/list-selection";
@@ -50,6 +50,9 @@ import { ReportDocument, clipDomSelector, sectionDomId, type SectionStatsContext
 import { ReportOutline, type MoveVia, type OutlineClipInfo, type OutlineSectionInfo } from "./report-outline";
 import { ReportPlayerPicker, type PickerConfirm } from "./report-player-picker";
 import { usePlayerStats, type StatsPerson } from "./use-player-stats";
+import { useTeamPlayers } from "@/lib/use-team-players";
+import type { TeamPlayerRow } from "@scoutable/shared/lib/team-players";
+import { makeSeasonCard, seasonOfCompetition } from "@scoutable/shared/lib/stats-card-data";
 import { usePlayerPhotos } from "./use-player-photos";
 import { useReportDraft } from "./use-report-draft";
 
@@ -102,6 +105,8 @@ const autoOpened = new Set<string>();
 const collapsedByPlaylist = new Map<string, ReadonlySet<Placement>>();
 const FLASH_MS = 1200;
 
+const NO_TEAM_ROWS: TeamPlayerRow[] = [];
+
 function toPerson(p: PlayerChoice): StatsPerson {
   return { playerId: p.playerId, name: p.name, number: p.number, teamName: p.teamName, matchId: p.matchId };
 }
@@ -145,7 +150,16 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
 
   const taken = useMemo(() => new Set(draft?.sections.map((s) => s.player.id) ?? []), [draft?.sections]);
   const photos = usePlayerPhotos(useMemo(() => [...taken], [taken]));
-  const roster = useMemo(() => playerRoster({ items, eventByKey, matches: matchLookup, boxScores, taken }), [items, eventByKey, matchLookup, boxScores, taken]);
+  // A report started from a team lists that team's season roster too, so a section can be about any of its players.
+  const team = draft?.team ?? null;
+  const teamCurrent = !!team && leagues.some((l) => l.seasons[0]?.competitionId === team.competitionId);
+  const teamPlayers = useTeamPlayers(team?.competitionId ?? null, team?.teamId ?? 0, teamCurrent);
+  const teamRoster = team ? teamPlayers.rows : NO_TEAM_ROWS;
+  const teamRosterIds = useMemo(() => new Set(teamRoster.map((r) => r.personId)), [teamRoster]);
+  const roster = useMemo(
+    () => playerRoster({ items, eventByKey, matches: matchLookup, boxScores, taken, seasonRoster: teamRoster, seasonTeamName: team?.name }),
+    [items, eventByKey, matchLookup, boxScores, taken, teamRoster, team?.name],
+  );
   const rosterById = useMemo(() => new Map(roster.map((p) => [p.playerId, p])), [roster]);
 
   // The report's shape, the Team section kept so it can be written in and dropped on.
@@ -179,7 +193,13 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       mark(setStatsLoading, sectionId, true);
       mark(setStatsFailed, sectionId, false);
       try {
-        const r = await readPlayerStats(person, preferMatchId, competitionId);
+        let r = await readPlayerStats(person, preferMatchId, competitionId);
+        // A player from the team's season roster with no game in the playlist: their season with that team.
+        const season = !r.stats && team && competitionId === undefined && !statsMatchIdOf(person, preferMatchId) ? seasonOfCompetition(team.competitionId, leagues) : null;
+        if (season) {
+          const line = await loadSeasonPlayer(season.competitionId, person.playerId).catch(() => null);
+          if (line) r = { player: r.player, stats: makeSeasonCard(season, r.player, line), failed: false };
+        }
         apply((d) => {
           const s = d.sections.find((x) => x.id === sectionId);
           // The section changed player while the numbers were read: they aren't its numbers.
@@ -193,7 +213,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
         mark(setStatsLoading, sectionId, false);
       }
     },
-    [readPlayerStats, apply],
+    [readPlayerStats, apply, team, statsMatchIdOf, leagues],
   );
 
   const statsContextOf = useCallback(
@@ -231,7 +251,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const openPicker = useCallback(() => {
     setPickerOpen(true);
     void ensureBoxScores(clipGames);
-    const wanted = [...new Set(clipGames.flatMap((m) => seasonOf(m, leagues)?.competitionId ?? []))].filter((id) => !seasons.has(id));
+    const wanted = [...new Set([...clipGames.flatMap((m) => seasonOf(m, leagues)?.competitionId ?? []), ...(team ? [team.competitionId] : [])])].filter((id) => !seasons.has(id));
     if (wanted.length === 0) return;
     setSeasonsLoading(true);
     void Promise.all(
@@ -240,7 +260,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
         if (players) setSeasons((prev) => new Map(prev).set(id, players));
       }),
     ).finally(() => setSeasonsLoading(false));
-  }, [ensureBoxScores, clipGames, leagues, seasons]);
+  }, [ensureBoxScores, clipGames, leagues, seasons, team]);
 
   // A playlist whose report doesn't exist yet opens on the picker, once.
   useEffect(() => {
@@ -270,8 +290,13 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   }, [focusSectionId, reducedMotion]);
 
   const leaderRowsAll = useMemo(
-    () => leaderRows(roster, (p) => leaderCompetition(p, items, matchLookup, leagues), seasons),
-    [roster, items, matchLookup, leagues, seasons],
+    () =>
+      leaderRows(
+        roster,
+        (p) => leaderCompetition(p, items, matchLookup, leagues) ?? (team && teamRosterIds.has(p.playerId) ? team.competitionId : null),
+        seasons,
+      ),
+    [roster, items, matchLookup, leagues, seasons, team, teamRosterIds],
   );
   const noted = useMemo(() => new Set(draft?.sections.filter((s) => s.note.trim()).map((s) => s.player.id) ?? []), [draft?.sections]);
   const initialTicked = useMemo(() => (taken.size === 0 ? new Set(roster.filter((p) => p.clips > 0).map((p) => p.playerId)) : taken), [taken, roster]);

@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import type { ShotZone } from "@scoutable/shared/lib/game-shots";
 import { TeamShotsSection } from "@/components/team/team-shots-section";
 import { useTeamPlays } from "@/lib/use-team-plays";
-import { groupNames, teamGameRows, teamNames, type TeamGameRow } from "@scoutable/shared/lib/team-schedule";
+import { teamGameRows, teamGroupLabel, teamNames, type TeamGameRow } from "@scoutable/shared/lib/team-schedule";
 import { TeamGamesSection, type ImportPick } from "@/components/team/team-games-section";
 import { TeamPlayersSection } from "@/components/team/team-players-section";
 import { useTeamPlayers } from "@/lib/use-team-players";
@@ -33,6 +33,9 @@ import { useLeague } from "@/lib/use-league";
 import { useLeagues } from "@/lib/use-leagues";
 import { useLibraryGames } from "@/lib/use-library-games";
 import { useMyTeamIds } from "@/lib/use-my-team-ids";
+import { nextMeeting } from "@/lib/team-report";
+import { useTeamReport } from "@/lib/use-team-report";
+import { TeamReportToolbarButton } from "@/components/report/team-report-button";
 
 /** Where the page was opened from, as the links that open it say (team_page_viewed's `from`). */
 export type TeamPageFrom = "teams" | "game" | "search" | "team" | "open_teams" | "other";
@@ -203,11 +206,12 @@ export function TeamPage() {
     });
   }, [view, plays.status, plays.games.length, video, side, state.playsFrom]);
 
-  const where = useMemo(() => {
-    if (!league || league.groups.length < 2 || !profile) return null;
-    const i = league.groups.findIndex((g) => g.group === profile.group);
-    return (profile.group !== null ? groupNames(fixtures).get(profile.group) : undefined) ?? `Group ${i + 1}`;
-  }, [league, profile, fixtures]);
+  const where = useMemo(() => (league && profile ? teamGroupLabel(league, profile.group, fixtures) : null), [league, profile, fixtures]);
+
+  // New report / Open report: one report per game to come against the space's team.
+  const reportTeam = useMemo(() => (competitionId && profile ? { competitionId, teamId } : null), [competitionId, teamId, profile]);
+  const reportGame = useMemo(() => nextMeeting(rows, mine), [rows, mine]);
+  const report = useTeamReport(reportTeam, reportGame, "team_page");
 
   return (
     <Page>
@@ -223,7 +227,14 @@ export function TeamPage() {
         }
         title={name || (status === "ready" ? "Team" : "")}
         subtitle={seasonLabel}
-        actions={view === "plays" && plays.status !== "none" ? <CollectControl collect={collect} /> : undefined}
+        actions={
+          profile ? (
+            <>
+              <TeamReportToolbarButton control={report} />
+              {view === "plays" && plays.status !== "none" && <CollectControl collect={collect} />}
+            </>
+          ) : undefined
+        }
       />
       {playsShown && profile && (
         <div className={cn("flex min-h-0 flex-1 flex-col pt-[var(--toolbar-height)]", view !== "plays" && "pointer-events-none invisible absolute inset-0")}>

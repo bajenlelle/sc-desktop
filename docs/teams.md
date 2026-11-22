@@ -7,7 +7,8 @@ each team's season from the league's numbers. Step 1 of the opponent page
 plays in the coach's own games (design:
 `docs/superpowers/specs/2026-11-21-team-plays-design.md`, plan:
 `docs/superpowers/plans/2026-11-21-team-plays.md`). Step 3 is reports that
-start from a team.
+start from a team: New report in a team's toolbar and beside "Your next
+game" (docs/scouting-reports.md, "Starting from a team").
 
 ## Where it lives
 
@@ -34,7 +35,7 @@ One table per group (Basketettan Herr and Dam are played as Norra and Södra;
 the other leagues are one table): place, team, W–L, points per possession
 scored and allowed, how many of its games the coach has, and the last five as
 dots. "Your next game" sits above when the space's team plays in this
-competition. Built by `leagueTables` and `nextGame` in
+competition, with New report (or Open report) for that opponent beside it. Built by `leagueTables` and `nextGame` in
 `packages/shared/lib/team-schedule.ts`.
 
 ## A team

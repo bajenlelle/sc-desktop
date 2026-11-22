@@ -73,10 +73,33 @@ export interface ReportDraft {
    * as empty, and 1.4.0 drops it when it saves.
    */
   order: string[];
+  /**
+   * The league team the report is about, when it was started from that team
+   * (its page, Teams' next game, Reports' New report); null or absent for a
+   * report started from a playlist or for a typed opponent. Added in 2.1.0
+   * without a migration: a build before it drops it when it saves.
+   */
+  team?: ReportTeam | null;
+  /** The game the report prepares for, when there was one to come against the coach's team. */
+  game?: ReportGame | null;
+}
+
+/** A Genius team in a season, as the Teams pages name it (`/teams/:competitionId/:teamId`). */
+export interface ReportTeam {
+  competitionId: number;
+  teamId: number;
+  name: string;
+}
+
+/** A fixture: the Genius game id, when it starts (ISO), and whether the report's opponent is at home. */
+export interface ReportGame {
+  id: string;
+  at: string;
+  home: boolean;
 }
 
 export function emptyDraft(): ReportDraft {
-  return { v: REPORT_DRAFT_VERSION, title: null, opponent: null, intro: "", sections: [], placements: {}, order: [] };
+  return { v: REPORT_DRAFT_VERSION, title: null, opponent: null, intro: "", sections: [], placements: {}, order: [], team: null, game: null };
 }
 
 /** "#7 Alva Berg", or "Alva Berg" when the player has no number. */
@@ -95,6 +118,20 @@ export function sectionOf(draft: ReportDraft, playerId: string): DraftSection | 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
+
+const isId = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+
+export function parseReportTeam(raw: unknown): ReportTeam | null {
+  if (!isObj(raw) || !isId(raw.competitionId) || !isId(raw.teamId) || typeof raw.name !== "string") return null;
+  return { competitionId: raw.competitionId, teamId: raw.teamId, name: raw.name.slice(0, 80) };
+}
+
+export function parseReportGame(raw: unknown): ReportGame | null {
+  if (!isObj(raw) || typeof raw.id !== "string" || !raw.id || typeof raw.at !== "string" || Number.isNaN(Date.parse(raw.at)) || typeof raw.home !== "boolean") {
+    return null;
+  }
+  return { id: raw.id, at: raw.at, home: raw.home };
+}
 
 function parsePlayer(raw: unknown): StatsCardPlayer | null {
   if (!isObj(raw) || typeof raw.id !== "string" || typeof raw.name !== "string") return null;
@@ -152,6 +189,8 @@ export function parseReportDraft(raw: unknown): ReportDraft | null {
     sections,
     placements,
     order,
+    team: parseReportTeam(raw.team),
+    game: parseReportGame(raw.game),
   };
 }
 
