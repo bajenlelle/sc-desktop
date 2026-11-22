@@ -5,7 +5,7 @@ import type { StatsCardSpec } from "../stats-card";
 import type { SeasonLine } from "../stat-lines";
 import type { TeamKey, TeamKeys } from "../team-keys";
 import type { TeamPlayerRow, WhoDoesWhat } from "../team-players";
-import { buildTeamReportDraft, findTeamReport, pickReportPlayers, reportPlayerOf, teamReportIntro, teamReportName } from "../team-report";
+import { buildTeamReportDraft, findTeamReport, pickReportPlayers, reportPlayerOf, teamReportKeys, teamReportName } from "../team-report";
 
 const line = (over: Partial<SeasonLine> = {}): SeasonLine => ({
   gp: 10,
@@ -82,14 +82,14 @@ const key = (end: TeamKey["end"], metric: TeamKey["metric"], high: boolean, valu
   score,
 });
 
-describe("teamReportIntro", () => {
+describe("teamReportKeys", () => {
   it("is empty while it's too early to say", () => {
-    expect(teamReportIntro({ status: "early", games: 3, withBall: [], withoutBall: [] }, null)).toBe("");
-    expect(teamReportIntro(null, null)).toBe("");
+    expect(teamReportKeys({ status: "early", games: 3, withBall: [], withoutBall: [] }, null)).toBe("");
+    expect(teamReportKeys(null, null)).toBe("");
   });
 
   it("is empty when nothing stands out", () => {
-    expect(teamReportIntro({ status: "ready", games: 9, withBall: [], withoutBall: [] }, null)).toBe("");
+    expect(teamReportKeys({ status: "ready", games: 9, withBall: [], withoutBall: [] }, null)).toBe("");
   });
 
   it("writes the three surest keys from both ends", () => {
@@ -99,12 +99,11 @@ describe("teamReportIntro", () => {
       withBall: [key("own", "threeRate", true, 0.44, 1, 2.5), key("own", "pace", true, 78, 1, 4)],
       withoutBall: [key("allowed", "orebPct", false, 0.22, 2, 3), key("allowed", "ppp", false, 0.94, 1, 2.1)],
     };
-    expect(teamReportIntro(keys, "Norra")).toBe(
+    expect(teamReportKeys(keys, "Norra")).toBe(
       [
-        "What stands out:",
-        "• Play fast: 78 possessions a game, most in Norra.",
-        "• Clean the defensive glass: opponents win 22% of their misses, 2nd of 12.",
-        "• Shoot a lot of threes: 44% of shots, most in Norra.",
+        "Play fast: 78 possessions a game, most in Norra.",
+        "Clean the defensive glass: opponents win 22% of their misses, 2nd of 12.",
+        "Shoot a lot of threes: 44% of shots, most in Norra.",
       ].join("\n"),
     );
   });
@@ -115,13 +114,13 @@ const game = { id: "2903959", at: "2026-11-28T15:00:00Z", home: false };
 const card = { kind: "season" } as unknown as StatsCardSpec;
 
 describe("buildTeamReportDraft", () => {
-  it("knows the opponent, the game, the intro and starts with the players and their cards", () => {
+  it("knows the opponent and the game, starts with Keys, the players and their cards, and the season's sections hidden", () => {
     let n = 0;
     const draft = buildTeamReportDraft(
       {
         team,
         game,
-        intro: "What stands out:\n• Play fast.",
+        keys: "Play fast.",
         players: [
           { player: reportPlayerOf(rows[0], "AIK"), stats: card },
           { player: reportPlayerOf(rows[1], "AIK"), stats: null },
@@ -133,7 +132,14 @@ describe("buildTeamReportDraft", () => {
     expect(draft.title).toBeNull();
     expect(draft.team).toEqual(team);
     expect(draft.game).toEqual(game);
-    expect(draft.intro).toBe("What stands out:\n• Play fast.");
+    expect(draft.intro).toBe("");
+    expect(draft.blocks?.map((b) => [b.id, b.hidden, b.text ?? null])).toEqual([
+      ["keys", false, "Play fast."],
+      ["players", false, null],
+      ["team", false, null],
+      ["profile", true, null],
+      ["games", true, null],
+    ]);
     expect(draft.sections.map((s) => [s.id, s.player.name, s.player.teamName, s.stats])).toEqual([
       ["s1", "Lind", "AIK", card],
       ["s2", "Berg", "AIK", null],

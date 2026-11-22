@@ -18,7 +18,7 @@ import { makeSeasonCard, seasonOfCompetition } from "@scoutable/shared/lib/stats
 import { teamSeasons } from "@scoutable/shared/lib/team-games";
 import { teamKeys } from "@scoutable/shared/lib/team-keys";
 import { teamPlayers, whoDoesWhat } from "@scoutable/shared/lib/team-players";
-import { buildTeamReportDraft, pickReportPlayers, reportPlayerOf, teamReportIntro, teamReportName } from "@scoutable/shared/lib/team-report";
+import { buildTeamReportDraft, pickReportPlayers, reportPlayerOf, teamReportKeys, teamReportName } from "@scoutable/shared/lib/team-report";
 import { meeting, nextGame, teamGameRows, teamGroupLabel, teamNames } from "@scoutable/shared/lib/team-schedule";
 import type { League } from "@scoutable/shared/types/league";
 import { trackEvent } from "@/lib/analytics";
@@ -108,7 +108,7 @@ export async function createTeamReport(
   const team: ReportTeam = { competitionId, teamId, name: name || "Opponent" };
 
   let game = target.game ?? null;
-  let intro = "";
+  let keysText = "";
   let keysCount = 0;
   if (payload) {
     const league = leagueSeason(payload);
@@ -116,7 +116,7 @@ export async function createTeamReport(
     if (profile) {
       const keys = teamKeys(profile, league);
       keysCount = keys.withBall.length + keys.withoutBall.length;
-      intro = teamReportIntro(keys, teamGroupLabel(league, profile.group, fixtures));
+      keysText = teamReportKeys(keys, teamGroupLabel(league, profile.group, fixtures));
     }
     if (target.game === undefined) {
       const mine = await myTeamIdsIn(ctx.spaceTeamId, competitionId, ctx.leagues).catch(() => new Set<number>());
@@ -128,7 +128,7 @@ export async function createTeamReport(
     console.error("[report] the team's players couldn't be read:", e);
     return [];
   });
-  const draft = buildTeamReportDraft({ team, game, players, intro });
+  const draft = buildTeamReportDraft({ team, game, players, keys: keysText });
 
   const playlist = await createPlaylist(teamReportName(team.name, game), undefined, ctx.orgId ?? undefined);
   try {

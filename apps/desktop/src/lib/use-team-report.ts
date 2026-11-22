@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { ReportGame } from "@scoutable/shared/lib/report-draft";
 import type { ReportDraftRow } from "@scoutable/shared/lib/scouting-report-list";
@@ -11,6 +11,7 @@ import { listReportDrafts } from "@/lib/report-drafts-db";
 import { createNamedReport, createTeamReport, nextGameAgainstUs, resolveLeagueTeam, type ReportStartFrom } from "@/lib/team-report";
 import { useLeagues } from "@/lib/use-leagues";
 import { useSpaceTeam } from "@/lib/use-my-team-ids";
+import { reportPath } from "@/pages/report";
 
 /** The space's drafts and playlist ids, read again when playlists change and when the window comes back. */
 export function useSpaceDrafts(): { ready: boolean; rows: ReportDraftRow[]; inSpace: ReadonlySet<string> } {
@@ -62,7 +63,13 @@ export interface TeamReportControl {
  * report per game against the space's team, or one with no game when they
  * don't meet again. A press while one is being made does nothing.
  */
-export function useTeamReport(team: { competitionId: number; teamId: number } | null, game: ReportGame | null, from: ReportStartFrom): TeamReportControl {
+export function useTeamReport(
+  team: { competitionId: number; teamId: number } | null,
+  game: ReportGame | null,
+  from: ReportStartFrom,
+  /** What Back on the report says: the team's name on its page. */
+  backName?: string,
+): TeamReportControl {
   const navigate = useNavigate();
   const { activeOrgId } = useAuth();
   const spaceTeam = useSpaceTeam();
@@ -73,7 +80,12 @@ export function useTeamReport(team: { competitionId: number; teamId: number } | 
 
   const playlistId = team ? findTeamReport(drafts.rows, drafts.inSpace, team, game?.id ?? null) : null;
 
-  const open = useCallback((id: string) => navigate("/playlists", { state: { restore: { playlistId: id }, view: "report" } }), [navigate]);
+  const location = useLocation();
+  const backLabel = from === "next_game" ? "Teams" : (backName ?? "Team");
+  const open = useCallback(
+    (id: string) => navigate(reportPath(id), { state: { back: { label: backLabel, path: location.pathname + location.search, state: location.state } } }),
+    [navigate, backLabel, location.pathname, location.search, location.state],
+  );
 
   const openOrStart = useCallback(() => {
     if (!team || busyRef.current || !drafts.ready) return;
@@ -126,7 +138,7 @@ export function useReportStarter(): {
       try {
         const id = await make();
         if (!id) return false;
-        navigate("/playlists", { state: { restore: { playlistId: id }, view: "report" } });
+        navigate(reportPath(id), { state: { back: { label: "Reports", path: "/reports" } } });
         return true;
       } catch (e) {
         console.error("[report] couldn't start the report:", e);

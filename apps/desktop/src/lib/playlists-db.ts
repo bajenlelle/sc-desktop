@@ -13,6 +13,7 @@ const c = () => createClient();
 
 export const getMyTeamPlaylists = (teamIds?: string[]) => db.getMyTeamPlaylists(c(), teamIds);
 export const listPlaylists = (orgId?: string, opts?: db.OrgScopeOpts) => db.listPlaylists(c(), orgId, opts);
+export const getPlaylist = (id: string) => db.getPlaylist(c(), id);
 export const listPlaylistNames = (orgId?: string, opts?: db.OrgScopeOpts) => db.listPlaylistNames(c(), orgId, opts);
 export const listPlaylistIndex = (orgId?: string, opts?: db.OrgScopeOpts) => db.listPlaylistIndex(c(), orgId, opts);
 export const createPlaylist = (name: string, folderId?: string, orgId?: string) => db.createPlaylist(c(), name, folderId, orgId);

@@ -211,7 +211,7 @@ export function TeamPage() {
   // New report / Open report: one report per game to come against the space's team.
   const reportTeam = useMemo(() => (competitionId && profile ? { competitionId, teamId } : null), [competitionId, teamId, profile]);
   const reportGame = useMemo(() => nextMeeting(rows, mine), [rows, mine]);
-  const report = useTeamReport(reportTeam, reportGame, "team_page");
+  const report = useTeamReport(reportTeam, reportGame, "team_page", name || undefined);
 
   return (
     <Page>

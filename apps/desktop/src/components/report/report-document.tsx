@@ -1,5 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronDown, Loader2, MoreHorizontal, Play } from "lucide-react";
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { ChevronDown, EyeOff, Loader2, MoreHorizontal, Play, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -18,7 +18,26 @@ import { LabelChip } from "@/components/labels/LabelChip";
 import { useReportFrame } from "@/lib/report-frames";
 import { cn } from "@/lib/utils";
 import { eventColors, eventLabel, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
-import { LEFT_OUT, REPORT_INTRO_LIMIT, REPORT_NOTE_LIMIT, REPORT_TITLE_MAX, TEAM_SECTION, sectionLabel, type DraftSection, type Placement, type ReportDraft } from "@scoutable/shared/lib/report-draft";
+import {
+  LEFT_OUT,
+  REPORT_BLOCK_TEXT_LIMIT,
+  REPORT_BLOCK_TITLE_MAX,
+  REPORT_INTRO_LIMIT,
+  REPORT_MAX_CUSTOM_BLOCKS,
+  REPORT_NOTE_LIMIT,
+  REPORT_TITLE_MAX,
+  TEAM_SECTION,
+  blocksOf,
+  canRemoveBlock,
+  holdsClips,
+  sectionLabel,
+  type DraftSection,
+  type Placement,
+  type ReportBlock,
+  type ReportBlockKind,
+  type ReportDraft,
+} from "@scoutable/shared/lib/report-draft";
+import { reportSectionTitle, type ReportSeasonSnapshot } from "@scoutable/shared/lib/scouting-report";
 import type { ReportClipEffects, ReportClipSource, ReportFrameRequest } from "@scoutable/shared/lib/report-clip-source";
 import { cardContent, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import type { Label } from "@scoutable/shared/types/labels";
@@ -34,10 +53,13 @@ export interface ViewClip {
   event: PlayByPlayEvent;
 }
 
-/** A section of the document: the team (section null) or a player's. */
+/** A section of the document: a player's (`section`), or one of the draft's blocks (`block`). */
 export interface ViewSection {
   id: Placement;
   section: DraftSection | null;
+  block: ReportBlock | null;
+  /** Players don't see it. */
+  hidden: boolean;
   clips: ViewClip[];
 }
 
@@ -96,6 +118,17 @@ export interface ReportDocumentProps {
   /** Edit clip: the clip in the Clips view. */
   onOpenClip: (key: string) => void;
   onRemoveSection: (id: string) => void;
+  /** How they play and Their games as the report would show them now; null without a team or before its season is read. */
+  season: ReportSeasonSnapshot | null;
+  /** The report was started from a team, so the season's sections have something to show. */
+  hasTeam: boolean;
+  onBlockText: (id: string, text: string) => void;
+  onBlockTitle: (id: string, title: string) => void;
+  onBlockHidden: (id: string, hidden: boolean) => void;
+  /** One place up (-1) or down (1) among the sections. */
+  onMoveBlock: (id: string, dir: -1 | 1) => void;
+  onRemoveBlock: (id: string) => void;
+  onAddBlock: (kind: ReportBlockKind) => void;
 }
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
@@ -526,25 +559,6 @@ function ClipGrid({ clips, here, targets, empty, props }: { clips: ViewClip[]; h
   );
 }
 
-function TeamSection({ view, targets, props }: { view: ViewSection; targets: { id: Placement; label: string }[]; props: ReportDocumentProps }) {
-  return (
-    <section id={sectionDomId(TEAM_SECTION)} data-section-id={TEAM_SECTION} aria-labelledby="report-team-h" className="flex flex-col gap-4 border-t border-separator pt-8">
-      <h2 id="report-team-h" className="text-title-2 text-foreground">
-        Team
-      </h2>
-      <GrowingText
-        value={props.draft.intro}
-        onChange={props.onIntro}
-        placeholder="How they play: pace, sets, what to take away"
-        maxLength={REPORT_INTRO_LIMIT}
-        maxLines={12}
-        ariaLabel="Team intro"
-      />
-      <ClipGrid clips={view.clips} here={TEAM_SECTION} targets={targets} empty="Clips that aren't about one player show here. Drag one here in the side panel." props={props} />
-    </section>
-  );
-}
-
 function PlayerSection({ view, targets, props }: { view: ViewSection; targets: { id: Placement; label: string }[]; props: ReportDocumentProps }) {
   const section = view.section!;
   const { player } = section;
@@ -617,6 +631,256 @@ function PlayerSection({ view, targets, props }: { view: ViewSection; targets: {
   );
 }
 
+/** The words that start each kind of section, as placeholders. */
+const BLOCK_PLACEHOLDER: Partial<Record<ReportBlockKind, string>> = {
+  keys: "A key per line: what every player should remember",
+  actions: "What they run: sets, out-of-bounds plays, their press",
+  custom: "Write anything players should know",
+};
+
+const BLOCK_EMPTY_CLIPS: Partial<Record<ReportBlockKind, string>> = {
+  keys: "Clips that show the keys go here. Drag one here in the side panel.",
+  actions: "Clips that aren't about one player show here. Drag one here in the side panel.",
+  custom: "Drag clips here in the side panel.",
+};
+
+/**
+ * A section's heading row and its menu, the same for every section: its
+ * name (typed in place for a section of the coach's own), "Hidden from
+ * players" while it is hidden, and on hover a menu to hide or show it, move
+ * it, or take it out. A hidden section stays here as it is, dimmed.
+ */
+function SectionFrame({
+  block,
+  index,
+  count,
+  props,
+  heading,
+  children,
+}: {
+  block: ReportBlock;
+  index: number;
+  count: number;
+  props: ReportDocumentProps;
+  heading?: ReactNode;
+  children?: ReactNode;
+}) {
+  const name = reportSectionTitle(block.kind === "players" ? "player" : block.kind, block.title);
+  const label = block.kind === "players" ? "Players to stop" : name;
+  const headingId = `${sectionDomId(block.id)}-h`;
+  return (
+    <section
+      id={sectionDomId(block.id)}
+      data-section-id={block.id}
+      aria-labelledby={headingId}
+      className="group/section flex flex-col gap-4 border-t border-separator pt-8"
+    >
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          {heading ?? (
+            <h2 id={headingId} className="truncate text-title-2 text-foreground">
+              {label}
+            </h2>
+          )}
+        </div>
+        {block.hidden && (
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-fill-2 px-2 py-0.5 text-caption text-muted-foreground">
+            <EyeOff className="size-3" />
+            Hidden from players
+          </span>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Options for ${label}`}
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,background-color] duration-100 group-hover/section:opacity-100 group-focus-within/section:opacity-100 hover:bg-fill-1 hover:text-foreground data-[state=open]:opacity-100 data-[state=open]:bg-fill-1 outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-selection"
+            >
+              <MoreHorizontal className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => props.onBlockHidden(block.id, !block.hidden)}>{block.hidden ? "Show to players" : "Hide from players"}</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={index === 0} onSelect={() => props.onMoveBlock(block.id, -1)}>
+              Move up
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={index === count - 1} onSelect={() => props.onMoveBlock(block.id, 1)}>
+              Move down
+            </DropdownMenuItem>
+            {canRemoveBlock(block.kind) && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => props.onRemoveBlock(block.id)} className="text-destructive focus:text-destructive">
+                  Remove section
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className={cn("flex flex-col gap-4 transition-opacity duration-200", block.hidden && "opacity-55")}>{children}</div>
+    </section>
+  );
+}
+
+/** A custom section's name, typed in place as its heading. */
+function TitleField({ block, props }: { block: ReportBlock; props: ReportDocumentProps }) {
+  const [title, setTitle] = useState(block.title ?? "");
+  useEffect(() => setTitle(block.title ?? ""), [block.title]);
+  return (
+    <input
+      id={`${sectionDomId(block.id)}-h`}
+      aria-label="Section name"
+      value={title}
+      maxLength={REPORT_BLOCK_TITLE_MAX}
+      placeholder="Name this section"
+      autoFocus={!block.title}
+      className="-mx-1 w-full rounded-md bg-transparent px-1 py-0.5 text-title-2 text-foreground outline-none transition-[background-color,box-shadow] duration-150 placeholder:text-muted-foreground/60 hover:bg-fill-1/60 focus:bg-fill-1 focus:ring-2 focus:ring-selection"
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={() => props.onBlockTitle(block.id, title)}
+      onKeyDown={(e) => fieldKeys(e, { enterBlurs: true })}
+    />
+  );
+}
+
+/** How they play, as the shared page will show it. */
+function ProfileView({ season }: { season: NonNullable<ReportSeasonSnapshot["profile"]> }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-subheadline text-muted-foreground">{season.context}</p>
+      <table className="w-full border-collapse text-sm nums">
+        <thead>
+          <tr className="text-caption-1 text-muted-foreground">
+            <th className="pb-1.5 text-left font-normal">
+              <span className="sr-only">Number</span>
+            </th>
+            <th className="pb-1.5 text-right font-normal">With the ball</th>
+            <th className="pb-1.5 text-right font-normal">They allow</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-separator border-t border-separator">
+          {season.rows.map((r) => (
+            <tr key={r.label}>
+              <th scope="row" className="py-1.5 pr-3 text-left font-normal text-foreground">
+                {r.label}
+              </th>
+              <td className="py-1.5 text-right">
+                {r.own}
+                {r.ownPlace && <span className="text-muted-foreground"> · {r.ownPlace}</span>}
+              </td>
+              <td className="py-1.5 pl-3 text-right">
+                {r.allowed}
+                {r.allowedPlace && <span className="text-muted-foreground"> · {r.allowedPlace}</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {season.lines.map((l) => (
+        <p key={l} className="text-subheadline text-muted-foreground">
+          {l}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function GamesView({ rows }: { rows: NonNullable<ReportSeasonSnapshot["games"]> }) {
+  return (
+    <ul className="flex flex-col divide-y divide-separator text-sm nums">
+      {rows.map((g, i) => (
+        <li key={i} className="flex items-baseline gap-3 py-1.5">
+          <span className="w-24 shrink-0 text-muted-foreground">{g.date}</span>
+          <span className="min-w-0 flex-1 truncate">
+            <span className="text-muted-foreground">{g.home ? "vs" : "at"}</span> {g.opponent}
+          </span>
+          <span className={cn("shrink-0", !g.result && "text-muted-foreground")}>{g.result ?? "To play"}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** A section that isn't a player's: Keys, Their actions, How they play, Their games, or one the coach named. */
+function BlockSection({
+  view,
+  index,
+  count,
+  targets,
+  props,
+}: {
+  view: ViewSection;
+  index: number;
+  count: number;
+  targets: { id: Placement; label: string }[];
+  props: ReportDocumentProps;
+}) {
+  const block = view.block!;
+  const seasonLine = props.hasTeam ? "Reading the team's season…" : "Shows the team's season in a report started from a team.";
+  return (
+    <SectionFrame block={block} index={index} count={count} props={props} heading={block.kind === "custom" ? <TitleField block={block} props={props} /> : undefined}>
+      {holdsClips(block.kind) && (
+        <GrowingText
+          value={block.text ?? ""}
+          onChange={(t) => props.onBlockText(block.id, t)}
+          placeholder={BLOCK_PLACEHOLDER[block.kind] ?? ""}
+          maxLength={REPORT_BLOCK_TEXT_LIMIT}
+          maxLines={12}
+          ariaLabel={`${reportSectionTitle(block.kind as Exclude<ReportBlockKind, "players">, block.title)} text`}
+          className={block.kind === "keys" ? "text-title-3 leading-8" : undefined}
+        />
+      )}
+      {block.kind === "profile" &&
+        (props.season?.profile ? <ProfileView season={props.season.profile} /> : <p className="text-callout text-muted-foreground">{seasonLine}</p>)}
+      {block.kind === "games" && (props.season?.games ? <GamesView rows={props.season.games} /> : <p className="text-callout text-muted-foreground">{seasonLine}</p>)}
+      {holdsClips(block.kind) && <ClipGrid clips={view.clips} here={block.id} targets={targets} empty={BLOCK_EMPTY_CLIPS[block.kind] ?? ""} props={props} />}
+    </SectionFrame>
+  );
+}
+
+const ADDABLE: { kind: ReportBlockKind; label: string; hint: string }[] = [
+  { kind: "keys", label: "Keys", hint: "What every player should remember" },
+  { kind: "profile", label: "How they play", hint: "Their season numbers at both ends" },
+  { kind: "games", label: "Their games", hint: "Results and games to come" },
+];
+
+/** The quiet row at the end: the sections the report doesn't have, and one of the coach's own. */
+function AddSectionRow({ props }: { props: ReportDocumentProps }) {
+  const blocks = blocksOf(props.draft);
+  const missing = ADDABLE.filter((a) => !blocks.some((b) => b.kind === a.kind));
+  const canAddOwn = blocks.filter((b) => b.kind === "custom").length < REPORT_MAX_CUSTOM_BLOCKS;
+  if (missing.length === 0 && !canAddOwn) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex h-9 items-center gap-2 self-start rounded-md px-2 text-callout text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-1 hover:text-foreground data-[state=open]:bg-fill-1 focus-visible:ring-2 focus-visible:ring-selection"
+        >
+          <Plus className="size-4" />
+          Add section
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        {missing.map((a) => (
+          <DropdownMenuItem key={a.kind} onSelect={() => props.onAddBlock(a.kind)} className="flex flex-col items-start gap-0">
+            <span>{a.label}</span>
+            <span className="text-caption text-muted-foreground">{a.hint}</span>
+          </DropdownMenuItem>
+        ))}
+        {missing.length > 0 && canAddOwn && <DropdownMenuSeparator />}
+        {canAddOwn && (
+          <DropdownMenuItem onSelect={() => props.onAddBlock("custom")} className="flex flex-col items-start gap-0">
+            <span>Your own section</span>
+            <span className="text-caption text-muted-foreground">A name, words and clips</span>
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /**
  * The report as the coach writes it: the same document the page will show,
  * with the title, opponent, intro and notes typed in place, and each clip's
@@ -629,10 +893,17 @@ export function ReportDocument(props: ReportDocumentProps) {
   const { draft, sections } = props;
   const players = draft.sections.length;
   const clips = sections.reduce((n, s) => n + s.clips.length, 0);
-  const targets: { id: Placement; label: string }[] = [
-    { id: TEAM_SECTION, label: "Team" },
-    ...draft.sections.map((s) => ({ id: s.id, label: sectionLabel(s.player) })),
-  ];
+  // Every report has its sections and their controls; one from before sections reads as Their actions, then the
+  // players (blocksOf), its intro as the summary, and takes on sections with the first change to them.
+  const blocks = blocksOf(draft);
+  const targets: { id: Placement; label: string }[] = blocks.flatMap((b) =>
+        b.kind === "players"
+          ? draft.sections.map((s) => ({ id: s.id, label: sectionLabel(s.player) }))
+          : holdsClips(b.kind)
+            ? [{ id: b.id, label: reportSectionTitle(b.kind as Exclude<ReportBlockKind, "players">, b.title) }]
+            : [],
+      );
+  const byId = new Map(sections.map((s) => [s.id, s]));
   return (
     <div className="mx-auto flex w-full max-w-[680px] flex-col gap-8 px-8 py-10">
       <ReportHeader
@@ -645,7 +916,33 @@ export function ReportDocument(props: ReportDocumentProps) {
         onTitle={props.onTitle}
         onOpponent={props.onOpponent}
       />
-      {sections.map((s) => (s.section ? <PlayerSection key={s.id} view={s} targets={targets} props={props} /> : <TeamSection key={s.id} view={s} targets={targets} props={props} />))}
+      <>
+          <GrowingText
+            value={draft.intro}
+            onChange={props.onIntro}
+            placeholder="A summary: what players should know before anything else"
+            maxLength={REPORT_INTRO_LIMIT}
+            maxLines={8}
+            ariaLabel="Summary"
+            className="-mt-4"
+          />
+          {blocks.map((b, i) => {
+            if (b.kind === "players") {
+              const own = draft.sections.map((s) => byId.get(s.id)).filter((v): v is ViewSection => !!v);
+              return (
+                <SectionFrame key={b.id} block={b} index={i} count={blocks.length} props={props}>
+                  {own.length === 0 && <p className="text-callout text-muted-foreground">No players yet. Add players to start.</p>}
+                  {own.map((v) => (
+                    <PlayerSection key={v.id} view={v} targets={targets} props={props} />
+                  ))}
+                </SectionFrame>
+              );
+            }
+            const view = byId.get(b.id);
+            return view ? <BlockSection key={b.id} view={view} index={i} count={blocks.length} targets={targets} props={props} /> : null;
+          })}
+          <AddSectionRow props={props} />
+      </>
     </div>
   );
 }

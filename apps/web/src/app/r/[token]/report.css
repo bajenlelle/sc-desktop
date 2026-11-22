@@ -83,6 +83,7 @@
   .report-section h2 { break-after: avoid; }
   .report-intro { break-inside: avoid; break-after: avoid; }
   .report-clip { break-inside: avoid; }
+  .report-keys, .report-section table { break-inside: avoid; }
   .report-clip-first { break-before: avoid; }
   .report-note p, .report-note { orphans: 3; widows: 3; }
 

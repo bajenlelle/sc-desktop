@@ -224,7 +224,26 @@ export function useReportDraft({ playlistId, items }: { playlistId: string; item
     [playlistId, apply, stepHistory],
   );
 
+  /** An edit with its Undo in the toast (hiding, taking out or moving a section), the same as ⌘Z while it is the last edit. */
+  const applyWithUndo = useCallback(
+    (change: (d: ReportDraft) => ReportDraft, label: string, message: string) => {
+      if (!apply(change, label)) return false;
+      const edit = latestEdit();
+      toast(message, {
+        id: EDIT_TOAST,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            if (latestEdit() === edit) stepHistory("undo");
+          },
+        },
+      });
+      return true;
+    },
+    [apply, stepHistory],
+  );
+
   const reload = useCallback(() => setReloads((n) => n + 1), []);
 
-  return { draft: held?.draft ?? null, isNew: held?.isNew ?? false, status, apply, stepHistory, removeSectionWithUndo, reload };
+  return { draft: held?.draft ?? null, isNew: held?.isNew ?? false, status, apply, applyWithUndo, stepHistory, removeSectionWithUndo, reload };
 }

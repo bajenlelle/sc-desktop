@@ -8,7 +8,21 @@
  * Pure: the desktop reads the season, the roster and the keys, and writes
  * the playlist and the draft (apps/desktop/src/lib/team-report.ts).
  */
-import { addSections, emptyDraft, setIntro, setOpponent, setStats, type ReportDraft, type ReportGame, type ReportTeam } from "./report-draft";
+import {
+  addSections,
+  emptyDraft,
+  GAMES_BLOCK,
+  KEYS_BLOCK,
+  PLAYERS_BLOCK,
+  PROFILE_BLOCK,
+  setOpponent,
+  setStats,
+  TEAM_SECTION,
+  type ReportBlock,
+  type ReportDraft,
+  type ReportGame,
+  type ReportTeam,
+} from "./report-draft";
 import type { ReportDraftRow } from "./scouting-report-list";
 import type { StatsCardPlayer, StatsCardSpec } from "./stats-card";
 import { keySentence, type TeamKey, type TeamKeys } from "./team-keys";
@@ -52,18 +66,29 @@ export function pickReportPlayers(rows: readonly TeamPlayerRow[], who: WhoDoesWh
 }
 
 /**
- * The intro a new report starts with: "What stands out" and up to three of
- * the team's keys, surest first, as lines the coach rewrites. Empty when the
- * keys say nothing yet (under five games, or nothing that qualifies).
+ * The Keys a new report starts with: up to three of the team's keys, surest
+ * first, a line each, which the coach rewrites. Empty when the keys say
+ * nothing yet (under five games, or nothing that qualifies).
  */
-export function teamReportIntro(keys: TeamKeys | null, where: string | null, max = REPORT_START_KEYS): string {
+export function teamReportKeys(keys: TeamKeys | null, where: string | null, max = REPORT_START_KEYS): string {
   if (!keys || keys.status !== "ready") return "";
   const all: TeamKey[] = [...keys.withBall, ...keys.withoutBall].sort((a, b) => b.score - a.score);
-  const lines = all
+  return all
     .map((k) => keySentence(k, where))
     .filter((s) => s !== "")
-    .slice(0, max);
-  return lines.length === 0 ? "" : ["What stands out:", ...lines.map((s) => `• ${s}`)].join("\n");
+    .slice(0, max)
+    .join("\n");
+}
+
+/** The sections a report started from a team reads in: Keys, the players, Their actions; the season's numbers there to show. */
+export function teamReportBlocks(keysText: string): ReportBlock[] {
+  return [
+    { id: KEYS_BLOCK, kind: "keys", hidden: false, text: keysText },
+    { id: PLAYERS_BLOCK, kind: "players", hidden: false },
+    { id: TEAM_SECTION, kind: "actions", hidden: false },
+    { id: PROFILE_BLOCK, kind: "profile", hidden: true },
+    { id: GAMES_BLOCK, kind: "games", hidden: true },
+  ];
 }
 
 /** A roster row as a report section names its player. */
@@ -76,14 +101,14 @@ export interface TeamReportStart {
   game: ReportGame | null;
   /** In report order, each with its season card (null where it couldn't be made). */
   players: readonly { player: StatsCardPlayer; stats: StatsCardSpec | null }[];
-  intro: string;
+  /** The Keys section's words (teamReportKeys). */
+  keys: string;
 }
 
 /** The draft a report started from a team is saved with. */
 export function buildTeamReportDraft(start: TeamReportStart, newId?: () => string): ReportDraft {
-  let draft: ReportDraft = { ...emptyDraft(), team: start.team, game: start.game };
+  let draft: ReportDraft = { ...emptyDraft(), team: start.team, game: start.game, blocks: teamReportBlocks(start.keys) };
   draft = setOpponent(draft, start.team.name);
-  draft = setIntro(draft, start.intro);
   draft = addSections(
     draft,
     start.players.map((p) => p.player),

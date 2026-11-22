@@ -22,7 +22,7 @@ export function RootLayout() {
       <Sidebar />
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <LicenseBanner />
-        <div key={pathname} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div key={pathname} className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
           <Outlet />
         </div>
       </main>

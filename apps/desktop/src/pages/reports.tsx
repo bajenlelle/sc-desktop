@@ -24,6 +24,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/empty-state";
 import { NewReportPopover } from "@/components/report/new-report-popover";
+import { reportPath, type ReportPageState } from "@/pages/report";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { useAuth } from "@/lib/auth-context";
@@ -103,10 +104,10 @@ export function ReportsPage() {
     const url = item.reportId ? scoutingReportUrl(reportBaseUrl(), item.reportId) : null;
     switch (action) {
       case "open":
-        navigate("/playlists", { state: { restore: { playlistId: item.playlistId }, view: "report" } });
+        navigate(reportPath(item.playlistId), { state: { back: { label: "Reports", path: "/reports" } } satisfies ReportPageState });
         break;
       case "share_again":
-        navigate("/playlists", { state: { restore: { playlistId: item.playlistId }, view: "report", share: true } });
+        navigate(reportPath(item.playlistId), { state: { back: { label: "Reports", path: "/reports" }, share: true } satisfies ReportPageState });
         break;
       case "show_clips":
         navigate("/playlists", { state: { restore: { playlistId: item.playlistId } } });

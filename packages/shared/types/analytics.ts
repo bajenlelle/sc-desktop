@@ -87,6 +87,8 @@ export type AnalyticsEvent =
   | "scouting_report_clip_moved" // to (player | team | out | in: put back), clips, via (drag | keys | menu), reorder (stayed in its section)
   | "scouting_report_clip_played" // via (tile | panel), source (local | shared | none)
   | "scouting_report_section_removed" // had_note, clips, undone
+  | "scouting_report_section_hidden" // section (keys | players | actions | profile | games | custom), hidden
+  | "scouting_report_section_added" // section
   | "scouting_report_previewed" // players, clips (the share sheet opened)
   | "scouting_report_generated" // players, clips, shipped (clips cut for it), posters, regenerated, seconds, plan (the space's tier), limited (free tier: one live report)
   | "scouting_report_failed" // stage (ship | posters | publish), error

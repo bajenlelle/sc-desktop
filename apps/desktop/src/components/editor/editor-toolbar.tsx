@@ -21,11 +21,11 @@ import {
   Timer,
   Trash2,
   Type,
+  FileText,
 } from "lucide-react";
 import { exportProgressLabel, exportProgressPercent, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { ExportAction } from "@/components/export-format-dialog";
 import { Toolbar, ToolbarAction } from "@/components/shell/toolbar";
-import { PlaylistViewSwitch } from "@/components/editor/playlist-view-switch";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -282,7 +282,21 @@ export function EditorToolbar(p: EditorToolbarProps) {
       leading={
         <>
           {p.backTo && <BackButton {...p.backTo} />}
-          <PlaylistViewSwitch value="clips" onChange={(v) => v === "report" && p.onOpenReport()} sharedStatus={p.reportStatus} />
+          <ToolbarAction label="Report">
+            {(compact) => (
+              <Button
+                variant="ghost"
+                size={compact ? "icon-sm" : "sm"}
+                onClick={p.onOpenReport}
+                aria-label={compact ? "Report" : undefined}
+                title={p.reportStatus ?? "The playlist's scouting report"}
+              >
+                <FileText />
+                {!compact && "Report"}
+                {p.reportStatus && <span aria-hidden className="size-1.5 rounded-full bg-success" />}
+              </Button>
+            )}
+          </ToolbarAction>
         </>
       }
       title={title}

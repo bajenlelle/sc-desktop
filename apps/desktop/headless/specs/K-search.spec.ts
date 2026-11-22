@@ -40,7 +40,6 @@ const options = (page: Page) => panel(page).getByRole("option");
 const group = (page: Page, name: string) => panel(page).getByRole("group", { name, exact: true });
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
 const gameTabs = (page: Page) => page.getByRole("navigation", { name: "Open games" }).locator("button[data-open-game]");
-const viewRadio = (page: Page, name: "Clips" | "Report") => page.getByRole("radiogroup", { name: "View" }).getByRole("radio", { name, exact: true });
 
 /** The select of each read only the search makes: its index of playlists, games and report drafts. */
 const INDEX_SELECTS = [
@@ -213,7 +212,7 @@ test("Enter opens a playlist from Games, and another one in place on the Playlis
   expect(picks[2]).toMatchObject({ kind: "playlist", from: "recent", position: 1, query_length: 0 });
 });
 
-test("a report opens in its Report view, from Games and in place, and its playlist opens on the clips", async ({ page }) => {
+test("a report opens on its own page, from Games and again from Recent, and its playlist opens on the clips", async ({ page }) => {
   const id = await createPlaylist(page, ALPHA);
   // A draft of the spec's own, under a title of its own; it goes with its playlist.
   await withAppModule(
@@ -230,14 +229,14 @@ test("a report opens in its Report view, from Games and in place, and its playli
   const found = group(page, "Reports").getByRole("option").filter({ hasText: REPORT });
   await expect(found, "the draft is found by its title, with its status").toContainText("Draft");
   await chooseWithKeys(page, found);
-  await expect(page).toHaveURL(/\/playlists$/);
-  await expect(viewRadio(page, "Report"), "the report opens in the Report view").toBeChecked({ timeout: 30_000 });
+  await expect(page, "the report opens on its own page").toHaveURL(new RegExp(`/reports/${id}$`));
+  await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue(REPORT, { timeout: 30_000 });
 
   // In place: the playlist itself is its clips.
   await openSearch(page);
   await field(page).pressSequentially(ALPHA);
   await chooseWithKeys(page, group(page, "Playlists").getByRole("option").filter({ hasText: ALPHA }));
-  await expect(viewRadio(page, "Clips")).toBeChecked();
+  await expect(page, "the playlist opens in the editor").toHaveURL(/\/playlists$/);
   await expect(heading(page)).toHaveText(ALPHA);
 
   // And its report again, from what was opened last: the playlist first, the report before it.
@@ -246,7 +245,7 @@ test("a report opens in its Report view, from Games and in place, and its playli
   await expect(recent.nth(0)).toContainText("Playlist");
   await expect(recent.nth(1)).toContainText(REPORT);
   await recent.nth(1).click();
-  await expect(viewRadio(page, "Report")).toBeChecked();
+  await expect(page).toHaveURL(new RegExp(`/reports/${id}$`));
 });
 
 test("Enter opens a game from Games, and on the game page another one in a tab", async ({ page }) => {

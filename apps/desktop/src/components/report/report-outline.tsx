@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
-import { ChevronRight, Loader2, Plus, StickyNote, X } from "lucide-react";
+import { ChevronRight, EyeOff, Loader2, Plus, StickyNote, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -16,15 +16,17 @@ import { useListDrag } from "@/components/editor/use-list-drag";
 import { cn } from "@/lib/utils";
 import { eventColors, eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import { clickSelection, extendSelection } from "@scoutable/shared/lib/list-selection";
-import { LEFT_OUT, TEAM_SECTION, type Placement, type ReportLayout } from "@scoutable/shared/lib/report-draft";
+import { LEFT_OUT, canRemoveBlock, type Placement, type ReportBlock, type ReportLayout } from "@scoutable/shared/lib/report-draft";
 import { clipDrop, outlineRows, sectionDropIndex, sectionGap, sectionRowKey, snapClipGap, type OutlineRowRef } from "@scoutable/shared/lib/report-outline";
 import type { PlayByPlayEvent, PlaylistClipItem } from "@/types/match";
 
 export interface OutlineSectionInfo {
-  /** "Alva Berg", "Team", "Not in report". */
+  /** "Alva Berg", "Team", "Keys", "Not in report". */
   label: string;
   number: string | null;
   statsLoading: boolean;
+  /** A section that isn't a player's, in a report of sections: hidden, moved and taken out from its row. */
+  block?: ReportBlock;
 }
 
 export interface OutlineClipInfo {
@@ -66,9 +68,11 @@ export interface ReportOutlineProps {
   /** Edit clip: the clip in the Clips view. */
   onOpenClip: (key: string) => void;
   onAddPlayers: () => void;
+  onBlockHidden: (id: string, hidden: boolean) => void;
+  /** One place up (-1) or down (1) among the sections. */
+  onMoveBlock: (id: string, dir: -1 | 1) => void;
+  onRemoveBlock: (id: string) => void;
 }
-
-const isPlayer = (id: Placement) => id !== TEAM_SECTION && id !== LEFT_OUT;
 const clock = (e: PlayByPlayEvent) => `${periodLabel(e.period)} ${formatGameClock(e.gameClockTime).replace(/^0/, "")}`;
 const clipsNoun = (n: number) => (n === 1 ? "clip" : `${n} clips`);
 
@@ -101,7 +105,7 @@ export function ReportOutline(props: ReportOutlineProps) {
     m.set(LEFT_OUT, layout.leftOut.length);
     return m;
   }, [layout]);
-  const targets = useMemo(() => layout.sections.map((s) => ({ id: s.id, label: labelOf(s.id) })), [layout, sectionInfo]);
+  const targets = useMemo(() => layout.sections.filter((s) => s.accepts).map((s) => ({ id: s.id, label: labelOf(s.id) })), [layout, sectionInfo]);
 
   function labelOf(id: Placement): string {
     const info = sectionInfo.get(id);
@@ -118,7 +122,7 @@ export function ReportOutline(props: ReportOutlineProps) {
     reducedMotion: props.reducedMotion,
     canStart: (key) => {
       const row = rowByKey.get(key);
-      return !!row && (row.kind === "clip" || isPlayer(row.id));
+      return !!row && (row.kind === "clip" || !!row.player);
     },
     blockFor: (key) => {
       const row = rowByKey.get(key)!;
@@ -166,7 +170,8 @@ export function ReportOutline(props: ReportOutlineProps) {
       const dir = e.key === "ArrowDown" ? 1 : -1;
       if (e.altKey) {
         if (row.kind === "clip") props.onNudgeClips(actionKeys(row.key), dir);
-        else if (isPlayer(row.id)) props.onMoveSection(row.id, players.indexOf(row.id) + dir);
+        else if (row.player) props.onMoveSection(row.id, players.indexOf(row.id) + dir);
+        else if (sectionInfo.get(row.id)?.block) props.onMoveBlock(row.id, dir);
         focusRow(row.key);
         return;
       }
@@ -212,7 +217,12 @@ export function ReportOutline(props: ReportOutlineProps) {
     if (e.key === "Backspace" || e.key === "Delete") {
       e.preventDefault();
       if (row.kind === "section") {
-        if (!isPlayer(row.id)) return;
+        const block = sectionInfo.get(row.id)?.block;
+        if (block) {
+          if (canRemoveBlock(block.kind)) props.onRemoveBlock(row.id);
+          return;
+        }
+        if (!row.player) return;
         props.onRemoveSection(row.id);
         focusRow(rows.slice(at + 1).find((r) => r.kind === "section")?.key ?? rows[at - 1]?.key);
         return;
@@ -248,7 +258,7 @@ export function ReportOutline(props: ReportOutlineProps) {
           // A click on the list's empty space lets go of the selection, as in the playlist.
           if (e.target === e.currentTarget && selected.size > 0) props.onSelectionChange(new Set(), null);
         }}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain p-2"
       >
         {rows.map((row) =>
           row.kind === "section" ? (
@@ -270,6 +280,9 @@ export function ReportOutline(props: ReportOutlineProps) {
               }}
               onToggle={(all) => props.onToggleCollapsed(row.id, all)}
               onMove={(to) => props.onMoveSection(row.id, to)}
+              onBlockHidden={(hidden) => props.onBlockHidden(row.id, hidden)}
+              onMoveBlock={(dir) => props.onMoveBlock(row.id, dir)}
+              onRemoveBlock={() => props.onRemoveBlock(row.id)}
               onRemove={() => {
                 const at = rows.indexOf(row);
                 props.onRemoveSection(row.id);
@@ -322,6 +335,9 @@ function SectionRow({
   onToggle,
   onMove,
   onRemove,
+  onBlockHidden,
+  onMoveBlock,
+  onRemoveBlock,
 }: {
   row: OutlineRowRef;
   info: OutlineSectionInfo | undefined;
@@ -337,9 +353,15 @@ function SectionRow({
   onToggle: (all: boolean) => void;
   onMove: (toIndex: number) => void;
   onRemove: () => void;
+  onBlockHidden: (hidden: boolean) => void;
+  onMoveBlock: (dir: -1 | 1) => void;
+  onRemoveBlock: () => void;
 }) {
-  const player = isPlayer(row.id);
+  const player = !!row.player;
   const leftOut = row.id === LEFT_OUT;
+  const block = info?.block;
+  // A hidden section shrinks to a thin, dimmed row, as a skipped slide does in Keynote.
+  const hidden = !!row.hidden && !player;
   const label = info?.label ?? "";
   return (
     <ContextMenu>
@@ -355,7 +377,8 @@ function SectionRow({
           onPointerDown={onPointerDown}
           onClick={onClick}
           className={cn(
-            "group relative mt-0.5 flex h-8 shrink-0 select-none items-center gap-1 rounded-md pr-1 text-sm outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-selection first:mt-0",
+            "group relative mt-0.5 flex shrink-0 select-none items-center gap-1 rounded-md pr-1 text-sm outline-none transition-[background-color,height,opacity] duration-150 focus-visible:ring-2 focus-visible:ring-selection first:mt-0",
+            hidden ? "h-6 text-caption opacity-55" : "h-8",
             leftOut ? "mt-2 text-muted-foreground" : "text-foreground",
             active ? "bg-fill-2" : "hover:bg-fill-1",
             player && "cursor-grab active:cursor-grabbing",
@@ -374,7 +397,8 @@ function SectionRow({
             <ChevronRight className={cn("size-3.5 transition-transform duration-150 motion-reduce:transition-none", open && "rotate-90")} />
           </button>
           {player && <span className="w-6 shrink-0 text-right text-caption text-muted-foreground nums">{info?.number ? `#${info.number}` : ""}</span>}
-          <span className={cn("min-w-0 flex-1 truncate", player && "pl-1", !leftOut && "font-medium")}>{label}</span>
+          <span className={cn("min-w-0 flex-1 truncate", player && "pl-1", !leftOut && !hidden && "font-medium")}>{label}</span>
+          {hidden && <EyeOff className="size-3 shrink-0 text-muted-foreground" aria-label="Hidden from players" />}
           {info?.statsLoading ? (
             <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" aria-label="Reading the stats" />
           ) : (
@@ -408,7 +432,23 @@ function SectionRow({
             <ContextMenuSeparator />
           </>
         )}
+        {block && (
+          <>
+            <ContextMenuItem onSelect={() => onBlockHidden(!block.hidden)}>{block.hidden ? "Show to players" : "Hide from players"}</ContextMenuItem>
+            <ContextMenuItem onSelect={() => onMoveBlock(-1)}>Move up</ContextMenuItem>
+            <ContextMenuItem onSelect={() => onMoveBlock(1)}>Move down</ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
         <ContextMenuItem onSelect={() => onToggle(false)}>{open ? "Collapse" : "Expand"}</ContextMenuItem>
+        {block && canRemoveBlock(block.kind) && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={onRemoveBlock}>
+              Remove section
+            </ContextMenuItem>
+          </>
+        )}
         {player && (
           <>
             <ContextMenuSeparator />

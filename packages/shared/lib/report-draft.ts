@@ -44,6 +44,17 @@ export const REPORT_TITLE_MAX = 120;
 export const TEAM_SECTION = "team" as const;
 /** The placement that keeps a clip out of the report (it stays in the playlist). Never a section id. */
 export const LEFT_OUT = "out" as const;
+/** The fixed ids of the sections there is one of; Their actions is TEAM_SECTION. */
+export const KEYS_BLOCK = "keys" as const;
+export const PLAYERS_BLOCK = "players" as const;
+export const PROFILE_BLOCK = "profile" as const;
+export const GAMES_BLOCK = "games" as const;
+/** A custom section's id starts with this. */
+export const CUSTOM_BLOCK_PREFIX = "c-";
+export const REPORT_BLOCK_TITLE_MAX = 60;
+export const REPORT_BLOCK_TEXT_LIMIT = 2000;
+/** Sections a coach can name, at most. */
+export const REPORT_MAX_CUSTOM_BLOCKS = 8;
 
 export interface DraftSection {
   id: string;
@@ -82,6 +93,34 @@ export interface ReportDraft {
   team?: ReportTeam | null;
   /** The game the report prepares for, when there was one to come against the coach's team. */
   game?: ReportGame | null;
+  /**
+   * The document's sections in reading order, which of them players see, and
+   * the words of those that aren't players' (blocksOf). Null or absent for a
+   * draft from before them: Their actions (the old Team section), then the
+   * players. Added in 2.1.0 without a migration: an older build drops it when
+   * it saves, and the report goes back to that shape with every clip kept.
+   */
+  blocks?: ReportBlock[] | null;
+}
+
+/**
+ * keys: what to remember, one per line, with clips. players: the player
+ * sections, where they sit. actions: plays about no one (TEAM_SECTION).
+ * profile and games: the team's season, drawn from the league's numbers.
+ * custom: a section the coach names, with words and clips.
+ */
+export type ReportBlockKind = "keys" | "players" | "actions" | "profile" | "games" | "custom";
+
+export interface ReportBlock {
+  /** KEYS_BLOCK, PLAYERS_BLOCK, TEAM_SECTION (actions), PROFILE_BLOCK, GAMES_BLOCK, or "c-<uuid>" for a custom one. */
+  id: string;
+  kind: ReportBlockKind;
+  /** Left out of the shared report; stays in the editor as it is. */
+  hidden: boolean;
+  /** A custom section's name. */
+  title?: string;
+  /** Keys (one per line), Their actions and custom sections. */
+  text?: string;
 }
 
 /** A Genius team in a season, as the Teams pages name it (`/teams/:competitionId/:teamId`). */
@@ -99,7 +138,7 @@ export interface ReportGame {
 }
 
 export function emptyDraft(): ReportDraft {
-  return { v: REPORT_DRAFT_VERSION, title: null, opponent: null, intro: "", sections: [], placements: {}, order: [], team: null, game: null };
+  return { v: REPORT_DRAFT_VERSION, title: null, opponent: null, intro: "", sections: [], placements: {}, order: [], team: null, game: null, blocks: null };
 }
 
 /** "#7 Alva Berg", or "Alva Berg" when the player has no number. */
@@ -131,6 +170,35 @@ export function parseReportGame(raw: unknown): ReportGame | null {
     return null;
   }
   return { id: raw.id, at: raw.at, home: raw.home };
+}
+
+const FIXED_ID: Partial<Record<ReportBlockKind, string>> = {
+  keys: KEYS_BLOCK,
+  players: PLAYERS_BLOCK,
+  actions: TEAM_SECTION,
+  profile: PROFILE_BLOCK,
+  games: GAMES_BLOCK,
+};
+const BLOCK_KINDS: readonly ReportBlockKind[] = ["keys", "players", "actions", "profile", "games", "custom"];
+
+/** Stored blocks, or null when there are none to read (the old shape). A block that can't be read, or a second of a kind there is one of, is dropped. */
+function parseBlocks(raw: unknown): ReportBlock[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: ReportBlock[] = [];
+  const seen = new Set<string>();
+  for (const b of raw) {
+    if (!isObj(b) || typeof b.id !== "string" || !BLOCK_KINDS.includes(b.kind as ReportBlockKind)) continue;
+    const kind = b.kind as ReportBlockKind;
+    const fixed = FIXED_ID[kind];
+    if (fixed ? b.id !== fixed : !b.id.startsWith(CUSTOM_BLOCK_PREFIX)) continue;
+    if (seen.has(b.id)) continue;
+    seen.add(b.id);
+    const block: ReportBlock = { id: b.id, kind, hidden: b.hidden === true };
+    if (kind === "custom") block.title = typeof b.title === "string" ? b.title.slice(0, REPORT_BLOCK_TITLE_MAX) : "";
+    if (typeof b.text === "string" && (kind === "keys" || kind === "actions" || kind === "custom")) block.text = b.text.slice(0, REPORT_BLOCK_TEXT_LIMIT);
+    out.push(block);
+  }
+  return out.length === 0 ? null : out;
 }
 
 function parsePlayer(raw: unknown): StatsCardPlayer | null {
@@ -191,6 +259,7 @@ export function parseReportDraft(raw: unknown): ReportDraft | null {
     order,
     team: parseReportTeam(raw.team),
     game: parseReportGame(raw.game),
+    blocks: parseBlocks(raw.blocks),
   };
 }
 
@@ -308,11 +377,125 @@ export function defaultOpponent(draft: ReportDraft): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// The document's sections (blocks)
+// ---------------------------------------------------------------------------
+
+/** The sections of a draft from before blocks: Their actions, then the players. */
+export function defaultBlocks(): ReportBlock[] {
+  return [
+    { id: TEAM_SECTION, kind: "actions", hidden: false },
+    { id: PLAYERS_BLOCK, kind: "players", hidden: false },
+  ];
+}
+
+/**
+ * The draft's sections in reading order. Their actions and the players are
+ * always there (a stored list without one gets it back at the end), since
+ * every clip and player needs a place.
+ */
+export function blocksOf(draft: ReportDraft): ReportBlock[] {
+  const blocks = draft.blocks && draft.blocks.length > 0 ? draft.blocks : null;
+  if (!blocks) return defaultBlocks();
+  const missing = defaultBlocks().filter((d) => !blocks.some((b) => b.id === d.id));
+  return missing.length === 0 ? blocks : [...blocks, ...missing];
+}
+
+/** Sections a clip can be placed in, besides a player's. */
+export function holdsClips(kind: ReportBlockKind): boolean {
+  return kind === "keys" || kind === "actions" || kind === "custom";
+}
+
+/** Sections a coach can take out (players and Their actions hold what nothing else would). */
+export function canRemoveBlock(kind: ReportBlockKind): boolean {
+  return kind !== "players" && kind !== "actions";
+}
+
+function withBlocks(draft: ReportDraft, blocks: ReportBlock[]): ReportDraft {
+  return { ...draft, blocks };
+}
+
+/**
+ * Adds a section at the end (or at `at`). Unchanged when the report already
+ * has one of a kind there is one of, or holds as many named sections as it
+ * may. A custom section starts with `title`.
+ */
+export function addBlock(
+  draft: ReportDraft,
+  kind: ReportBlockKind,
+  opts: { title?: string; at?: number; newId?: () => string } = {},
+): ReportDraft {
+  const blocks = blocksOf(draft);
+  const fixed = FIXED_ID[kind];
+  if (fixed && blocks.some((b) => b.id === fixed)) return draft;
+  if (!fixed && blocks.filter((b) => b.kind === "custom").length >= REPORT_MAX_CUSTOM_BLOCKS) return draft;
+  const block: ReportBlock = { id: fixed ?? `${CUSTOM_BLOCK_PREFIX}${(opts.newId ?? defaultId)()}`, kind, hidden: false };
+  if (kind === "custom") block.title = (opts.title ?? "").slice(0, REPORT_BLOCK_TITLE_MAX);
+  const at = opts.at === undefined ? blocks.length : Math.max(0, Math.min(opts.at, blocks.length));
+  return withBlocks(draft, [...blocks.slice(0, at), block, ...blocks.slice(at)]);
+}
+
+/** Takes a section out, with its words; its clips go back to their players or Their actions. Players and Their actions stay. */
+export function removeBlock(draft: ReportDraft, id: string): ReportDraft {
+  const blocks = blocksOf(draft);
+  const block = blocks.find((b) => b.id === id);
+  if (!block || !canRemoveBlock(block.kind)) return draft;
+  const placements: Record<string, Placement> = {};
+  for (const [key, to] of Object.entries(draft.placements)) if (to !== id) placements[key] = to;
+  return { ...withBlocks(draft, blocks.filter((b) => b.id !== id)), placements };
+}
+
+export function setBlockHidden(draft: ReportDraft, id: string, hidden: boolean): ReportDraft {
+  return updateBlock(draft, id, (b) => (b.hidden === hidden ? b : { ...b, hidden }));
+}
+
+export function moveBlock(draft: ReportDraft, id: string, toIndex: number): ReportDraft {
+  const blocks = blocksOf(draft);
+  const from = blocks.findIndex((b) => b.id === id);
+  if (from < 0) return draft;
+  const to = Math.max(0, Math.min(toIndex, blocks.length - 1));
+  if (to === from) return draft;
+  const next = [...blocks];
+  const [block] = next.splice(from, 1);
+  next.splice(to, 0, block);
+  return withBlocks(draft, next);
+}
+
+export function setBlockText(draft: ReportDraft, id: string, text: string): ReportDraft {
+  const held = text.slice(0, REPORT_BLOCK_TEXT_LIMIT);
+  return updateBlock(draft, id, (b) => (!holdsClips(b.kind) || (b.text ?? "") === held ? b : { ...b, text: held }));
+}
+
+export function setBlockTitle(draft: ReportDraft, id: string, title: string): ReportDraft {
+  const held = title.slice(0, REPORT_BLOCK_TITLE_MAX);
+  return updateBlock(draft, id, (b) => (b.kind !== "custom" || (b.title ?? "") === held ? b : { ...b, title: held }));
+}
+
+function updateBlock(draft: ReportDraft, id: string, change: (b: ReportBlock) => ReportBlock): ReportDraft {
+  const blocks = blocksOf(draft);
+  const at = blocks.findIndex((b) => b.id === id);
+  if (at < 0) return draft;
+  const next = change(blocks[at]);
+  if (next === blocks[at]) return draft;
+  const out = [...blocks];
+  out[at] = next;
+  return withBlocks(draft, out);
+}
+
+/** A key per line, without the bullets a coach may have typed. */
+export function keyLines(text: string | undefined): string[] {
+  return (text ?? "")
+    .split("\n")
+    .map((l) => l.replace(/^\s*(?:[•\-*–]|\d+[.)])\s*/, "").trim())
+    .filter((l) => l !== "");
+}
+
+// ---------------------------------------------------------------------------
 // Placements and the layout
 // ---------------------------------------------------------------------------
 
 function isTarget(draft: ReportDraft, to: Placement): boolean {
-  return to === TEAM_SECTION || draft.sections.some((s) => s.id === to);
+  if (to === TEAM_SECTION || draft.sections.some((s) => s.id === to)) return true;
+  return blocksOf(draft).some((b) => b.id === to && holdsClips(b.kind));
 }
 
 /**
@@ -361,18 +544,25 @@ export function placementOf(draft: ReportDraft, item: PlaylistClipItem, event: P
 }
 
 export interface ReportLayoutSection {
-  /** TEAM_SECTION, or the draft section's id. */
+  /** A player section's id, or a block's (TEAM_SECTION for Their actions). */
   id: Placement;
-  /** Null for the team section. */
+  /** The player section; null for every other section. */
   section: DraftSection | null;
+  /** The section's block; null for a player section (the players block holds them). */
+  block: ReportBlock | null;
+  /** Players don't see it: its block is hidden (a player section: the players block). */
+  hidden: boolean;
+  /** Clips can be placed in it. */
+  accepts: boolean;
   /** In reading order (the draft's order, then playlist order); shipped or not. */
   clips: PlaylistClipItem[];
 }
 
 export interface ReportLayout {
   /**
-   * The team first (only when it has an intro or clips, unless `keepTeam`),
-   * then the draft's sections in order, empty ones included.
+   * The sections in reading order (blocksOf), the players where their block
+   * sits, empty ones included, hidden ones too (`hidden`). Their actions only
+   * when it has clips or words, unless `keepTeam`.
    */
   sections: ReportLayoutSection[];
   /** Clips the coach left out of the report, in playlist order. */
@@ -399,10 +589,14 @@ export function deriveReportLayout(
   eventByKey: ReadonlyMap<string, PlayByPlayEvent>,
   opts: { keepTeam?: boolean } = {},
 ): ReportLayout {
+  const blocks = blocksOf(draft);
+  const playersHidden = blocks.find((b) => b.id === PLAYERS_BLOCK)?.hidden ?? false;
   const byId = new Map<Placement, ReportLayoutSection>();
-  const team: ReportLayoutSection = { id: TEAM_SECTION, section: null, clips: [] };
-  byId.set(TEAM_SECTION, team);
-  for (const s of draft.sections) byId.set(s.id, { id: s.id, section: s, clips: [] });
+  for (const b of blocks) {
+    if (b.kind === "players") continue;
+    byId.set(b.id, { id: b.id, section: null, block: b, hidden: b.hidden, accepts: holdsClips(b.kind), clips: [] });
+  }
+  for (const s of draft.sections) byId.set(s.id, { id: s.id, section: s, block: null, hidden: playersHidden, accepts: true, clips: [] });
   const leftOut: PlaylistClipItem[] = [];
   const missing: ReportLayout["missing"] = [];
   for (const item of items) {
@@ -421,8 +615,13 @@ export function deriveReportLayout(
     const rank = new Map(draft.order.map((key, i) => [key, i]));
     for (const s of byId.values()) s.clips = inOrder(s.clips, rank);
   }
-  const players = draft.sections.map((s) => byId.get(s.id)!);
-  const sections = opts.keepTeam || team.clips.length > 0 || draft.intro.trim() ? [team, ...players] : players;
+  const team = byId.get(TEAM_SECTION)!;
+  const keepTeam = opts.keepTeam || team.clips.length > 0 || !!team.block?.text?.trim() || (!draft.blocks && !!draft.intro.trim());
+  const sections: ReportLayoutSection[] = [];
+  for (const b of blocks) {
+    if (b.kind === "players") sections.push(...draft.sections.map((s) => byId.get(s.id)!));
+    else if (b.id !== TEAM_SECTION || keepTeam) sections.push(byId.get(b.id)!);
+  }
   return { sections, leftOut, missing };
 }
 
@@ -493,7 +692,7 @@ export function includeClips(draft: ReportDraft, keys: readonly string[]): Repor
 export function nudgeClips(layout: ReportLayout, keys: readonly string[], dir: -1 | 1): { to: Placement; before: string | null } | null {
   const wanted = new Set(keys);
   if (layout.leftOut.some((c) => wanted.has(itemKey(c)))) return null;
-  const lists = layout.sections.map((s) => ({ id: s.id, keys: s.clips.map(itemKey) }));
+  const lists = layout.sections.filter((s) => s.accepts).map((s) => ({ id: s.id, keys: s.clips.map(itemKey) }));
   const reading = lists.flatMap((l) => l.keys).filter((key) => wanted.has(key));
   if (reading.length === 0) return null;
   const anchor = dir < 0 ? reading[0] : reading[reading.length - 1];
@@ -521,7 +720,12 @@ export type ReportEdit = Edit<ReportDraft>;
 
 /** The structure, for telling a move from a change of words. */
 export function structureKey(draft: ReportDraft): string {
-  return JSON.stringify([draft.sections.map((s) => s.id), Object.entries(draft.placements).sort(), draft.order]);
+  return JSON.stringify([
+    draft.sections.map((s) => s.id),
+    Object.entries(draft.placements).sort(),
+    draft.order,
+    blocksOf(draft).map((b) => [b.id, b.hidden]),
+  ]);
 }
 
 /**
@@ -532,7 +736,17 @@ export function structureKey(draft: ReportDraft): string {
 export function restoreStructure(snapshot: ReportDraft, now: ReportDraft): ReportDraft {
   const current = new Map(now.sections.map((s) => [s.id, s]));
   const sections = snapshot.sections.map((s) => current.get(s.id) ?? s);
-  const next: ReportDraft = { ...now, sections, placements: snapshot.placements, order: snapshot.order };
+  // The snapshot's sections, each with its words as they are now where it still exists.
+  const nowBlocks = new Map(blocksOf(now).map((b) => [b.id, b]));
+  const blocks = snapshot.blocks
+    ? blocksOf(snapshot).map((b) => {
+        const kept = nowBlocks.get(b.id);
+        return kept ? { ...b, title: kept.title, text: kept.text } : b;
+      })
+    : now.blocks && !snapshot.blocks
+      ? null
+      : now.blocks;
+  const next: ReportDraft = { ...now, sections, placements: snapshot.placements, order: snapshot.order, blocks };
   const same = sections.length === now.sections.length && sections.every((s, i) => s === now.sections[i]);
   return same && structureKey(next) === structureKey(now) ? now : next;
 }
