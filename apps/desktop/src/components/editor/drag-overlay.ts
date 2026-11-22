@@ -24,7 +24,7 @@ export interface DragOverlay {
   remove(): void;
 }
 
-export function createDragOverlay(row: HTMLElement, count: number, reducedMotion: boolean): DragOverlay {
+export function createDragOverlay(row: HTMLElement, count: number, reducedMotion: boolean, quiet = false): DragOverlay {
   // A row whose slot is taller than what it shows (the sidebar's, which carry their spacing) marks the part
   // the card copies; it starts at the row's top.
   const anchor = row.querySelector<HTMLElement>("[data-drag-face]") ?? row;
@@ -48,7 +48,10 @@ export function createDragOverlay(row: HTMLElement, count: number, reducedMotion
   }
 
   const card = document.createElement("div");
-  card.className = "relative h-full overflow-hidden rounded-md bg-card text-foreground shadow-dialog ring-1 ring-separator";
+  // Quiet: the row raised a little, an opaque hover-like fill and a soft shadow with no outline (the sidebar).
+  card.className = quiet
+    ? "relative h-full overflow-hidden rounded-md bg-[color-mix(in_oklab,var(--card),var(--foreground)_6%)] text-foreground shadow-[0_6px_16px_-6px_rgb(0_0_0/0.28)]"
+    : "relative h-full overflow-hidden rounded-md bg-card text-foreground shadow-dialog ring-1 ring-separator";
   card.style.transformOrigin = "center";
   card.style.transition = "opacity 150ms ease-out";
   card.style.transform = reducedMotion ? "" : "scale(1.02)";

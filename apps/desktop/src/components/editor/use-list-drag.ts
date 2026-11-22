@@ -82,6 +82,11 @@ export interface ListDragOptions {
    * sidebar), where a drag a little past its ends must not cancel.
    */
   holdOutside?: boolean;
+  /**
+   * The lifted row is the row itself raised a little (a neutral fill and a
+   * soft shadow, no outline), not a card. For the sidebar's quiet rows.
+   */
+  quietCard?: boolean;
 }
 
 export interface ListDrag {
@@ -482,7 +487,12 @@ export function useListDrag(options: ListDragOptions): ListDrag {
         .slice(0, blockRows.findIndex((r) => r.key === p.key))
         .reduce((sum, r) => sum + r.rect.height, 0);
 
-      const overlay = createDragOverlay(anchor.el, opts.current.badgeCount?.(blockKeys) ?? blockKeys.length, opts.current.reducedMotion);
+      const overlay = createDragOverlay(
+        anchor.el,
+        opts.current.badgeCount?.(blockKeys) ?? blockKeys.length,
+        opts.current.reducedMotion,
+        opts.current.quietCard,
+      );
       const anchorRect = anchor.el.getBoundingClientRect();
       window.getSelection()?.removeAllRanges();
       const s: Session = {

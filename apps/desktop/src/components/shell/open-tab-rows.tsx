@@ -84,6 +84,7 @@ export function OpenTabRows({
     noDragSelector: "[data-no-drag]",
     keepFocus: true,
     holdOutside: true,
+    quietCard: true,
     canStart: () => true,
     blockFor: (key) => [key],
     snapGap: (gap) => gap,
