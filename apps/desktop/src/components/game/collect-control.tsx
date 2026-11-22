@@ -79,8 +79,8 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
                 : "Choose the playlist to add plays to"
             }
             className={cn(
-              "inline-flex h-8 max-w-64 min-w-0 items-center gap-1.5 rounded-md bg-fill-2 pr-1.5 pl-2.5 text-sm outline-none",
-              "transition-[background-color,transform,box-shadow] duration-100 hover:bg-fill-3 active:scale-[0.98] active:bg-fill-4 data-[state=open]:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection",
+              "inline-flex h-8 max-w-64 min-w-0 items-center gap-1.5 rounded-md bg-fill-1 pr-1.5 pl-2.5 text-sm outline-none",
+              "transition-[background-color,transform,box-shadow] duration-100 hover:bg-fill-2 active:scale-[0.98] active:bg-fill-3 data-[state=open]:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
               // A first visit's nudge is a tint: a ring here is how keyboard focus is drawn.
               highlight && !target && "bg-primary/10 text-primary hover:bg-primary/15 active:bg-primary/20 data-[state=open]:bg-primary/20",
             )}
