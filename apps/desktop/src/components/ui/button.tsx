@@ -21,11 +21,12 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 active:bg-destructive/80 disabled:hover:bg-destructive [&_svg]:stroke-2",
         // The second button of a pair: a soft fill, no ring or shadow, so the
-        // primary action is the only one with an edge of colour.
+        // primary action is the only one with an edge of colour. The lightest
+        // fill at rest, as Notion's buttons sit level with a hovered row.
         outline:
-          "bg-fill-2 text-foreground hover:bg-fill-3 active:bg-fill-4 disabled:hover:bg-fill-2",
+          "bg-fill-1 text-foreground hover:bg-fill-2 active:bg-fill-3 disabled:hover:bg-fill-1",
         secondary:
-          "bg-fill-2 text-foreground hover:bg-fill-3 active:bg-fill-4 disabled:hover:bg-fill-2",
+          "bg-fill-1 text-foreground hover:bg-fill-2 active:bg-fill-3 disabled:hover:bg-fill-1",
         ghost: "text-foreground hover:bg-fill-1 active:bg-fill-3 disabled:hover:bg-transparent",
         link: "text-primary underline-offset-4 hover:underline active:scale-100",
       },
