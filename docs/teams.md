@@ -135,6 +135,15 @@ it, and playback skips it.
   team's games, the target remembered per team as `team:competition:team`, no
   way back from the editor, surface `team_plays`). Labels are read for all the
   games at once (`useClipLabels` takes several games).
+- **A play's row** is the shared play row (`components/plays/play-row.tsx`,
+  the same as the game view, Add clips and the editor): clock, the event as a
+  dot and a word, the player with up to two labels, then Label and the
+  playlist slot (+, or a ✓ once the play is in the target). Label and + show
+  on hover and on the play on screen; the ✓ always shows. A right-click opens
+  the game view's menu (the target, another playlist, a new one). A row's
+  Label, + and menu act on the selection when the row is in it, else on that
+  row alone (Finder's rule); the keys act on the selection, else the play on
+  screen.
 - **Keys** (scope `team-plays`, only while Plays shows): Space, J K L, ← →, R;
   ↑ ↓ the previous or next play that can play; A add; G label; ⇧G the label
   used last; ⌥1–⌥9 a label's key; ⌘-click and Shift-click select, ⌘A every

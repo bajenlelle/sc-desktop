@@ -3,8 +3,8 @@
  * made-up league (headless/team-league.ts) the genius function's answers are
  * mocked with, so nothing depends on real standings.
  */
-import type { Page } from "@playwright/test";
-import { delayPlaysReads, deleteOwnedPlaylists, expect, failPlaysReads, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
+import type { Locator, Page } from "@playwright/test";
+import { type GameReadPatch, chooseNewTarget, delayPlaysReads, deleteOwnedPlaylists, expect, failPlaysReads, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const teamRow = (page: Page, name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
@@ -364,18 +364,98 @@ const PLAYS_TARGET = owned("team plays");
  * Alfa's page with the Library's first game as one of Alfa's games, its video the test video (its reads are
  * answered so; the account is never written to: its own video is on another computer).
  */
-async function alfaWithAPlayableGame(page: Page): Promise<void> {
+async function alfaWithAPlayableGame(page: Page, patch: GameReadPatch = {}): Promise<void> {
   await page.goto("/matches");
   await deleteOwnedPlaylists(page, [PLAYS_TARGET]);
   const game = await openLibraryGame(page, 0);
   const [row] = await selectRows<{ source_game_id: string | null }>(page, "matches", "source_game_id", { id: game.id });
   expect(row?.source_game_id ?? "", "the Library's first game is a league game").toMatch(/^\d+$/);
-  await patchGameReads(page, { videoUrl: FIXTURE_VIDEO });
+  await patchGameReads(page, { videoUrl: FIXTURE_VIDEO, ...patch });
   await mockLeague(page, madeUpLeague({ libraryGame: Number(row.source_game_id) }));
   await openTeam(page, "Alfa");
   await page.getByRole("radio", { name: "Plays" }).click();
   await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
 }
+
+/**
+ * Keeps, in `window.drawn`, the key of every Plays row React draws again. Through the hook React tells its
+ * developer tools of each commit: a row was drawn when its props are a new object (a memo that holds keeps the
+ * old one). Call before the first navigation.
+ */
+async function countRowDraws(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    type Fiber = { type?: { name?: string }; memoizedProps: { row?: { key: string } }; child: Fiber | null; sibling: Fiber | null };
+    const drawn = new Set<string>();
+    const seen = new WeakSet<object>();
+    (window as unknown as { drawn: Set<string> }).drawn = drawn;
+    const visit = (first: Fiber | null) => {
+      for (let f = first; f; f = f.sibling) {
+        // The dev build may rename the row's function ("PlayRow2").
+        if (/^PlayRow\d*$/.test(f.type?.name ?? "") && f.memoizedProps?.row && !seen.has(f.memoizedProps)) {
+          seen.add(f.memoizedProps);
+          drawn.add(f.memoizedProps.row.key);
+        }
+        visit(f.child);
+      }
+    };
+    const renderers = new Map<number, unknown>();
+    (window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown }).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+      supportsFiber: true,
+      renderers,
+      inject(renderer: unknown) {
+        renderers.set(renderers.size + 1, renderer);
+        return renderers.size;
+      },
+      onCommitFiberRoot(_id: number, root: { current: Fiber }) {
+        visit(root.current.child);
+      },
+      onCommitFiberUnmount() {},
+      onPostCommitFiberRoot() {},
+      checkDCE() {},
+    };
+  });
+}
+
+/** The nth play row drawn in Plays (the list draws the rows near the view). */
+const playRow = (page: Page, n: number) => page.getByRole("list", { name: "Plays" }).locator("[data-key]").nth(n);
+
+/** Makes this spec's labels in the space of the game behind `key` ("gameId:eventId"), on these plays. */
+async function makeLabels(page: Page, key: string, names: readonly string[], on: readonly string[]): Promise<void> {
+  await page.evaluate(
+    async ({ gameId, names, on }) => {
+      const { createClient } = await import("/src/lib/supabase/client.ts" as string);
+      const labels = await import("/src/lib/labels-db.ts" as string);
+      const { data } = await createClient().from("matches").select("org_id").eq("id", gameId).single();
+      const orgId = (data as { org_id: string }).org_id;
+      for (const name of names) {
+        const label = await labels.createLabel(orgId, name, "violet");
+        if (on.length > 0) {
+          await labels.bulkAssign(orgId, on.map((k) => ({ matchId: k.split(":")[0], eventId: Number(k.split(":")[1]) })), label.id, "add");
+        }
+      }
+    },
+    { gameId: key.split(":")[0], names: [...names], on: [...on] },
+  );
+}
+
+async function deleteLabels(page: Page, names: readonly string[]): Promise<void> {
+  await page.evaluate(async (names) => {
+    const { createClient } = await import("/src/lib/supabase/client.ts" as string);
+    const sb = createClient();
+    const { data: auth } = await sb.auth.getUser();
+    const { error } = await sb.from("labels").delete().eq("user_id", auth.user!.id).in("name", names);
+    if (error) throw new Error(`headless: label cleanup failed: ${error.message}`);
+  }, [...names]);
+}
+
+/** Reads the page again into Plays (the routes the page was given stay). */
+async function reopenPlays(page: Page): Promise<void> {
+  await page.reload();
+  await page.getByRole("radio", { name: "Plays" }).click({ timeout: 30_000 });
+  await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
+}
+
+const opacityOf = (l: Locator) => l.evaluate((el) => Number(getComputedStyle(el).opacity));
 
 const playing = (page: Page) => page.evaluate(() => Array.from(document.querySelectorAll("video")).some((v) => !v.paused));
 const litRow = (page: Page) => page.getByRole("list", { name: "Plays" }).locator("[aria-current=true]");
@@ -387,7 +467,7 @@ test.describe("playing and collecting", () => {
 
   test("Plays plays a play and adds it to a new playlist", async ({ page, browserName }) => {
     await alfaWithAPlayableGame(page);
-    await page.getByRole("list", { name: "Plays" }).getByRole("button").first().click();
+    await playRow(page, 0).click();
     await expect.poll(() => playing(page), { timeout: 20_000 }).toBe(true);
     await page.keyboard.press("a"); // no target yet: the picker opens, and the play goes in once one is made
     await page.getByPlaceholder("Search or create…").fill(PLAYS_TARGET);
@@ -399,7 +479,7 @@ test.describe("playing and collecting", () => {
 
   test("↓ moves to the next play and G opens the labels", async ({ page }) => {
     await alfaWithAPlayableGame(page);
-    const rows = page.getByRole("list", { name: "Plays" }).getByRole("button");
+    const rows = page.getByRole("list", { name: "Plays" }).locator("[data-key]");
     await rows.first().click();
     await expect(litRow(page)).toHaveAttribute("data-key", (await rows.first().getAttribute("data-key"))!);
     const second = (await rows.nth(1).getAttribute("data-key"))!;
@@ -469,7 +549,7 @@ test.describe("collecting from a team", () => {
 
   test("another team's Plays starts without the last team's playlist", async ({ page }) => {
     await alfaWithAPlayableGame(page);
-    await page.getByRole("list", { name: "Plays" }).getByRole("button").first().click();
+    await playRow(page, 0).click();
     await page.keyboard.press("a");
     await page.getByPlaceholder("Search or create…").fill(PLAYS_TARGET);
     await page.getByRole("button", { name: `Create “${PLAYS_TARGET}”` }).click();
@@ -486,12 +566,154 @@ test.describe("collecting from a team", () => {
 
   test("a letter typed in a filter menu doesn't add or label the play", async ({ page }) => {
     await alfaWithAPlayableGame(page);
-    await page.getByRole("list", { name: "Plays" }).getByRole("button").first().click();
+    await playRow(page, 0).click();
     await page.getByRole("button", { name: "Player" }).click();
     await expect(page.getByRole("menu")).toBeVisible();
     await page.keyboard.press("a");
     await page.keyboard.press("g");
     await expect(page.getByPlaceholder("Search or create…")).toHaveCount(0);
     await page.keyboard.press("Escape");
+  });
+});
+
+test.describe("a play's row", () => {
+  const LABELS = [owned("row label one"), owned("row label two"), owned("row label three")];
+  test.afterEach(async ({ page }) => {
+    await deleteOwnedPlaylists(page, [PLAYS_TARGET]);
+    await deleteLabels(page, LABELS);
+  });
+
+  test("a play's + adds that play, and its row then says it's in the playlist", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    await chooseNewTarget(page, PLAYS_TARGET);
+    const row = playRow(page, 2);
+    const key = (await row.getAttribute("data-key"))!;
+    await row.hover();
+    await row.getByRole("button", { name: `Add to ${PLAYS_TARGET}`, exact: true }).click();
+    await expect(row.getByRole("button", { name: `In ${PLAYS_TARGET}. Remove`, exact: true })).toBeVisible();
+    await expect.poll(() => playlistClips(page, PLAYS_TARGET).then((c) => c?.map((x) => `${x.matchId}:${x.eventId}`)), { timeout: 15_000 }).toEqual([key]);
+  });
+
+  test("Label on a row outside the selection labels that row alone", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    await makeLabels(page, (await playRow(page, 0).getAttribute("data-key"))!, [LABELS[0]], []);
+    await reopenPlays(page);
+    await playRow(page, 0).click({ modifiers: ["ControlOrMeta"] });
+    await playRow(page, 1).click({ modifiers: ["ControlOrMeta"] });
+    const fourth = playRow(page, 3);
+    await fourth.hover();
+    await fourth.getByRole("button", { name: "Label this play" }).click();
+    await page.getByRole("listbox", { name: "Labels" }).getByRole("option", { name: LABELS[0], exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(fourth).toContainText(LABELS[0]);
+    await expect(playRow(page, 0)).not.toContainText(LABELS[0]);
+    await expect(playRow(page, 1)).not.toContainText(LABELS[0]);
+    await expect(playRow(page, 0)).toHaveAttribute("aria-pressed", "true");
+    await expect(playRow(page, 1)).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("the menu on a selected row adds the selection", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    await chooseNewTarget(page, PLAYS_TARGET);
+    await playRow(page, 0).click({ modifiers: ["ControlOrMeta"] });
+    await playRow(page, 1).click({ modifiers: ["ControlOrMeta"] });
+    await playRow(page, 1).click({ button: "right" });
+    await page.getByRole("menuitem", { name: `Add 2 plays to ${PLAYS_TARGET}` }).click();
+    await expect.poll(() => playlistClips(page, PLAYS_TARGET).then((c) => c?.length ?? 0), { timeout: 15_000 }).toBe(2);
+  });
+
+  test("a long name with three labels fits its row at the narrowest window", async ({ page, browserName }) => {
+    await page.setViewportSize({ width: 1024, height: 720 });
+    await alfaWithAPlayableGame(page);
+    // The drawn row with the longest text gets three labels.
+    let longest = { key: "", length: 0 };
+    for (let i = 0; i < 12; i++) {
+      const r = playRow(page, i);
+      const text = (await r.textContent()) ?? "";
+      if (text.length > longest.length) longest = { key: (await r.getAttribute("data-key"))!, length: text.length };
+    }
+    await makeLabels(page, longest.key, LABELS, [longest.key]);
+    await reopenPlays(page);
+    const row = page.locator(`[data-key="${longest.key}"]`);
+    await row.hover();
+    const box = (await row.boundingBox())!;
+    expect(Math.round(box.height)).toBe(32);
+    expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    // Every cell keeps to one line: the clock ("Q1 09:47") doesn't break over two.
+    const clock = (await row.locator(":scope > span").nth(1).boundingBox())!;
+    expect(clock.height).toBeLessThan(24);
+    const add = (await row.getByRole("button", { name: /^Add to / }).boundingBox())!;
+    expect(add.x + add.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+    await shot(page, `${browserName}-P-team-plays-narrow`);
+  });
+
+  test("hovering a row or adding its play never moves its words", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    await chooseNewTarget(page, PLAYS_TARGET);
+    await page.mouse.move(5, 5);
+    const row = playRow(page, 2);
+    const words = row.locator(":scope > span").nth(3);
+    const before = (await words.boundingBox())!;
+    await row.hover();
+    expect(await words.boundingBox()).toEqual(before);
+    await row.getByRole("button", { name: `Add to ${PLAYS_TARGET}`, exact: true }).click();
+    await expect(row.getByRole("button", { name: `In ${PLAYS_TARGET}. Remove`, exact: true })).toBeVisible();
+    expect(await words.boundingBox()).toEqual(before);
+  });
+
+  test("an overtime play's clock keeps within its cell", async ({ page }) => {
+    await alfaWithAPlayableGame(page, { period: 5 });
+    const row = playRow(page, 0);
+    const clock = row.locator(":scope > span").nth(1);
+    await expect(clock).toHaveText(/^OT1 \d\d:\d\d$/);
+    expect(await clock.evaluate((el) => el.scrollWidth <= el.clientWidth), "the clock fits its cell").toBe(true);
+    const event = (await row.locator(":scope > span").nth(2).boundingBox())!;
+    const box = (await clock.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(event.x);
+  });
+
+  test("a click on one play draws that row again and no other", async ({ page }) => {
+    await countRowDraws(page);
+    await alfaWithAPlayableGame(page);
+    const third = playRow(page, 2);
+    const key = (await third.getAttribute("data-key"))!;
+    await page.evaluate(() => (window as unknown as { drawn: Set<string> }).drawn.clear());
+    await third.click({ modifiers: ["ControlOrMeta"] });
+    await expect(third).toHaveAttribute("aria-pressed", "true");
+    expect(await page.evaluate(() => [...(window as unknown as { drawn: Set<string> }).drawn])).toEqual([key]);
+  });
+
+  test("a row's label picker field takes the pointer as any field does", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    const row = playRow(page, 0);
+    await row.hover();
+    await row.getByRole("button", { name: "Label this play" }).click();
+    const field = page.getByPlaceholder("Search or create…");
+    await field.fill("abc");
+    // A click at the field's start puts the caret there (the row's press guard must not reach into the picker).
+    await field.click({ position: { x: 1, y: 8 } });
+    await page.keyboard.type("x");
+    await expect(field).toHaveValue("xabc");
+    // A right-click in the field keeps the system's Cut, Copy and Paste: nothing cancels its context menu.
+    await page.evaluate(() => {
+      // Kept from the capture phase and read once the event is done, whoever stops it on the way.
+      window.addEventListener("contextmenu", (e) => ((window as unknown as { menuEvent: Event }).menuEvent = e), { capture: true, once: true });
+    });
+    await field.click({ button: "right" });
+    expect(await page.evaluate(() => (window as unknown as { menuEvent?: Event }).menuEvent?.defaultPrevented)).toBe(false);
+    await expect(page.getByRole("menuitem")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  });
+
+  test("the play on screen shows its actions without the pointer", async ({ page }) => {
+    await alfaWithAPlayableGame(page);
+    await playRow(page, 0).click();
+    await page.keyboard.press("ArrowDown");
+    await page.mouse.move(5, 5);
+    const current = playRow(page, 1);
+    await expect(current).toHaveAttribute("aria-current", "true");
+    await expect.poll(() => opacityOf(current.getByRole("button", { name: "Label this play" }))).toBe(1);
+    await expect.poll(() => opacityOf(current.getByRole("button", { name: /^Add to / }))).toBe(1);
+    await expect.poll(() => opacityOf(playRow(page, 4).getByRole("button", { name: /^Add to / }))).toBe(0);
   });
 });

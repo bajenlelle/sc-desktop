@@ -164,8 +164,8 @@ test("scrolling reaches the last play", async ({ page }) => {
       belowView: row.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom,
     };
   });
-  expect(fit.gridHeight, "every row is 45 px").toBe(count * 45);
-  expect(fit.scrollHeight, "the list scrolls as far as every row reaches").toBe(count * 45);
+  expect(fit.gridHeight, "every row is 32 px").toBe(count * 32);
+  expect(fit.scrollHeight, "the list scrolls as far as every row reaches").toBe(count * 32);
   expect(fit.afterLast, "the last row ends the list").toBe(0);
   expect(Math.abs(fit.belowView), "and meets the bottom of the view").toBeLessThan(0.5);
   expect((await readSheetRows(sheet)).size, "scrolling through reads every play").toBe(count);

@@ -1,15 +1,18 @@
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Label } from "@scoutable/shared/types/labels";
-import { eventLabel, playClock, playerName } from "@scoutable/shared/lib/events";
 import type { TeamGame, TeamPlayRow } from "@scoutable/shared/lib/team-video";
-import { LabelChip } from "@/components/labels/LabelChip";
+import type { CollectStatus } from "@/components/game/game-play-row";
+import { ActiveRowPill, PLAY_ROW_HEIGHT, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot, RowTip } from "@/components/plays/play-row";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { pressable } from "@/lib/pressable";
 import { useListWindow } from "@/lib/use-list-window";
 import { cn } from "@/lib/utils";
 import { playedDay } from "./dates";
 
-/** Every row of the list is this tall: the window draws only the rows near the view. */
-export const PLAY_ROW_HEIGHT = 32;
+export { PLAY_ROW_HEIGHT };
+
+const NO_LABELS: readonly Label[] = [];
 
 /** How a row was clicked: ⌘ (Ctrl) toggles it into the selection, Shift selects the range to it. */
 export interface RowClick {
@@ -50,46 +53,75 @@ const PlayRow = memo(function PlayRow({
   selected,
   dim,
   labels,
+  status,
+  targetName,
+  menuOpen,
+  labelPicker,
   onPlay,
+  onAdd,
+  onRemove,
+  onLabel,
 }: {
   row: Extract<TeamPlayRow, { kind: "play" }>;
   lit: boolean;
   selected: boolean;
   dim: boolean;
   labels: readonly Label[] | undefined;
+  status: CollectStatus;
+  targetName: string | null;
+  /** The list's menu is open on this play. */
+  menuOpen: boolean;
+  /** The label picker, on the one row being labelled; the plain tag button otherwise. */
+  labelPicker: ReactNode | null;
   onPlay: (key: string, how: RowClick) => void;
+  onAdd: (key: string, anchor: HTMLElement) => void;
+  onRemove: (key: string) => void;
+  onLabel: (key: string) => void;
 }) {
-  const e = row.event;
-  const who = e.player ? `${e.player.pno ? `#${e.player.pno} ` : ""}${playerName(e)}` : (e.eventTeam?.teamName ?? "");
   return (
-    <button
-      type="button"
+    <div
+      {...pressable(() => onPlay(row.key, { toggle: false, range: false }), { space: false })}
+      onClick={(ev) => onPlay(row.key, { toggle: ev.metaKey || ev.ctrlKey, range: ev.shiftKey })}
+      // The row's label picker is a portal, and its events bubble here through React: a press in its field places
+      // the caret, and a right-click there keeps the system's Cut, Copy and Paste rather than the list's menu.
+      onMouseDown={(ev) => {
+        if (ev.currentTarget.contains(ev.target as Node)) ev.preventDefault();
+      }}
+      onContextMenu={(ev) => {
+        if (!ev.currentTarget.contains(ev.target as Node)) ev.stopPropagation();
+      }}
       data-key={row.key}
       aria-current={lit || undefined}
       aria-pressed={selected}
-      onMouseDown={(ev) => ev.preventDefault()}
-      onClick={(ev) => onPlay(row.key, { toggle: ev.metaKey || ev.ctrlKey, range: ev.shiftKey })}
-      className={cn(
-        "relative flex w-full items-center gap-3 px-4 text-left text-sm outline-none transition-colors duration-100 hover:bg-fill-1 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-inset",
-        selected && "bg-row-selected hover:bg-row-selected",
-        lit && "font-medium",
-        dim && "opacity-55",
-      )}
-      style={{ height: PLAY_ROW_HEIGHT }}
+      className={playRowClass({ selected, menuOpen })}
     >
-      {/* The play on screen: a bar at the row's edge, apart from the selection's fill. */}
-      {lit && <span aria-hidden className="absolute inset-y-1.5 left-1 w-[3px] rounded-full bg-foreground" />}
-      <span className="w-16 shrink-0 text-muted-foreground nums">{playClock(e)}</span>
-      <span className="min-w-0 flex-1 truncate">{who}</span>
-      {labels && labels.length > 0 && (
-        <span className="flex shrink-0 gap-1">
-          {labels.slice(0, 2).map((l) => (
-            <LabelChip key={l.id} label={l} className="px-1.5 text-[10px]" />
-          ))}
-        </span>
-      )}
-      <span className="shrink-0 text-muted-foreground">{eventLabel(e)}</span>
-    </button>
+      {lit && !selected && <ActiveRowPill />}
+      <PlayRowCells
+        event={row.event}
+        clock="with-period"
+        now={lit}
+        strong={lit}
+        team={null}
+        labels={labels ?? NO_LABELS}
+        dim={dim}
+        actions={
+          <>
+            {labelPicker ?? (
+              <RowTip label="Label" keyHint="G">
+                <RowLabelButton visible={lit} onClick={() => onLabel(row.key)} />
+              </RowTip>
+            )}
+            <RowPlaylistSlot
+              status={status}
+              targetName={targetName}
+              visible={lit}
+              onAdd={(anchor) => onAdd(row.key, anchor)}
+              onRemove={() => onRemove(row.key)}
+            />
+          </>
+        }
+      />
+    </div>
   );
 });
 
@@ -105,15 +137,35 @@ export function TeamPlayList({
   selected,
   playable,
   labelsByKey,
+  statusOf,
+  targetName,
+  labelPickerFor,
+  renderLabelPicker,
+  rowMenu,
   onPlay,
+  onAdd,
+  onRemove,
+  onLabel,
 }: {
   rows: readonly ListRow[];
   current: string | null;
   selected: ReadonlySet<string>;
   playable: (gameId: string) => "ok" | "video" | "sync";
   labelsByKey: ReadonlyMap<string, Label[]>;
+  statusOf: (key: string) => CollectStatus;
+  targetName: string | null;
+  /** The play whose label picker is open, by key. */
+  labelPickerFor: string | null;
+  renderLabelPicker: (key: string) => ReactNode;
+  /** A play's menu (right-click), as `ContextMenuContent`; `anchor` is its row. */
+  rowMenu: (key: string, anchor: HTMLElement) => ReactNode;
   onPlay: (key: string, how: RowClick) => void;
+  onAdd: (key: string, anchor: HTMLElement) => void;
+  onRemove: (key: string) => void;
+  onLabel: (key: string) => void;
 }) {
+  /** The play the menu is open on, and its row: one menu for the whole list, as the game view's. */
+  const [menuFor, setMenuFor] = useState<{ key: string; anchor: HTMLElement } | null>(null);
   const { scrollRef, range, reveal } = useListWindow({ count: rows.length, rowHeight: PLAY_ROW_HEIGHT });
   const indexByKey = useMemo(() => new Map(rows.flatMap((r, i) => (r.kind === "play" ? [[r.key, i] as const] : []))), [rows]);
   // The play on screen stays in view as it changes (a run on into the next game, ↑ ↓).
@@ -137,7 +189,23 @@ export function TeamPlayList({
   return (
     <div className="relative min-h-0 flex-1">
       {pinned && <GameHeader game={pinned.game} plays={pinned.plays} pinned />}
-      <div ref={scrollRef} className="h-full overflow-y-auto" role="list" aria-label="Plays">
+      <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
+        <ContextMenuTrigger asChild>
+      <div
+        ref={scrollRef}
+        className="h-full overflow-y-auto"
+        role="list"
+        aria-label="Plays"
+        // A right-click on a play opens its menu; on a header, a note or empty space none opens.
+        onContextMenu={(e) => {
+          const el = (e.target as Element).closest<HTMLElement>("[data-key]");
+          if (!el || !el.dataset.key) {
+            e.preventDefault();
+            return;
+          }
+          setMenuFor({ key: el.dataset.key, anchor: el });
+        }}
+      >
         <div style={{ height: range.padTop }} />
         {rows.slice(range.start, range.end).map((r) =>
           r.kind === "game" ? (
@@ -159,13 +227,23 @@ export function TeamPlayList({
                 selected={selected.has(r.key)}
                 dim={playable(r.game.gameId) !== "ok"}
                 labels={labelsByKey.get(r.key)}
+                status={statusOf(r.key)}
+                targetName={targetName}
+                menuOpen={menuFor?.key === r.key}
+                labelPicker={labelPickerFor === r.key ? renderLabelPicker(r.key) : null}
                 onPlay={onPlay}
+                onAdd={onAdd}
+                onRemove={onRemove}
+                onLabel={onLabel}
               />
             </div>
           ),
         )}
         <div style={{ height: range.padBottom }} />
       </div>
+        </ContextMenuTrigger>
+        {menuFor && rowMenu(menuFor.key, menuFor.anchor)}
+      </ContextMenu>
     </div>
   );
 }

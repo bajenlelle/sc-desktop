@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { periodLabel } from "@scoutable/shared/lib/events";
+import { teamCode } from "@scoutable/shared/lib/play-row";
 import type { GameFlow, ScorePoint } from "@scoutable/shared/lib/game-flow";
 import type { GameRow } from "@scoutable/shared/lib/game-list";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
@@ -48,6 +49,7 @@ export function GamePlayList({
   activeKey,
   selected,
   playing,
+  showTeam,
   flow,
   teams,
   labels,
@@ -78,6 +80,8 @@ export function GamePlayList({
   selected: ReadonlySet<string>;
   /** Footage is on the stage: the current row is playing, not merely selected. */
   playing: boolean;
+  /** Both teams are listed: each row names its team. */
+  showTeam: boolean;
   flow: GameFlow;
   teams: { home: string; away: string };
   labels: readonly Label[];
@@ -137,9 +141,18 @@ export function GamePlayList({
     setMenuFor({ play, anchor: el });
   }
 
+  // The listed teams' codes, which size the rows' team column alike.
+  const teamCodes = useMemo(() => {
+    if (!showTeam) return null;
+    const codes = new Set<string>();
+    for (const row of rows) {
+      const code = row.kind === "play" ? teamCode(row.play.event) : null;
+      if (code) codes.add(code);
+    }
+    return [...codes];
+  }, [rows, showTeam]);
+
   const pointBy = useMemo(() => new Map<number, ScorePoint>(flow.points.map((p) => [p.eventId, p])), [flow]);
-  const leadChanges = useMemo(() => new Set(flow.leadChanges), [flow]);
-  const ties = useMemo(() => new Set(flow.ties), [flow]);
 
   // Each labelled play's labels as one array that stays the same between renders, so its row isn't drawn again.
   const labelsByKey = useMemo(() => {
@@ -312,9 +325,9 @@ export function GamePlayList({
                     active={active}
                     selected={selected.has(row.key)}
                     playing={active && playing}
+                    teamCodes={teamCodes}
                     score={point ? { home: point.home, away: point.away } : null}
                     scored={point?.team ?? null}
-                    note={leadChanges.has(e.eventId) ? "Lead change" : ties.has(e.eventId) && point ? `Tied at ${point.home}` : null}
                     labels={labelsByKey.get(row.key) ?? NO_LABELS}
                     collect={statusOf(row.key)}
                     targetName={targetName}

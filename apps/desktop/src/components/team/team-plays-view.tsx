@@ -12,6 +12,9 @@ import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } f
 import type { ClipBrowserLabelHandlers } from "@/components/editor/clip-browser-panel";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import type { Collect } from "@/components/game/use-collect";
+import { GamePlayMenuContent } from "@/components/game/game-play-menu";
+import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
+import { RowLabelButton } from "@/components/plays/play-row";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { getRecentLabelIds, rememberLabelUsed } from "@/lib/recent-labels";
 import { togglePlayerMuted } from "@/lib/player-sound";
@@ -165,16 +168,86 @@ export function TeamPlaysView({
   );
 
   // ---- Collecting and labels: on the selection when there is one, else on the play shown ----
-  const targets = useCallback((): Extract<TeamPlayRow, { kind: "play" }>[] => {
-    if (selected.size > 0) return playRows.filter((r) => selected.has(r.key));
-    return playback.current ? [playback.current] : [];
-  }, [selected, playRows, playback]);
+  // From a row (its Label, +, or menu), Finder's rule: the selection if the row is in it, else that row alone.
+  // From the keys and the stage: the selection, else the play on screen.
+  const targetsFor = useCallback(
+    (key?: string): Extract<TeamPlayRow, { kind: "play" }>[] => {
+      if (key !== undefined && !selected.has(key)) {
+        const row = playRows.find((r) => r.key === key);
+        return row ? [row] : [];
+      }
+      if (selected.size > 0) return playRows.filter((r) => selected.has(r.key));
+      return playback.current ? [playback.current] : [];
+    },
+    [selected, playRows, playback],
+  );
+  const targets = useCallback(() => targetsFor(), [targetsFor]);
   const timed = (rs: Extract<TeamPlayRow, { kind: "play" }>[]): TimedPlay[] =>
     rs.map((r) => ({ key: r.key, event: r.event, time: 0, start: 0, reach: "in" }));
   const add = (anchorEl: HTMLElement | null) => {
     const rs = targets();
     if (rs.length === 0) return;
     collect.add(timed(rs), selected.size > 0 ? "selection" : "now_bar", null, anchorEl, () => setSelected(new Set()));
+  };
+  // A row's own + and ✓, and its menu.
+  const addRow = (key: string, anchorEl: HTMLElement) => {
+    const inSelection = selected.has(key);
+    collect.add(timed(targetsFor(key)), inSelection ? "selection" : "row", null, anchorEl, () => {
+      if (inSelection) setSelected(new Set());
+    });
+  };
+  const removeRow = (key: string) => {
+    const row = playRows.find((r) => r.key === key);
+    if (row) collect.removeAdded(timed([row])[0]);
+  };
+  // What the rows are handed: made once, calling the latest handlers, so a row's memo holds and a click draws only
+  // the rows it changes.
+  const latest = useRef({ onRowClick, addRow, removeRow });
+  latest.current = { onRowClick, addRow, removeRow };
+  const onPlay = useCallback((key: string, how: RowClick) => latest.current.onRowClick(key, how), []);
+  const onAdd = useCallback((key: string, anchorEl: HTMLElement) => latest.current.addRow(key, anchorEl), []);
+  const onRemove = useCallback((key: string) => latest.current.removeRow(key), []);
+  const rowMenu = (key: string, anchorEl: HTMLElement) => (
+    <GamePlayMenuContent
+      plays={timed(targetsFor(key))}
+      collect={collect}
+      moment={null}
+      anchor={anchorEl}
+      onDone={() => {
+        if (selected.has(key)) setSelected(new Set());
+      }}
+    />
+  );
+  // A row's label picker: one row at a time, as the game view's.
+  const [labelFor, setLabelFor] = useState<string | null>(null);
+  const renderLabelPicker = (key: string) => {
+    const rs = targetsFor(key);
+    const sets = rs.map((r) => labelsOf(r.key) ?? new Set<string>());
+    const all = new Set(labels.filter((l) => sets.length > 0 && sets.every((x) => x.has(l.id))).map((l) => l.id));
+    const some = new Set(labels.filter((l) => !all.has(l.id) && sets.some((x) => x.has(l.id))).map((l) => l.id));
+    return (
+      <LabelPickerPopover
+        open
+        onOpenChange={(open) => {
+          if (!open) setLabelFor(null);
+        }}
+        trigger={<RowLabelButton visible />}
+        labels={[...labels]}
+        assignedAllIds={all}
+        assignedSomeIds={some}
+        onToggle={(labelId, state) => {
+          rememberLabelUsed(labelId);
+          if (rs.length === 1) return labelHandlers.onToggleClip(rs[0].game.gameId, rs[0].event.eventId, labelId, state);
+          return labelHandlers.onBulkToggle(rs.map((r) => ({ matchId: r.game.gameId, eventId: r.event.eventId })), labelId, state);
+        }}
+        onCreate={labelHandlers.onCreate}
+        onRename={labelHandlers.onRename}
+        onRecolor={labelHandlers.onRecolor}
+        onDelete={labelHandlers.onDelete}
+        onSetKey={labelHandlers.onSetKey}
+        onSeedDefaults={labelHandlers.onSeedDefaults}
+      />
+    );
   };
   const [labelOpen, setLabelOpen] = useState(false);
   const toggleLabel = (labelId: string) => {
@@ -354,7 +427,15 @@ export function TeamPlaysView({
               selected={selected}
               playable={plays.playable}
               labelsByKey={labelsByKey}
-              onPlay={onRowClick}
+              statusOf={collect.statusOf}
+              targetName={collect.target?.name ?? null}
+              labelPickerFor={labelFor}
+              renderLabelPicker={renderLabelPicker}
+              rowMenu={rowMenu}
+              onPlay={onPlay}
+              onAdd={onAdd}
+              onRemove={onRemove}
+              onLabel={setLabelFor}
             />
           ) : plays.status === "reading" ? (
             <div className="space-y-2 p-4" aria-hidden>

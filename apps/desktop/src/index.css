@@ -129,6 +129,15 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/* A play row's ✓ just after an add: it arrives in the accent and settles to grey, the state it keeps. */
+@utility added-settle {
+  animation: added-settle 1.6s ease-out both;
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+}
+@keyframes added-settle {
+  from, 60% { color: var(--primary); }
+  to { color: var(--muted-foreground); }
+}
 @keyframes progress-indeterminate {
   from { transform: translateX(-100%) scaleX(0.3); }
   to { transform: translateX(100%) scaleX(0.3); }

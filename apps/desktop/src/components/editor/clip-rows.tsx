@@ -1,12 +1,9 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
-import { BarChart3, Link2, MessageSquare, Play, Tag, Trash2, Type, X } from "lucide-react";
+import { BarChart3, Link2, MessageSquare, Trash2, Type, X } from "lucide-react";
 import type { Label, LabelColor } from "@scoutable/shared/types/labels";
-import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
 import type { GroupRunInfo } from "@scoutable/shared/lib/clip-groups";
 import { cardContent, opponentLabel } from "@scoutable/shared/lib/stats-card";
 import type { PlayByPlayEvent, PlaylistTextCard } from "@/types/match";
-import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import {
   ContextMenu,
@@ -18,8 +15,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { springs } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { ActiveRowPill, PlayRowCells, playRowClass, REVEAL, RowLabelButton } from "@/components/plays/play-row";
 
 export interface LabelRowControls {
   labels: Label[];
@@ -56,20 +53,7 @@ export interface RowDragProps {
   onPointerDown: (e: React.PointerEvent) => void;
 }
 
-/**
- * The one highlight that follows the playing item: a single element that
- * springs from row to row rather than a class that appears and vanishes.
- */
-export function ActiveRowPill() {
-  return (
-    <motion.div
-      layoutId="active-row"
-      transition={springs.standard}
-      aria-hidden
-      className="pointer-events-none absolute inset-y-0.5 inset-x-1 rounded-md bg-fill-2"
-    />
-  );
-}
+export { ActiveRowPill };
 
 /**
  * Where the keys act while the list is driven from the keyboard: an inset
@@ -87,8 +71,6 @@ function FocusRing({ onSelection }: { onSelection: boolean }) {
   );
 }
 
-/** Hover-only row buttons also show for the focused row and for keyboard focus. */
-const REVEAL = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-data-[focused]:opacity-100";
 
 function GroupRail({ pos }: { pos: GroupRunInfo["pos"] }) {
   return (
@@ -140,7 +122,7 @@ function RowLead({
   onSelect: (e: React.MouseEvent) => void;
 }) {
   return (
-    <div className="relative z-10 flex w-7 shrink-0 items-center justify-center" onClick={(e) => e.stopPropagation()}>
+    <div className="relative z-10 flex w-7 shrink-0 items-center justify-center self-stretch" onClick={(e) => e.stopPropagation()}>
       {groupPos && <GroupRail pos={groupPos} />}
       <input
         type="checkbox"
@@ -237,11 +219,7 @@ export function ClipRow({
   onGroupSelected?: () => void;
   /** Sits under a player card: indented, with the rail. */
 }) {
-  const colors = eventColors(event);
   const assigned = labelControls ? labelControls.labels.filter((l) => labelControls.assignedIds.has(l.id)) : [];
-  const visibleLabels = assigned.slice(0, 2);
-  const overflow = assigned.slice(2);
-  const secondary = "text-muted-foreground";
 
   return (
     <ContextMenu>
@@ -253,7 +231,7 @@ export function ClipRow({
           data-row-index={index}
           data-focused={focused || undefined}
           aria-selected={isSelected}
-          className={rowClasses({ isSelected })}
+          className={cn(playRowClass({ selected: isSelected }), "pl-0")}
           onClick={onClick}
           onMouseDown={(e) => {
             if (e.shiftKey) e.preventDefault();
@@ -262,102 +240,76 @@ export function ClipRow({
         >
           {isActive && !isSelected && <ActiveRowPill />}
           {focused && <FocusRing onSelection={isSelected} />}
-          <div className={cn("relative z-10 w-[3px] shrink-0 self-stretch", colors.strip)} aria-hidden />
           <RowLead groupPos={groupPos} isSelected={isSelected} showCheckbox={anySelected} onSelect={onSelect} />
-
-          <div role="gridcell" className="relative z-10 flex min-w-0 flex-1 flex-col justify-center py-1.5">
-            <div className="flex min-w-0 items-center gap-1.5">
-              {(groupPos === "first" || groupPos === "only") && <GroupPill size={groupSize} onUngroup={onUngroup} />}
-              <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium", colors.badge)}>
-                {eventLabel(event)}
-              </span>
-              <span className="truncate text-sm font-medium">{playerName(event)}</span>
-              {visibleLabels.map((l) => (
-                <LabelChip key={l.id} label={l} className="shrink-0 whitespace-nowrap" />
-              ))}
-              {overflow.length > 0 && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className={cn("text-xs", secondary)}>+{overflow.length}</span>
-                  </TooltipTrigger>
-                  <TooltipContent>{overflow.map((l) => l.name).join(", ")}</TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <div className={cn("flex min-w-0 items-center gap-1 text-subheadline nums", secondary)}>
-              <span className="shrink-0">Q{event.period}</span>
-              <span aria-hidden>·</span>
-              <span className="shrink-0">{formatGameClock(event.gameClockTime)}</span>
-              {event.eventTeam?.teamName && (
+          {/* The editor is a grid: the play's cells are its row's one cell, as a text card's are. */}
+          <div role="gridcell" className="relative z-10 flex h-full min-w-0 flex-1 items-center gap-1.5">
+            <PlayRowCells
+              event={event}
+              clock="with-period"
+              now={isActive}
+              strong={isActive}
+              team={null}
+              labels={assigned}
+              context={isMultiMatch && matchTitle ? matchTitle : undefined}
+              pill={groupPos === "first" || groupPos === "only" ? <GroupPill size={groupSize} onUngroup={onUngroup} /> : undefined}
+              marks={
+                preOffset !== 0 || postOffset !== 0 || note ? (
+                  <>
+                    {(preOffset !== 0 || postOffset !== 0) && (
+                      <span
+                        className="text-caption text-orange-400"
+                        title={`Pre ${preOffset >= 0 ? "+" : ""}${preOffset}s / Post ${postOffset >= 0 ? "+" : ""}${postOffset}s`}
+                      >
+                        ±
+                      </span>
+                    )}
+                    {note && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <MessageSquare className={cn("size-3 shrink-0", "text-primary/60")} />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-56 whitespace-pre-wrap">{note}</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </>
+                ) : undefined
+              }
+              actions={
                 <>
-                  <span aria-hidden>·</span>
-                  <span className="truncate">{event.eventTeam.teamName}</span>
-                </>
-              )}
-              {isMultiMatch && matchTitle && (
-                <>
-                  <span aria-hidden>·</span>
-                  <span className="truncate">{matchTitle}</span>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="relative z-10 flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-            {isActive && <Play className="mr-1 size-3.5 fill-current text-primary" />}
-            {(preOffset !== 0 || postOffset !== 0) && (
-              <span
-                className="text-caption text-orange-400"
-                title={`Pre ${preOffset >= 0 ? "+" : ""}${preOffset}s / Post ${postOffset >= 0 ? "+" : ""}${postOffset}s`}
-              >
-                ±
-              </span>
-            )}
-            {note && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <MessageSquare className={cn("size-3 shrink-0", "text-primary/60")} />
-                </TooltipTrigger>
-                <TooltipContent className="max-w-56 whitespace-pre-wrap">{note}</TooltipContent>
-              </Tooltip>
-            )}
-            {labelControls && (
-              <LabelPickerPopover
-                trigger={
+                  {labelControls && (
+                    <LabelPickerPopover
+                      trigger={
+                        <RowLabelButton
+                          title={labelControls.selection ? `Labels for the ${labelControls.selection.count} selected clips` : "Labels"}
+                          aria-label={labelControls.selection ? `Labels for the ${labelControls.selection.count} selected clips` : "Labels"}
+                        />
+                      }
+                      labels={labelControls.labels}
+                      assignedAllIds={labelControls.selection?.allIds ?? labelControls.assignedIds}
+                      assignedSomeIds={labelControls.selection?.someIds}
+                      onToggle={labelControls.selection?.onToggle ?? labelControls.onToggle}
+                      onCreate={labelControls.onCreate}
+                      onRename={labelControls.onRename}
+                      onRecolor={labelControls.onRecolor}
+                      onDelete={labelControls.onDelete}
+                      onSetKey={labelControls.onSetKey}
+                      onSeedDefaults={labelControls.onSeedDefaults}
+                    />
+                  )}
                   <button
                     type="button"
                     className={cn(
-                      "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-fill-2 hover:text-foreground active:scale-95 data-[state=open]:opacity-100",
+                      "flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[opacity,background-color] duration-100 hover:bg-destructive/10 hover:text-destructive active:scale-95",
                       REVEAL,
                     )}
-                    title={labelControls.selection ? `Labels for the ${labelControls.selection.count} selected clips` : "Labels"}
+                    onClick={onRemove}
+                    title={removeCount > 1 ? `Remove the ${removeCount} selected items` : "Remove from playlist"}
                   >
-                    <Tag className="size-3.5" />
+                    <Trash2 className="size-3.5" />
                   </button>
-                }
-                labels={labelControls.labels}
-                assignedAllIds={labelControls.selection?.allIds ?? labelControls.assignedIds}
-                assignedSomeIds={labelControls.selection?.someIds}
-                onToggle={labelControls.selection?.onToggle ?? labelControls.onToggle}
-                onCreate={labelControls.onCreate}
-                onRename={labelControls.onRename}
-                onRecolor={labelControls.onRecolor}
-                onDelete={labelControls.onDelete}
-                onSetKey={labelControls.onSetKey}
-                onSeedDefaults={labelControls.onSeedDefaults}
-              />
-            )}
-            <button
-              type="button"
-              className={cn(
-                "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-destructive/10 hover:text-destructive active:scale-95",
-                REVEAL,
-              )}
-              onClick={onRemove}
-              title={removeCount > 1 ? `Remove the ${removeCount} selected items` : "Remove from playlist"}
-            >
-              <Trash2 className="size-3.5" />
-            </button>
+                </>
+              }
+            />
           </div>
         </div>
       </ContextMenuTrigger>

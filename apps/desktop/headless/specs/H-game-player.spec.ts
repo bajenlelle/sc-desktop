@@ -7,7 +7,7 @@
  * that game's marks once, as any visit does).
  */
 import type { Locator, Page } from "@playwright/test";
-import { expect, openLibraryGame, openSampleGame, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
+import { expect, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
 
 const SIZES = [
   { width: 1440, height: 900 },
@@ -460,4 +460,57 @@ test("the Now bar keeps room for the player's name in the narrowest column", asy
   await page.mouse.up();
   await page.waitForTimeout(300);
   expect((await boxOf(name, "the player's name")).width, "the name is not cut down to its number sign").toBeGreaterThanOrEqual(64);
+});
+
+test("with both teams listed every play row says its team, and with one team none do", async ({ page }) => {
+  await openSampleGame(page);
+  const rows = playRows(page);
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  for (let i = 0; i < 6; i++) {
+    await expect(rows.nth(i).locator(":scope > span").nth(2), `row ${i} names its team`).toHaveText(/^[A-ZÅÄÖ0-9]{2,4}$/);
+  }
+  await page.getByRole("radiogroup", { name: "Team" }).getByRole("radio").nth(1).click();
+  await expect(rows.first().locator(":scope > span").nth(2)).not.toHaveText(/^[A-ZÅÄÖ0-9]{2,4}$/);
+});
+
+test("a team's code shows whole, and every row's event starts at the same place", async ({ page }) => {
+  await patchGameReads(page, { teamCodes: ["MMMM", "WWW"] });
+  await openSampleGame(page);
+  const rows = playRows(page);
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  const starts = new Set<number>();
+  for (let i = 0; i < 8; i++) {
+    const cells = rows.nth(i).locator(":scope > span");
+    const code = cells.nth(2);
+    await expect(code, `row ${i} names its team`).toHaveText(/^(MMMM|WWW)$/);
+    expect(await code.evaluate((el) => [el, ...el.querySelectorAll("*")].every((n) => n.scrollWidth <= n.clientWidth)), `row ${i}'s code shows whole`).toBe(true);
+    starts.add(Math.round((await cells.nth(3).boundingBox())!.x));
+  }
+  expect(starts.size, "every row's event starts where the others' do").toBe(1);
+});
+
+test("a play's details are under the video, and its row is one line", async ({ page }) => {
+  await openSampleGame(page);
+  const rows = playRows(page);
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  for (let i = 0; i < 6; i++) expect(Math.round((await rows.nth(i).boundingBox())!.height), `row ${i} is one line`).toBe(32);
+  // The sample game's third play tied it at 2; its row says nothing of that, the Now bar does.
+  let found = false;
+  for (let i = 0; i < 8 && !found; i++) {
+    await rows.nth(i).click();
+    found = /Tied at \d+/.test((await page.locator('[data-now="where"]').textContent()) ?? "");
+    if (found) await expect(rows.nth(i)).not.toContainText("Tied at");
+  }
+  expect(found, "one of the first plays tied the game, and the Now bar says so").toBe(true);
+});
+
+test("at the usual window a play row gives the player's name room", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openSampleGame(page);
+  const row = playRows(page).first();
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  // A usual name ("#5 Oliver Gehrke", the sample game's first play) shows whole at the list's default width.
+  const name = row.locator(":scope > span").nth(4).locator(":scope > span").first();
+  await expect(name).toHaveText(/^#\d+ \S+ \S+/);
+  expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth), "the name isn't cut short").toBe(true);
 });

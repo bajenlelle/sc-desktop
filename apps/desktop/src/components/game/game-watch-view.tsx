@@ -45,6 +45,7 @@ import { GameFilterBar, type GamePerson } from "./game-filters";
 import { GameLabelKeys } from "./game-label-keys";
 import { GameNowBar, betweenPlays } from "./game-now-bar";
 import { GamePlayList } from "./game-play-list";
+import { playDetails } from "./game-play-row";
 import { GamePlayMenuContent } from "./game-play-menu";
 import { GAME_TIMELINE_HEIGHT, GameTimelineStrip, type GameTimelineHandle, type StripLandmark } from "./game-timeline-strip";
 import { useCollect, type CollectScope } from "./use-collect";
@@ -1084,6 +1085,7 @@ export function GameWatchView({
                   moment={playback.moment}
                   score={currentScore}
                   breakScore={breakScore}
+                  details={current ? playDetails(current, flow) : []}
                   labels={current ? [...(labels.assignments.get(current.key) ?? [])].flatMap((id) => labels.labels.filter((l) => l.id === id)) : []}
                   collect={current ? collect.statusOf(current.key) : "none"}
                   targetName={collect.target?.name ?? null}
@@ -1174,6 +1176,7 @@ export function GameWatchView({
               activeKey={playback.activeKey}
               selected={selected}
               playing={footage}
+              showTeam={filters.team === 0}
               flow={flow}
               teams={teams}
               labels={labels.labels}

@@ -24,6 +24,7 @@ import {
   expect,
   gameTrigger,
   goViaSidebar,
+  newPlaylistWithClips,
   openAddClips,
   pickOnlyGame,
   playlistClips,
@@ -210,4 +211,16 @@ test("coming back to Playlists within a session, Add clips lists its plays", asy
   sheet = addClipsSheet(page);
   await expect(sheet).toBeVisible();
   await waitForPlays(sheet);
+});
+
+test("a play already in the playlist shows ✓ at full contrast and can't be ticked", async ({ page }) => {
+  const [key] = await newPlaylistWithClips(page, PLAYLIST, { count: 1 });
+  await page.getByRole("button", { name: "Add clips", exact: true }).first().click();
+  const sheet = addClipsSheet(page);
+  await expect(sheet.getByRole("grid", { name: "Events" }).getByRole("row").first()).toBeVisible({ timeout: 30_000 });
+  const row = await sheetRow(sheet, key);
+  await expect(row.getByLabel("Already in this playlist")).toBeVisible();
+  await expect(row.getByRole("checkbox", { name: "Select" })).toHaveCount(0);
+  expect(await row.evaluate((el) => Number(getComputedStyle(el).opacity))).toBe(1);
+  expect(Math.round((await row.boundingBox())!.height)).toBe(32);
 });
