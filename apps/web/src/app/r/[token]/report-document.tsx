@@ -4,9 +4,11 @@
  * Save as PDF, the printed QR, the footer link) are the client components next
  * to it.
  *
- * One scrolling page: the Team section when there is one, then a section per
- * player in the report's order (lib/scouting-report.ts built them from the
- * coach's draft), with a chip for each in the jump bar. It follows the
+ * One scrolling page: the summary, then the coach's sections in their order
+ * (lib/scouting-report.ts built them from the draft): Keys, the players to
+ * stop, Their actions, How they play, Their games and sections the coach
+ * named; a report from before sections has its Team section and players.
+ * A chip for each in the jump bar. It follows the
  * viewer's system theme on screen and prints light. Every report ends with the
  * "Made with Scoutable" mark, on screen and in the saved PDF.
  */
@@ -14,7 +16,18 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { playerPhotoSources } from "@scoutable/shared/lib/player-photos";
 import { formatCardDate } from "@scoutable/shared/lib/stats-card";
-import { JUMP_BAR_MIN_SECTIONS, reportJumpItems, type ReportBlock, type ReportClip, type ReportSection, type ReportStats, type ScoutingReport } from "@scoutable/shared/lib/scouting-report";
+import {
+  JUMP_BAR_MIN_SECTIONS,
+  reportJumpItems,
+  reportSectionTitle,
+  type ReportBlock,
+  type ReportClip,
+  type ReportGamesBlock,
+  type ReportProfileBlock,
+  type ReportSection,
+  type ReportStats,
+  type ScoutingReport,
+} from "@scoutable/shared/lib/scouting-report";
 import { ClipTile } from "./clip-tile";
 import { FooterMark, JumpBar, PrintQr, SaveAsPdf, type JumpItem } from "./report-chrome";
 
@@ -72,6 +85,87 @@ function StatsRow({ stats }: { stats: ReportStats }) {
   );
 }
 
+/** The coach's keys: few, numbered, large enough to read on a phone at the gym. */
+function KeysList({ items }: { items: string[] }) {
+  return (
+    <ol className="report-keys flex flex-col gap-3">
+      {items.map((item, i) => (
+        <li key={i} className="flex items-baseline gap-3">
+          <span aria-hidden className="w-5 shrink-0 text-right text-title-3 font-semibold text-muted-foreground nums">
+            {i + 1}
+          </span>
+          <span className="text-title-3 text-foreground [text-wrap:pretty]">{item}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+const place = (p: string | null) => (p ? <span className="text-footnote text-muted-foreground"> · {p}</span> : null);
+
+/** How they play: their numbers with the ball and what they allow, a row per number. */
+function ProfileTable({ block }: { block: ReportProfileBlock }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {block.context && <p className="text-footnote text-muted-foreground">{block.context}</p>}
+      <table className="w-full border-collapse text-callout nums">
+        <thead>
+          <tr className="text-left text-footnote text-muted-foreground">
+            <th scope="col" className="pb-1.5 font-normal">
+              <span className="sr-only">Number</span>
+            </th>
+            <th scope="col" className="pb-1.5 text-right font-normal">
+              With the ball
+            </th>
+            <th scope="col" className="pb-1.5 text-right font-normal">
+              They allow
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {block.rows.map((r) => (
+            <tr key={r.label} className="border-t border-separator">
+              <th scope="row" className="py-2 pr-3 text-left font-normal text-foreground">
+                {r.label}
+              </th>
+              <td className="py-2 text-right text-foreground">
+                {r.own}
+                {place(r.ownPlace)}
+              </td>
+              <td className="py-2 pl-3 text-right text-foreground">
+                {r.allowed}
+                {place(r.allowedPlace)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {block.lines.map((l) => (
+        <p key={l} className="text-footnote text-muted-foreground">
+          {l}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** Their games: a row each, the result or "to play". */
+function GamesList({ block }: { block: ReportGamesBlock }) {
+  return (
+    <ul className="flex flex-col">
+      {block.rows.map((g, i) => (
+        <li key={i} className="flex items-baseline gap-3 border-t border-separator py-2 text-callout first:border-t-0 nums">
+          <span className="w-24 shrink-0 text-muted-foreground">{g.date}</span>
+          <span className="min-w-0 flex-1 truncate text-foreground">
+            {g.home ? "vs" : "at"} {g.opponent}
+          </span>
+          <span className={cn("shrink-0", g.result ? "text-foreground" : "text-muted-foreground")}>{g.result ?? "To play"}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Blocks({ blocks, mediaBase }: { blocks: ReportBlock[]; mediaBase: string | null }) {
   // Consecutive clips sit in one grid; a paragraph or a stats row breaks the run.
   const out: ReactNode[] = [];
@@ -102,6 +196,12 @@ function Blocks({ blocks, mediaBase }: { blocks: ReportBlock[]; mediaBase: strin
           {b.text}
         </p>,
       );
+    } else if (b.kind === "keys") {
+      out.push(<KeysList key={`k-${i}`} items={b.items} />);
+    } else if (b.kind === "profile") {
+      out.push(<ProfileTable key={`p-${i}`} block={b} />);
+    } else if (b.kind === "games") {
+      out.push(<GamesList key={`g-${i}`} block={b} />);
     } else {
       out.push(
         <div key={`s-${i}`} className="flex flex-col gap-1.5">
@@ -156,7 +256,7 @@ function Section({ section, report, mediaBase, bare }: { section: ReportSection;
           )}
           <div className="min-w-0">
             <h2 id={`${section.id}-h`} aria-label={p?.number ? `${p.name}, number ${p.number}` : undefined} className="text-title-2 text-foreground">
-              {p ? p.name : "Team"}
+              {p ? p.name : reportSectionTitle(section.kind, section.title)}
             </h2>
             {p?.teamName && <p className="text-subheadline text-muted-foreground">{p.teamName}</p>}
           </div>
@@ -193,11 +293,12 @@ export function ReportDocument({ report, mediaBase }: { report: ScoutingReport; 
         </div>
         <h1 className="text-large-title font-semibold text-foreground [text-wrap:balance]">{header.title}</h1>
         <p className="text-callout text-muted-foreground nums">{meta}</p>
+        {header.intro && <p className="report-note mt-2 text-body text-foreground">{header.intro}</p>}
       </header>
 
       {showJump && <JumpBar items={jump} />}
 
-      {sections.length === 0 && <p className="text-body text-muted-foreground">This report has no players or clips yet.</p>}
+      {sections.length === 0 && <p className="text-body text-muted-foreground">This report is empty so far.</p>}
       {sections.map((s, i) => (
         // With the jump bar, its own rule already separates the header from the first section.
         <Section key={s.id} section={s} report={report} mediaBase={mediaBase} bare={i === 0 && showJump} />

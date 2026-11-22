@@ -81,11 +81,14 @@ export type AnalyticsEvent =
   | "clip_drawing_set" // shapes, spotlights, arrows, texts, hold_seconds, drawings_on_clip, removed: the editor saved a drawing on a clip
   | "clip_slow_motion_set" // rate, length_seconds, sections_on_clip, removed: the editor saved a slow-motion section
   // Scouting report (lib/scouting-report.ts, lib/report-draft.ts). origin: "web" from the web.
+  | "scouting_report_started" // from (team_page | next_game | reports), opponent (league | typed), players, keys, game (bool)
   | "scouting_report_opened" // players, clips, has_draft, shared
   | "scouting_report_players_picked" // players (in the report after), added, removed, with_clips, from_leaders, sorted_by
   | "scouting_report_clip_moved" // to (player | team | out | in: put back), clips, via (drag | keys | menu), reorder (stayed in its section)
   | "scouting_report_clip_played" // via (tile | panel), source (local | shared | none)
   | "scouting_report_section_removed" // had_note, clips, undone
+  | "scouting_report_section_hidden" // section (keys | players | actions | profile | games | custom), hidden
+  | "scouting_report_section_added" // section
   | "scouting_report_previewed" // players, clips (the share sheet opened)
   | "scouting_report_generated" // players, clips, shipped (clips cut for it), posters, regenerated, seconds, plan (the space's tier), limited (free tier: one live report)
   | "scouting_report_failed" // stage (ship | posters | publish), error

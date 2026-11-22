@@ -7,8 +7,16 @@ import {
   REPORT_NOTE_STORED_MAX,
   LEFT_OUT,
   TEAM_SECTION,
+  addBlock,
   addSections,
+  blocksOf,
   clearPlacement,
+  keyLines,
+  moveBlock,
+  removeBlock,
+  setBlockHidden,
+  setBlockText,
+  setBlockTitle,
   defaultOpponent,
   deriveReportLayout,
   draftBytes,
@@ -103,7 +111,7 @@ function two(): ReportDraft {
 
 describe("an empty draft", () => {
   it("has no players, no placements and no header of its own", () => {
-    expect(emptyDraft()).toEqual({ v: 1, title: null, opponent: null, intro: "", sections: [], placements: {}, order: [] });
+    expect(emptyDraft()).toEqual({ v: 1, title: null, opponent: null, intro: "", sections: [], placements: {}, order: [], team: null, game: null, blocks: null });
   });
 });
 
@@ -506,5 +514,103 @@ describe("undoing the report's structure", () => {
     const undone = takeUndo(h)!;
     expect(undone.edit.before).toBe(d);
     expect(takeRedo(undone.history)!.edit.after).toBe(moved);
+  });
+});
+
+describe("the report's sections (blocks)", () => {
+  const items: PlaylistItem[] = [clip("m1", 1), clip("m1", 3), clip("m1", 4)];
+  const layoutIds = (d: ReportDraft) => deriveReportLayout(d, items, events, { keepTeam: true }).sections.map((s) => s.id);
+
+  it("reads a draft from before them as Their actions, then the players", () => {
+    expect(blocksOf(two()).map((b) => [b.id, b.kind])).toEqual([
+      ["team", "actions"],
+      ["players", "players"],
+    ]);
+    expect(layoutIds(two())).toEqual(["team", "s1", "s2"]);
+  });
+
+  it("adds sections, one of each kind but as many of your own as allowed, and orders the layout by them", () => {
+    let d = addBlock(two(), "keys", { at: 0 });
+    expect(addBlock(d, "keys")).toBe(d);
+    d = addBlock(d, "custom", { title: "Out of bounds", newId: ids("x") });
+    d = addBlock(d, "profile");
+    expect(blocksOf(d).map((b) => b.id)).toEqual(["keys", "team", "players", "c-x1", "profile"]);
+    expect(layoutIds(d)).toEqual(["keys", "team", "s1", "s2", "c-x1", "profile"]);
+    const layout = deriveReportLayout(d, items, events, { keepTeam: true });
+    expect(layout.sections.find((s) => s.id === "profile")).toMatchObject({ accepts: false, clips: [] });
+    expect(layout.sections.find((s) => s.id === "c-x1")).toMatchObject({ accepts: true, block: { title: "Out of bounds" } });
+  });
+
+  it("moves clips into keys and your own sections, never into the season's", () => {
+    let d = addBlock(addBlock(two(), "keys", { at: 0 }), "games");
+    let layout = deriveReportLayout(d, items, events, { keepTeam: true });
+    d = moveClips(d, layout, ["m1:4"], "keys", null);
+    layout = deriveReportLayout(d, items, events, { keepTeam: true });
+    expect(layout.sections.find((s) => s.id === "keys")!.clips.map(itemKey)).toEqual(["m1:4"]);
+    expect(moveClips(d, layout, ["m1:1"], "games", null)).toBe(d);
+    // ⌥↓ from the last clip in the report skips the season's sections.
+    expect(nudgeClips(layout, ["m1:3"], 1)).toBeNull();
+  });
+
+  it("hides a section from players and shows it again; hiding the players hides every player", () => {
+    const d = setBlockHidden(two(), "players", true);
+    const layout = deriveReportLayout(d, items, events, { keepTeam: true });
+    expect(layout.sections.filter((s) => s.section).every((s) => s.hidden)).toBe(true);
+    expect(layout.sections.find((s) => s.id === "team")?.hidden).toBe(false);
+    expect(blocksOf(setBlockHidden(d, "players", false)).find((b) => b.id === "players")?.hidden).toBe(false);
+  });
+
+  it("takes out a section with its words, its clips going back to their players; players and Their actions stay", () => {
+    let d = addBlock(two(), "custom", { title: "Sets", newId: ids("x") });
+    d = moveClips(d, deriveReportLayout(d, items, events, { keepTeam: true }), ["m1:1"], "c-x1", null);
+    d = removeBlock(d, "c-x1");
+    expect(blocksOf(d).map((b) => b.id)).toEqual(["team", "players"]);
+    expect(d.placements["m1:1"]).toBeUndefined();
+    expect(deriveReportLayout(d, items, events).sections.find((s) => s.id === "s1")!.clips.map(itemKey)).toEqual(["m1:1"]);
+    expect(removeBlock(d, "players")).toBe(d);
+    expect(removeBlock(d, "team")).toBe(d);
+  });
+
+  it("moves a section, and keeps words only where a section has them", () => {
+    let d = addBlock(two(), "keys");
+    d = moveBlock(d, "keys", 0);
+    expect(blocksOf(d)[0].id).toBe("keys");
+    d = setBlockText(d, "keys", "Box out\nNo threes");
+    expect(blocksOf(d)[0].text).toBe("Box out\nNo threes");
+    expect(setBlockText(d, "players", "x")).toBe(d);
+    d = addBlock(d, "custom", { newId: ids("x") });
+    d = setBlockTitle(d, "c-x1", "Inbounds");
+    expect(blocksOf(d).find((b) => b.id === "c-x1")?.title).toBe("Inbounds");
+    expect(setBlockTitle(d, "keys", "Nope")).toBe(d);
+  });
+
+  it("survives a save and a read, and drops what it can't read", () => {
+    const d = setBlockHidden(addBlock(addBlock(two(), "keys", { at: 0 }), "custom", { title: "Sets", newId: ids("x") }), "keys", true);
+    const read = parseReportDraft(JSON.parse(JSON.stringify(d)));
+    expect(read?.blocks).toEqual(d.blocks);
+    const odd = parseReportDraft({
+      ...JSON.parse(JSON.stringify(d)),
+      blocks: [{ id: "keys", kind: "keys" }, { id: "keys", kind: "keys" }, { id: "zzz", kind: "custom" }, { id: "x", kind: "nope" }],
+    });
+    expect(odd?.blocks).toEqual([{ id: "keys", kind: "keys", hidden: false }]);
+    // Their actions and the players come back when a stored list lacks them.
+    expect(blocksOf(odd!).map((b) => b.id)).toEqual(["keys", "team", "players"]);
+  });
+
+  it("undoes a section's move or hiding, keeping the words typed since", () => {
+    const before = addBlock(two(), "keys");
+    const after = setBlockText(setBlockHidden(moveBlock(before, "keys", 0), "keys", true), "keys", "Box out");
+    expect(structureKey(after)).not.toBe(structureKey(before));
+    const back = restoreStructure(before, after);
+    expect(blocksOf(back).map((b) => [b.id, b.hidden, b.text ?? ""])).toEqual([
+      ["team", false, ""],
+      ["players", false, ""],
+      ["keys", false, "Box out"],
+    ]);
+  });
+
+  it("reads keys a line each, without the bullets", () => {
+    expect(keyLines("• Box out\n- No threes\n\n2) Run")).toEqual(["Box out", "No threes", "Run"]);
+    expect(keyLines(undefined)).toEqual([]);
   });
 });

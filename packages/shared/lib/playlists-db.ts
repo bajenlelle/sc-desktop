@@ -265,6 +265,22 @@ export async function listPlaylists(
 }
 
 /**
+ * One of the caller's own playlists with its clips (the report page reads
+ * its playlist this way), or null when there is none by that id. Throws when
+ * the read fails, so a failure is never taken for "gone".
+ */
+export async function getPlaylist(supabase: SupabaseClient, id: string): Promise<Playlist | null> {
+  const uid = await currentUserId(supabase);
+  if (!uid) return null;
+  const { data, error } = await supabase.from("playlists").select(PLAYLIST_SELECT).eq("user_id", uid).eq("id", id).maybeSingle();
+  if (error) {
+    reportDbError("getPlaylist", error);
+    throw new Error(`Failed to load the playlist: ${error.message}`);
+  }
+  return data ? rowToPlaylist(data as PlaylistRow) : null;
+}
+
+/**
  * The caller's playlists in the space, id and name only (no items): enough to
  * name and scope the Reports list. Throws when the read fails.
  */

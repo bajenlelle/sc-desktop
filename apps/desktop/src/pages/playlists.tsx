@@ -56,6 +56,8 @@ import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import type { ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
 import { ReportView } from "@/components/report/report-view";
 import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-report";
+import type { ReportSeasonSnapshot } from "@scoutable/shared/lib/scouting-report";
+import { reportPath, type ReportPageState } from "@/pages/report";
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
@@ -801,12 +803,16 @@ export function PlaylistsPage() {
       addClipsFrom?: string;
       /** Set by a game page: the toolbar's "‹ {title}" goes back to it. */
       from?: { matchId: string; title: string };
+      /** Set by the report page's Edit clip: this clip is the selected row. */
+      reveal?: string;
     } | null;
     const restore = state?.restore;
     if (restore && state?.view === "report") {
-      pendingReportRef.current = restore.playlistId;
-      setShareOnOpen(state.share ? restore.playlistId : null);
+      // The report has its own page now (pages/report.tsx): a link from before it goes there.
+      navigate(reportPath(restore.playlistId), { replace: true, state: { share: !!state.share } satisfies ReportPageState });
+      return;
     }
+    if (state?.reveal) pendingRevealKeyRef.current = state.reveal;
     const createNew = state?.createNew;
     // One-shot flags: clear them from the history entry once read, or a
     // remount of this page would restore/reship/create all over again.
@@ -5342,13 +5348,14 @@ export function PlaylistsPage() {
   }, [selected?.id]);
   const clearShareOnOpen = useCallback(() => setShareOnOpen(null), []);
 
-  /** Opens the playlist's report in place of the editor; nothing keeps playing behind it. */
+  /** Opens the playlist's report on its own page; nothing keeps playing behind it, and Back comes back to this playlist. */
   function openReport() {
+    const pl = selectedRef.current;
+    if (!pl) return;
     handleStop();
     videoRef.current?.pause();
     if (playerFs.active) void playerFs.exit();
-    refreshMyReport();
-    setReportFor(selectedRef.current?.id ?? null);
+    navigate(reportPath(pl.id), { state: { back: { label: pl.name, path: "/playlists", state: { restore: { playlistId: pl.id } } } } satisfies ReportPageState });
   }
 
   // A playlist, or its report, asked for while this page is already shown (the search, ⌘K, a Getting
@@ -5406,6 +5413,7 @@ export function PlaylistsPage() {
       view?: "report" | "clips";
       createNew?: boolean;
       highlight?: "add-clips" | "export" | "share";
+      reveal?: string;
     } | null;
     if (!state?.restore && !state?.createNew) return;
     // Read once, like the load effect's flags.
@@ -5418,7 +5426,12 @@ export function PlaylistsPage() {
       return;
     }
     if (!state.restore) return;
-    const ask: LateAsk = { playlistId: state.restore.playlistId, report: state.view === "report", highlight: state.highlight };
+    if (state.view === "report") {
+      navigate(reportPath(state.restore.playlistId), { replace: true });
+      return;
+    }
+    if (state.reveal) pendingRevealKeyRef.current = state.reveal;
+    const ask: LateAsk = { playlistId: state.restore.playlistId, report: false, highlight: state.highlight };
     if (loading) lateRestoreRef.current = ask;
     else void openLateAsk(ask);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5473,7 +5486,7 @@ export function PlaylistsPage() {
   const reportShareDisabledReason = selected ? demoShipBlockReason(selected, matchLookup) : null;
 
   /** Prepares the clips and previews and publishes the report (lib/scouting-report.ts); the report view's share sheet drives it. */
-  async function runReport(draft: ReportDraft, a: ScoutingReportRun): Promise<GenerateOutcome> {
+  async function runReport(draft: ReportDraft, a: ScoutingReportRun, season: ReportSeasonSnapshot | null): Promise<GenerateOutcome> {
     const pl = selectedRef.current;
     if (!pl) throw new Error("No playlist is open");
     return generateScoutingReport({
@@ -5491,6 +5504,7 @@ export function PlaylistsPage() {
       postRoll,
       title: draft.title ?? pl.name,
       opponent: draft.opponent ?? defaultOpponent(draft),
+      season,
       allowMissing: a.allowMissing,
       signal: a.signal,
       onProgress: a.onProgress,

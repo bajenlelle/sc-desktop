@@ -29,6 +29,7 @@ import { itemKey } from "@scoutable/shared/lib/playlist-edits";
 import { fetchPlayerPhotos } from "@scoutable/shared/lib/player-photos";
 import { reportPosterDrawing } from "@scoutable/shared/lib/report-clip-source";
 import { deriveReportLayout, type ReportDraft } from "@scoutable/shared/lib/report-draft";
+import type { ReportSeasonSnapshot } from "@scoutable/shared/lib/scouting-report";
 import { buildScoutingReport, clampReportTitle, type MissingClip } from "@scoutable/shared/lib/scouting-report";
 import { scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
 import type { ClipShipFailure, ClipShipResult } from "@scoutable/shared/lib/ship-result";
@@ -65,6 +66,8 @@ export interface GenerateReportArgs {
   postRoll: number;
   title: string;
   opponent: string | null;
+  /** How they play and Their games as they are now, for a report that has them. */
+  season?: ReportSeasonSnapshot | null;
   /** Publish with the clips that could not be uploaded left out. */
   allowMissing: boolean;
   signal: AbortSignal;
@@ -135,10 +138,15 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
       posters,
       labelsByKey: args.labelsByKey,
       photos,
+      season: args.season ?? null,
     });
 
-  // The clips the page shows: not the ones the coach left out of the report.
-  const inReport = new Set(deriveReportLayout(args.draft, items, eventByKey).sections.flatMap((s) => s.clips.map(itemKey)));
+  // The clips the page shows: not the ones the coach left out of the report, nor those in a section players don't see.
+  const inReport = new Set(
+    deriveReportLayout(args.draft, items, eventByKey)
+      .sections.filter((s) => !s.hidden || !args.draft.blocks)
+      .flatMap((s) => s.clips.map(itemKey)),
+  );
 
   // 1. Clips that have no hosted file yet.
   if (build().missing.some((m) => m.reason === "not_shipped")) {

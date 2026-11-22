@@ -98,19 +98,33 @@ describe("listReportDraftPlaylistIds", () => {
 });
 
 describe("listReportDrafts", () => {
-  it("reads every draft's title and player count, not the whole draft", async () => {
+  it("reads every draft's title, player count, team and game, not the whole draft", async () => {
     const { client, calls } = tableClient({
       data: [
-        { playlist_id: "pl1", updated_at: "2026-10-26T10:00:00Z", title: "AIK scouting", sections: [{}, {}, {}] },
+        {
+          playlist_id: "pl1",
+          updated_at: "2026-10-26T10:00:00Z",
+          title: "AIK scouting",
+          sections: [{}, {}, {}],
+          team: { competitionId: 41001, teamId: 7, name: "AIK" },
+          game: { id: "2903959", at: "2026-11-28T15:00:00Z", home: false },
+        },
         { playlist_id: "pl2", updated_at: "2026-10-27T10:00:00Z", title: null, sections: null },
       ],
     });
     expect(await listReportDrafts(client)).toEqual([
-      { playlistId: "pl1", updatedAt: "2026-10-26T10:00:00Z", title: "AIK scouting", players: 3 },
-      { playlistId: "pl2", updatedAt: "2026-10-27T10:00:00Z", title: null, players: 0 },
+      {
+        playlistId: "pl1",
+        updatedAt: "2026-10-26T10:00:00Z",
+        title: "AIK scouting",
+        players: 3,
+        team: { competitionId: 41001, teamId: 7, name: "AIK" },
+        game: { id: "2903959", at: "2026-11-28T15:00:00Z", home: false },
+      },
+      { playlistId: "pl2", updatedAt: "2026-10-27T10:00:00Z", title: null, players: 0, team: null, game: null },
     ]);
     expect(calls.table).toBe("scouting_report_drafts");
-    expect(calls.select).toBe("playlist_id, updated_at, title:content->>title, sections:content->sections");
+    expect(calls.select).toBe("playlist_id, updated_at, title:content->>title, sections:content->sections, team:content->team, game:content->game");
   });
 
   it("throws when the read fails, so an error never reads as no drafts", async () => {

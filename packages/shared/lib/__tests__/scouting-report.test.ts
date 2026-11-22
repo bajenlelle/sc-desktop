@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { buildScoutingReport, clampReportTitle, clipKeyFromUrl, parseScoutingReport, reportContentKey, reportJumpItems, reportOutline, type BuildReportInput, type ReportClip } from "../scouting-report";
 import type { DrawingShape } from "../clip-drawing";
-import { LEFT_OUT, addSections, emptyDraft, moveClip, setIntro, setNote, setOpponent, setStats, setTitle, type ReportDraft } from "../report-draft";
+import {
+  LEFT_OUT,
+  addBlock,
+  addSections,
+  emptyDraft,
+  moveClip,
+  setBlockHidden,
+  setBlockText,
+  setIntro,
+  setNote,
+  setOpponent,
+  setStats,
+  setTitle,
+  type ReportDraft,
+} from "../report-draft";
+import type { ReportSeasonSnapshot } from "../scouting-report";
 import type { SeasonStatsCard, StatsCardPlayer } from "../stats-card";
 import type { PlayByPlayEvent, PlaylistClipItem, PlaylistItem, PlaylistTextCard } from "../../types/match";
 
@@ -390,5 +405,82 @@ describe("player photos in the report", () => {
     const { report, contentKey } = buildScoutingReport(input(twoPlayers(), [clip("m1", 1)]));
     expect(report.sections[0].player).not.toHaveProperty("photoKey");
     expect(buildScoutingReport(input(twoPlayers(), [clip("m1", 1)], { photos: new Map() })).contentKey).toBe(contentKey);
+  });
+});
+
+describe("a report of sections", () => {
+  const snapshot: ReportSeasonSnapshot = {
+    profile: {
+      context: "Against the league · 12 games",
+      rows: [{ label: "Points per possession", own: "1.08", ownPlace: "2nd", allowed: "0.97", allowedPlace: "3rd" }],
+      lines: ["74 possessions a game"],
+    },
+    games: [{ date: "Sat 28 Nov", opponent: "Bajen Basket", home: false, result: null }],
+  };
+  /** Keys first, the players, Their actions, How they play and Their games. */
+  function sectioned(): ReportDraft {
+    let d = addBlock(twoPlayers(), "keys", { at: 0 });
+    d = setBlockText(d, "keys", "• Box out\nNo threes");
+    d = addBlock(addBlock(d, "profile"), "games");
+    return setIntro(d, "They press after makes.");
+  }
+  const items = [clip("m1", 1), clip("m1", 3), clip("m1", 4)];
+
+  it("walks the sections in the coach's order, with the summary in the header", () => {
+    const { report } = buildScoutingReport(input(sectioned(), items, { season: snapshot }));
+    expect(report.header.intro).toBe("They press after makes.");
+    expect(report.sections.map((s) => [s.id, s.kind])).toEqual([
+      ["keys", "keys"],
+      ["actions", "actions"],
+      ["p1", "player"],
+      ["p2", "player"],
+      ["profile", "profile"],
+      ["games", "games"],
+    ]);
+    expect(report.sections[0].blocks[0]).toEqual({ kind: "keys", items: ["Box out", "No threes"] });
+    expect(report.sections.find((s) => s.kind === "profile")?.blocks[0]).toMatchObject({ kind: "profile", rows: [{ label: "Points per possession" }] });
+  });
+
+  it("leaves out a hidden section and its clips, and a section with nothing in it", () => {
+    let d = setBlockHidden(sectioned(), "players", true);
+    d = setBlockHidden(d, "profile", true);
+    const { report, clipKeys } = buildScoutingReport(input(d, items, { season: { profile: snapshot.profile, games: null } }));
+    expect(report.sections.map((s) => s.kind)).toEqual(["keys", "actions"]);
+    expect(report.header.players).toBe(0);
+    expect(clipKeys).toHaveLength(1); // the play about no one, under Their actions
+  });
+
+  it("names your own section", () => {
+    let d = addBlock(sectioned(), "custom", { title: "Out of bounds", newId: () => "o" });
+    d = setBlockText(d, "c-o", "Watch the stack.");
+    const { report } = buildScoutingReport(input(d, items, { season: snapshot }));
+    expect(report.sections.find((s) => s.kind === "custom")).toMatchObject({ id: "x1", title: "Out of bounds", blocks: [{ kind: "text", text: "Watch the stack." }] });
+    expect(reportJumpItems(report.sections).map((j) => j.label)).toContain("Out of bounds");
+  });
+
+  it("keeps the key of a report from before sections, and reads the new kinds back", () => {
+    const old = buildScoutingReport(input(twoPlayers(), items));
+    expect(old.report.header.intro).toBeUndefined();
+    expect(old.report.sections.map((s) => s.kind)).toEqual(["team", "player", "player"]);
+    const built = buildScoutingReport(input(sectioned(), items, { season: snapshot }));
+    const read = parseScoutingReport(JSON.parse(JSON.stringify(built.report)));
+    expect(read?.sections.map((s) => s.kind)).toEqual(built.report.sections.map((s) => s.kind));
+    expect(read?.header.intro).toBe("They press after makes.");
+    expect(reportContentKey(read!)).toBe(built.contentKey);
+    // A changed key point is a changed report.
+    const changed = buildScoutingReport(input(setBlockText(sectioned(), "keys", "Box out"), items, { season: snapshot }));
+    expect(changed.contentKey).not.toBe(built.contentKey);
+  });
+
+  it("drops a section kind it doesn't know", () => {
+    const built = buildScoutingReport(input(sectioned(), items, { season: snapshot })).report;
+    const raw = JSON.parse(JSON.stringify(built));
+    raw.sections.push({ id: "z", kind: "poll", blocks: [] });
+    expect(parseScoutingReport(raw)?.sections.map((s) => s.id)).not.toContain("z");
+  });
+
+  it("previews the shown sections in the share sheet by name", () => {
+    const d = setBlockHidden(sectioned(), "games", true);
+    expect(reportOutline(d, items, events).map((r) => r.label)).toEqual(["Keys", "Their actions", "#7 Alva Berg", "#7 Ola Nilsson", "How they play"]);
   });
 });

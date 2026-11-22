@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { IS_MACOS } from "@/lib/platform";
 import { pool, type GenerateOutcome } from "@/lib/scouting-report";
 import type { MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
-import { leagueSeasonsOf, loadSeasonPlayers, seasonOf, statsKindOf } from "@/lib/stats-card-data";
+import { leagueSeasonsOf, loadSeasonPlayer, loadSeasonPlayers, seasonOf, statsKindOf } from "@/lib/stats-card-data";
 import { cn } from "@/lib/utils";
 import type { HostedSeasonPlayer } from "@scoutable/shared/lib/hosted-stats";
 import { pruneSelection } from "@scoutable/shared/lib/list-selection";
@@ -21,7 +21,14 @@ import { playerRoster, type PlayerChoice } from "@scoutable/shared/lib/player-ro
 import {
   LEFT_OUT,
   TEAM_SECTION,
+  addBlock,
   addSections,
+  blocksOf,
+  moveBlock,
+  removeBlock,
+  setBlockHidden,
+  setBlockText,
+  setBlockTitle,
   defaultOpponent,
   deriveReportLayout,
   includeClips,
@@ -37,6 +44,7 @@ import {
   setTitle,
   type DraftSection,
   type Placement,
+  type ReportBlockKind,
   type ReportDraft,
 } from "@scoutable/shared/lib/report-draft";
 import { leaderCompetition, leaderRows } from "@scoutable/shared/lib/report-leaders";
@@ -50,7 +58,12 @@ import { ReportDocument, clipDomSelector, sectionDomId, type SectionStatsContext
 import { ReportOutline, type MoveVia, type OutlineClipInfo, type OutlineSectionInfo } from "./report-outline";
 import { ReportPlayerPicker, type PickerConfirm } from "./report-player-picker";
 import { usePlayerStats, type StatsPerson } from "./use-player-stats";
+import { useTeamPlayers } from "@/lib/use-team-players";
+import type { TeamPlayerRow } from "@scoutable/shared/lib/team-players";
+import { makeSeasonCard, seasonOfCompetition } from "@scoutable/shared/lib/stats-card-data";
 import { usePlayerPhotos } from "./use-player-photos";
+import { useReportSeason } from "@/lib/report-season";
+import { reportSectionTitle, type ReportSeasonSnapshot } from "@scoutable/shared/lib/scouting-report";
 import { useReportDraft } from "./use-report-draft";
 
 export interface ReportViewProps {
@@ -60,6 +73,10 @@ export interface ReportViewProps {
    * and the browser stay put when the view changes.
    */
   toolbarSlot: HTMLElement | null;
+  /** The toolbar's leading part on the report's own page (Back); the Clips | Report switch where it is absent. */
+  leading?: ReactNode;
+  /** Edit clips: the playlist in the editor. Shown when given (the report's own page). */
+  onEditClips?: () => void;
   playlist: Playlist;
   eventByKey: ReadonlyMap<string, PlayByPlayEvent>;
   matchLookup: ReadonlyMap<string, StoredMatch>;
@@ -80,7 +97,7 @@ export interface ReportViewProps {
   /** Why sharing is off (a demo game), else null. */
   shareDisabledReason: string | null;
   /** Prepares the clips and previews and publishes (the page owns the pipeline). */
-  runReport: (draft: ReportDraft, run: ScoutingReportRun) => Promise<GenerateOutcome>;
+  runReport: (draft: ReportDraft, run: ScoutingReportRun, season: ReportSeasonSnapshot | null) => Promise<GenerateOutcome>;
   onBack: () => void;
   /** Edit clip: back to the playlist with this clip selected. */
   onOpenClip: (key: string) => void;
@@ -102,6 +119,8 @@ const autoOpened = new Set<string>();
 const collapsedByPlaylist = new Map<string, ReadonlySet<Placement>>();
 const FLASH_MS = 1200;
 
+const NO_TEAM_ROWS: TeamPlayerRow[] = [];
+
 function toPerson(p: PlayerChoice): StatsPerson {
   return { playerId: p.playerId, name: p.name, number: p.number, teamName: p.teamName, matchId: p.matchId };
 }
@@ -119,7 +138,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const reducedMotion = useReducedMotionSafe();
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const { draft, isNew, status, apply, stepHistory, removeSectionWithUndo, reload } = useReportDraft({ playlistId: playlist.id, items });
+  const { draft, isNew, status, apply, applyWithUndo, stepHistory, removeSectionWithUndo, reload } = useReportDraft({ playlistId: playlist.id, items });
 
   // The playlist's games and the clips whose game has stats, for the roster and the numbers.
   const clipGames = useMemo(() => {
@@ -145,7 +164,16 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
 
   const taken = useMemo(() => new Set(draft?.sections.map((s) => s.player.id) ?? []), [draft?.sections]);
   const photos = usePlayerPhotos(useMemo(() => [...taken], [taken]));
-  const roster = useMemo(() => playerRoster({ items, eventByKey, matches: matchLookup, boxScores, taken }), [items, eventByKey, matchLookup, boxScores, taken]);
+  // A report started from a team lists that team's season roster too, so a section can be about any of its players.
+  const team = draft?.team ?? null;
+  const teamCurrent = !!team && leagues.some((l) => l.seasons[0]?.competitionId === team.competitionId);
+  const teamPlayers = useTeamPlayers(team?.competitionId ?? null, team?.teamId ?? 0, teamCurrent);
+  const teamRoster = team ? teamPlayers.rows : NO_TEAM_ROWS;
+  const teamRosterIds = useMemo(() => new Set(teamRoster.map((r) => r.personId)), [teamRoster]);
+  const roster = useMemo(
+    () => playerRoster({ items, eventByKey, matches: matchLookup, boxScores, taken, seasonRoster: teamRoster, seasonTeamName: team?.name }),
+    [items, eventByKey, matchLookup, boxScores, taken, teamRoster, team?.name],
+  );
   const rosterById = useMemo(() => new Map(roster.map((p) => [p.playerId, p])), [roster]);
 
   // The report's shape, the Team section kept so it can be written in and dropped on.
@@ -154,7 +182,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const sections = useMemo((): ViewSection[] => {
     if (!layout) return [];
     const join = (item: (typeof layout.leftOut)[number]): ViewClip => ({ key: itemKey(item), item, event: eventByKey.get(itemKey(item))! });
-    return layout.sections.map((s) => ({ id: s.id, section: s.section, clips: s.clips.map(join) }));
+    return layout.sections.map((s) => ({ id: s.id, section: s.section, block: s.block, hidden: s.hidden, clips: s.clips.map(join) }));
   }, [layout, eventByKey]);
   const clipCount = sections.reduce((n, s) => n + s.clips.length, 0);
 
@@ -179,7 +207,13 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       mark(setStatsLoading, sectionId, true);
       mark(setStatsFailed, sectionId, false);
       try {
-        const r = await readPlayerStats(person, preferMatchId, competitionId);
+        let r = await readPlayerStats(person, preferMatchId, competitionId);
+        // A player from the team's season roster with no game in the playlist: their season with that team.
+        const season = !r.stats && team && competitionId === undefined && !statsMatchIdOf(person, preferMatchId) ? seasonOfCompetition(team.competitionId, leagues) : null;
+        if (season) {
+          const line = await loadSeasonPlayer(season.competitionId, person.playerId).catch(() => null);
+          if (line) r = { player: r.player, stats: makeSeasonCard(season, r.player, line), failed: false };
+        }
         apply((d) => {
           const s = d.sections.find((x) => x.id === sectionId);
           // The section changed player while the numbers were read: they aren't its numbers.
@@ -193,7 +227,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
         mark(setStatsLoading, sectionId, false);
       }
     },
-    [readPlayerStats, apply],
+    [readPlayerStats, apply, team, statsMatchIdOf, leagues],
   );
 
   const statsContextOf = useCallback(
@@ -231,7 +265,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const openPicker = useCallback(() => {
     setPickerOpen(true);
     void ensureBoxScores(clipGames);
-    const wanted = [...new Set(clipGames.flatMap((m) => seasonOf(m, leagues)?.competitionId ?? []))].filter((id) => !seasons.has(id));
+    const wanted = [...new Set([...clipGames.flatMap((m) => seasonOf(m, leagues)?.competitionId ?? []), ...(team ? [team.competitionId] : [])])].filter((id) => !seasons.has(id));
     if (wanted.length === 0) return;
     setSeasonsLoading(true);
     void Promise.all(
@@ -240,7 +274,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
         if (players) setSeasons((prev) => new Map(prev).set(id, players));
       }),
     ).finally(() => setSeasonsLoading(false));
-  }, [ensureBoxScores, clipGames, leagues, seasons]);
+  }, [ensureBoxScores, clipGames, leagues, seasons, team]);
 
   // A playlist whose report doesn't exist yet opens on the picker, once.
   useEffect(() => {
@@ -270,8 +304,13 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   }, [focusSectionId, reducedMotion]);
 
   const leaderRowsAll = useMemo(
-    () => leaderRows(roster, (p) => leaderCompetition(p, items, matchLookup, leagues), seasons),
-    [roster, items, matchLookup, leagues, seasons],
+    () =>
+      leaderRows(
+        roster,
+        (p) => leaderCompetition(p, items, matchLookup, leagues) ?? (team && teamRosterIds.has(p.playerId) ? team.competitionId : null),
+        seasons,
+      ),
+    [roster, items, matchLookup, leagues, seasons, team, teamRosterIds],
   );
   const noted = useMemo(() => new Set(draft?.sections.filter((s) => s.note.trim()).map((s) => s.player.id) ?? []), [draft?.sections]);
   const initialTicked = useMemo(() => (taken.size === 0 ? new Set(roster.filter((p) => p.clips > 0).map((p) => p.playerId)) : taken), [taken, roster]);
@@ -311,10 +350,16 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
 
   const sectionInfo = useMemo(() => {
     const m = new Map<Placement, OutlineSectionInfo>([[TEAM_SECTION, { label: "Team", number: null, statsLoading: false }]]);
+    // Each section by its kind (or the coach's name for it); a draft from before sections reads as Their actions.
+    if (draft) {
+      for (const b of blocksOf(draft)) {
+        if (b.kind !== "players") m.set(b.id, { label: reportSectionTitle(b.kind, b.title), number: null, statsLoading: false, block: b });
+      }
+    }
     for (const s of draft?.sections ?? []) m.set(s.id, { label: s.player.name, number: s.player.number, statsLoading: statsLoading.has(s.id) });
     m.set(LEFT_OUT, { label: "Not in report", number: null, statsLoading: false });
     return m;
-  }, [draft?.sections, statsLoading]);
+  }, [draft, statsLoading]);
 
   const clipInfo = useMemo(() => {
     const m = new Map<string, OutlineClipInfo>();
@@ -517,6 +562,8 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const liveReport = isLiveReport(myReport) ? myReport : null;
   const effectiveTitle = draft?.title ?? playlist.name;
   const effectiveOpponent = draft ? (draft.opponent ?? defaultOpponent(draft)) : null;
+  // How they play and Their games as they are now, for a report started from a team.
+  const season = useReportSeason(draft?.team);
   // What the page would say now, to compare with what was shared. Built only while it matters.
   const built = useMemo(() => {
     if (!draft || (!shareOpen && !liveReport)) return null;
@@ -529,8 +576,9 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       opponent: effectiveOpponent,
       labelsByKey: props.labelNamesByClip,
       photos,
+      season,
     });
-  }, [draft, shareOpen, liveReport, items, eventByKey, matchLookup, effectiveTitle, effectiveOpponent, props.labelNamesByClip, photos]);
+  }, [draft, shareOpen, liveReport, items, eventByKey, matchLookup, effectiveTitle, effectiveOpponent, props.labelNamesByClip, photos, season]);
   // The last one stays for the share sheet's closing animation.
   const lastBuilt = useRef(built);
   if (built) lastBuilt.current = built;
@@ -538,7 +586,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const stale = !!liveReport && !!built && liveReport.contentKey !== built.contentKey;
   const summary = useMemo(() => {
     const rows = draft ? reportOutline(draft, items, eventByKey) : [];
-    const players = rows.filter((r) => r.id !== TEAM_SECTION);
+    const players = rows.filter((r) => /^p\d+$/.test(r.id));
     return { players: players.length, clips: rows.reduce((n, r) => n + r.clips, 0), empty: players.filter((r) => !r.note && r.clips === 0).length };
   }, [draft, items, eventByKey]);
 
@@ -551,7 +599,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     setShareOpen(true);
   }, [autoOpenShare, status, draft, onAutoShared, onRefreshReport, shareDisabledReason]);
 
-  const run = useCallback((a: ScoutingReportRun) => (draft ? props.runReport(draft, a) : Promise.reject(new Error("No report"))), [draft, props]);
+  const run = useCallback((a: ScoutingReportRun) => (draft ? props.runReport(draft, a, season) : Promise.reject(new Error("No report"))), [draft, props, season]);
 
   // ---------------------------------------------------------------------------
   // Keys
@@ -561,6 +609,15 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   useKeyScope("report", true);
   useHotkeys("report", (e) => {
     // ⌘Z / ⇧⌘Z for the report's structure; a text field keeps its own (useHotkeys skips fields).
+    // ⌘⇧↑ / ⌘⇧↓ move the section shown in the outline (a player within the players, any other among the sections).
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && draft && activeId) {
+      e.preventDefault();
+      const dir = e.key === "ArrowUp" ? -1 : 1;
+      const player = draft.sections.findIndex((x) => x.id === activeId);
+      if (player >= 0) apply((d) => moveSection(d, activeId, player + dir), "Move player");
+      else moveBlockBy(activeId, dir);
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && !e.altKey) {
       const k = e.key.toLowerCase();
       const done = k === "z" ? stepHistory(e.shiftKey ? "redo" : "undo") : k === "y" && !IS_MACOS && !e.shiftKey ? stepHistory("redo") : false;
@@ -576,6 +633,38 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     }
   });
 
+  // The document's sections: hide, move, take out and add, each with its Undo.
+  const blockName = (id: string) => {
+    const b = draft ? blocksOf(draft).find((x) => x.id === id) : undefined;
+    if (!b) return "Section";
+    return b.kind === "players" ? "Players to stop" : reportSectionTitle(b.kind, b.title);
+  };
+  const blockHidden = (id: string, hidden: boolean) => {
+    const name = blockName(id);
+    applyWithUndo((d) => setBlockHidden(d, id, hidden), hidden ? `Hide ${name}` : `Show ${name}`, hidden ? `${name} hidden from players` : `${name} shown to players`);
+    trackEvent("scouting_report_section_hidden", { section: blocksOf(draft!).find((b) => b.id === id)?.kind ?? "custom", hidden });
+  };
+  const moveBlockBy = (id: string, dir: -1 | 1) => {
+    if (!draft) return;
+    const at = blocksOf(draft).findIndex((b) => b.id === id);
+    if (at < 0) return;
+    apply((d) => moveBlock(d, id, at + dir), `Move ${blockName(id)}`);
+  };
+  const removeBlockWithUndo = (id: string) => {
+    const name = blockName(id);
+    applyWithUndo((d) => removeBlock(d, id), `Remove ${name}`, `${name} removed`);
+  };
+  const addBlockOf = (kind: ReportBlockKind) => {
+    let added: string | null = null;
+    apply((d) => {
+      const next = addBlock(d, kind);
+      added = next === d ? null : (blocksOf(next).at(-1)?.id ?? null);
+      return next;
+    }, "Add section");
+    trackEvent("scouting_report_section_added", { section: kind });
+    if (added) setTimeout(() => scrollTo(added!), 0);
+  };
+
   const saveCaption =
     status === "saving" ? "Saving…" : status === "error" ? "Not saved" : status === "ready" && !isNew ? "Saved" : null;
   const shareLabel = liveReport ? (stale ? "Changed since sharing" : "Shared") : "Share";
@@ -583,12 +672,19 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const toolbar = (
     <Toolbar
       variant="static"
-      leading={<PlaylistViewSwitch value="report" onChange={(v) => v === "clips" && onBack()} sharedStatus={liveReport ? sharedStatusLabel(liveReport) : null} />}
+      leading={
+        props.leading ?? <PlaylistViewSwitch value="report" onChange={(v) => v === "clips" && onBack()} sharedStatus={liveReport ? sharedStatusLabel(liveReport) : null} />
+      }
       title={playlist.name}
       subtitle="Scouting report"
       actions={
         <>
           {saveCaption && <span className={cn("text-caption text-muted-foreground", status === "error" && "text-destructive")}>{saveCaption}</span>}
+          {props.onEditClips && (
+            <Button variant="ghost" size="sm" onClick={props.onEditClips}>
+              Edit clips
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={openPicker} disabled={!draft}>
             <UserPlus />
             Add players
@@ -613,7 +709,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {props.toolbarSlot && createPortal(toolbar, props.toolbarSlot)}
+      {props.toolbarSlot ? createPortal(toolbar, props.toolbarSlot) : props.leading ? toolbar : null}
       <div className="flex min-h-0 flex-1">
         {layout ? (
           <ReportOutline
@@ -637,11 +733,14 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             onIncludeClips={include}
             onOpenClip={onOpenClip}
             onAddPlayers={openPicker}
+            onBlockHidden={blockHidden}
+            onMoveBlock={moveBlockBy}
+            onRemoveBlock={removeBlockWithUndo}
           />
         ) : (
           <div className="w-[288px] shrink-0 border-r border-separator" />
         )}
-        <div ref={scrollRef} data-report-scroll className="min-w-0 flex-1 overflow-y-auto">
+        <div ref={scrollRef} data-report-scroll className="min-w-0 flex-1 overflow-y-auto overscroll-y-contain">
           {draft ? (
             <>
               <ReportDocument
@@ -679,16 +778,15 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 onMoveClips={(keys, to) => moveClipsTo(keys, to, null, "menu")}
                 onOpenClip={onOpenClip}
                 onRemoveSection={removeWithUndo}
+                season={season}
+                hasTeam={!!draft.team}
+                onBlockText={(id, t) => apply((d) => setBlockText(d, id, t))}
+                onBlockTitle={(id, t) => apply((d) => setBlockTitle(d, id, t))}
+                onBlockHidden={blockHidden}
+                onMoveBlock={moveBlockBy}
+                onRemoveBlock={removeBlockWithUndo}
+                onAddBlock={addBlockOf}
               />
-              {draft.sections.length === 0 && (
-                <div className="mx-auto flex w-full max-w-[680px] flex-col items-start gap-3 px-8 pb-10">
-                  <p className="text-body text-muted-foreground">No players yet. Add players to start the report.</p>
-                  <Button variant="outline" size="sm" onClick={openPicker}>
-                    <UserPlus />
-                    Add players
-                  </Button>
-                </div>
-              )}
             </>
           ) : status === "error" ? (
             <div className="flex flex-col items-start gap-3 px-8 py-10">

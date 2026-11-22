@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LEFT_OUT, TEAM_SECTION, addSections, deriveReportLayout, emptyDraft } from "../report-draft";
-import { clipDrop, outlineRows, sectionDropIndex, sectionGap, sectionRowKey, snapClipGap } from "../report-outline";
+import { clipDrop, outlineRows, sectionDropIndex, sectionGap, sectionRowKey, snapClipGap, type OutlineRowRef } from "../report-outline";
 import type { StatsCardPlayer } from "../stats-card";
 import type { PlayByPlayEvent, PlaylistClipItem } from "../../types/match";
 
@@ -49,7 +49,7 @@ describe("outlineRows", () => {
   it("shows only the header of a collapsed section", () => {
     const rows = outlineRows(layout, new Set(["s1"]));
     expect(keys(rows)).toEqual([sectionRowKey(TEAM_SECTION), "m1:4", "m1:5", sectionRowKey("s1"), sectionRowKey("s2"), "m1:3", sectionRowKey(LEFT_OUT)]);
-    expect(rows[3]).toEqual({ key: sectionRowKey("s1"), kind: "section", id: "s1" });
+    expect(rows[3]).toMatchObject({ key: sectionRowKey("s1"), kind: "section", id: "s1" });
     expect(rows[1]).toEqual({ key: "m1:4", kind: "clip", id: TEAM_SECTION, clipKey: "m1:4" });
   });
 });
@@ -104,5 +104,29 @@ describe("dragging a player", () => {
     expect(sectionDropIndex(rows, alva, 3)).toBe(0);
     expect(sectionDropIndex(rows, ola, 3)).toBe(0);
     expect(sectionDropIndex(rows, ola, 8)).toBe(1);
+  });
+});
+
+describe("an outline of sections", () => {
+  it("drops clips into the nearest section above that takes them, never into the season's", () => {
+    const rows: OutlineRowRef[] = [
+      { key: sectionRowKey("keys"), kind: "section", id: "keys", accepts: true, player: false },
+      { key: "m1:1", kind: "clip", id: "keys", clipKey: "m1:1" },
+      { key: sectionRowKey("profile"), kind: "section", id: "profile", accepts: false, player: false },
+      { key: sectionRowKey("s1"), kind: "section", id: "s1", accepts: true, player: true },
+    ];
+    // Just below How they play's header: the clip goes to the end of Keys.
+    expect(clipDrop(rows, ["m9:9"], 3)).toEqual({ to: "keys", before: null });
+  });
+
+  it("moves a player only among players, past the other sections", () => {
+    const rows: OutlineRowRef[] = [
+      { key: sectionRowKey("keys"), kind: "section", id: "keys", accepts: true, player: false },
+      { key: sectionRowKey("s1"), kind: "section", id: "s1", accepts: true, player: true },
+      { key: sectionRowKey("s2"), kind: "section", id: "s2", accepts: true, player: true },
+      { key: sectionRowKey(LEFT_OUT), kind: "section", id: LEFT_OUT, accepts: true, player: false },
+    ];
+    expect(sectionGap(rows, 0)).toBe(1);
+    expect(sectionDropIndex(rows, [sectionRowKey("s2")], 1)).toBe(0);
   });
 });

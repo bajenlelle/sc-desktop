@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Shield } from "lucide-react";
-import { getTeamSources } from "@scoutable/shared/lib/league-teams-db";
-import { teamSeasons } from "@scoutable/shared/lib/team-games";
 import { EmptyState } from "@/components/empty-state";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
-import { createClient } from "@/lib/supabase/client";
+import { resolveLeagueTeam } from "@/lib/team-report";
 import { useLeagues } from "@/lib/use-leagues";
 
 /**
@@ -25,13 +23,11 @@ export function TeamFindPage() {
   useEffect(() => {
     let cancelled = false;
     setMissing(false);
-    getTeamSources(createClient(), leagueTeamId)
-      .then((sources) => {
+    resolveLeagueTeam(leagueTeamId, leagues)
+      .then((team) => {
         if (cancelled) return;
-        const newest = teamSeasons(sources, leagues)[0];
-        const teamId = newest ? [...newest.teamIds][0] : undefined;
-        if (!newest?.season.competitionId || !teamId) return setMissing(true);
-        navigate(`/teams/${newest.season.competitionId}/${teamId}`, { replace: true, state });
+        if (!team) return setMissing(true);
+        navigate(`/teams/${team.competitionId}/${team.teamId}`, { replace: true, state });
       })
       .catch(() => !cancelled && setMissing(true));
     return () => {

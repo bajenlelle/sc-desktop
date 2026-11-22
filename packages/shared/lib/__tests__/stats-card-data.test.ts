@@ -8,6 +8,7 @@ import {
   hostedPageUrl,
   isHostedLayoutError,
   leagueSeasonsOf,
+  seasonOfCompetition,
   makeGameCard,
   makeSeasonCard,
   parseHostedPageSearchParams,
@@ -151,6 +152,22 @@ describe("leagueSeasonsOf", () => {
     expect(leagueSeasonsOf(game({ leagueId: "nope" }), withTwo)).toEqual([]);
     expect(leagueSeasonsOf(game({ leagueId: "profixio-stockholm-div1" }), withTwo)).toEqual([]);
     expect(leagueSeasonsOf(game(), [])).toEqual([]);
+  });
+});
+
+describe("seasonOfCompetition", () => {
+  it("names a competition's season the way a card prints it", () => {
+    expect(seasonOfCompetition(41539, leagues)).toEqual({
+      competitionId: 41539,
+      leagueId: "superettan-herr",
+      seasonId: "2025-26",
+      label: "Superettan Herr 2025/26",
+    });
+  });
+
+  it("is null for a competition the catalogue doesn't list", () => {
+    expect(seasonOfCompetition(1, leagues)).toBeNull();
+    expect(seasonOfCompetition(41539, [])).toBeNull();
   });
 });
 

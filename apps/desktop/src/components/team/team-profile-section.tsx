@@ -13,12 +13,13 @@ type RowKey = Exclude<ProfileKey, "pace">;
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
-const ROWS: { key: RowKey; label: string; help: string; format: (v: number) => string }[] = [
+/** How they play's rows, in order; a report's How they play writes the same (lib/report-season.ts). */
+export const PROFILE_ROWS: { key: RowKey; label: string; help: string; format: (v: number) => string }[] = [
   ...FACTORS,
   { key: "threeRate", label: "Share of shots from three", help: "Three-point attempts as a share of all field-goal attempts.", format: pct },
 ];
 
-const FROM: { key: PointsFrom; label: string }[] = [
+export const POINTS_FROM: { key: PointsFrom; label: string }[] = [
   { key: "paint", label: "the paint" },
   { key: "second_chance", label: "second chances" },
   { key: "fast_break", label: "fast breaks" },
@@ -50,7 +51,7 @@ export function TeamProfileSection({ profile, group, where }: { profile: TeamPro
     );
   };
 
-  const perGame = FROM.filter((f) => profile.perGame[f.key] !== null).map((f) => `${f.label} ${Math.round(profile.perGame[f.key]!)}`);
+  const perGame = POINTS_FROM.filter((f) => profile.perGame[f.key] !== null).map((f) => `${f.label} ${Math.round(profile.perGame[f.key]!)}`);
 
   return (
     <section aria-label="How they play">
@@ -64,7 +65,7 @@ export function TeamProfileSection({ profile, group, where }: { profile: TeamPro
           <span className="text-caption-1 text-muted-foreground">What they allow</span>
           <span />
           <span />
-          {ROWS.map((r) => {
+          {PROFILE_ROWS.map((r) => {
             const own = profile.own[r.key];
             const allowed = profile.allowed[r.key];
             return (

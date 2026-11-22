@@ -84,6 +84,16 @@ export function leagueSeasonsOf(match: StoredMatch, leagues: League[]): StatsCar
   );
 }
 
+/** A Genius competition as a stats card names its season (a team's page, a report started from it); null when the catalogue doesn't list it. */
+export function seasonOfCompetition(competitionId: number, leagues: League[]): StatsCardSeason | null {
+  for (const league of leagues) {
+    if (league.provider === "profixio") continue;
+    const season = league.seasons.find((s) => s.competitionId === competitionId && s.provider !== "profixio");
+    if (season) return { competitionId, leagueId: league.id, seasonId: season.id, label: `${league.name} ${season.label}` };
+  }
+  return null;
+}
+
 /**
  * A page whose tables or headers changed (hosted-stats.ts throws it). Checked
  * by class, and by its error code for an instance from another copy of the module.

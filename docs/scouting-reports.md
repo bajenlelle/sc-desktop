@@ -53,15 +53,71 @@ players open from a link, and that "Save as PDF" prints.
   intro can be written and clips dropped on it. The content key, the stored
   report (v1) and the page are unchanged.
 
+## The report page (`apps/desktop/src/pages/report.tsx`, `/reports/:playlistId`)
+
+A report is a document of its own, reached from everywhere it is named and
+returning there: Reports' rows, a team's New/Open report, ⌘K search (and its
+Recent list) and the playlist editor's **Report** button all go to
+`/reports/:playlistId`, with `state.back` (`ReportPageState`) naming where
+Back goes (`‹ AIK`, `‹ Reports`, `‹ <playlist>`; Reports by default). Reports
+is the selected sidebar row. A link from before the page
+(`/playlists` with `view: "report"`) redirects to it.
+
+- **`lib/use-report-workspace.ts`** reads what the page needs itself: the
+  playlist (`getPlaylist`), its games (`listMatchesByIds`) and their plays
+  (`listEventsForMatchesChecked`), whether each game's video is on this
+  computer (`probeMatches`, again on window focus after 30 s), the labels
+  (`useClipLabels`), the shared report, and the publish `run`
+  (`generateScoutingReport` with `buildShipSegments`, patching its own copy of
+  the playlist as clips are hosted). Clips play and are cut with the editor's
+  default pre- and post-roll.
+- **`ReportView`** is the body, as it was in the editor: the page passes its
+  Back button (`leading`) and **Edit clips** (`onEditClips`), which opens the
+  playlist in the editor; a clip's "Edit clip" opens it there with that clip
+  selected (`reveal`).
+- Esc stops a clip, then the selection, then goes Back.
+
+## Sections (`blocks` in the draft)
+
+A report is a list of sections the coach controls (`ReportBlock`:
+`keys | players | actions | profile | games | custom`), in the coach's order:
+
+- **Keys**: a key per line (`keyLines` strips typed bullets), with clips.
+- **Players to stop**: the player sections, where the block sits.
+- **Their actions**: the old Team section (`TEAM_SECTION`, so every stored
+  placement and the fall-back for plays about no one stay), words and clips.
+- **How they play** and **Their games**: the team's season as the Team page
+  shows it (`lib/report-season.ts`: `PROFILE_ROWS`, `POINTS_FROM`, the
+  fixtures), drawn live in the editor (`useReportSeason(draft.team)`, the
+  cached league reads) and stored in the report when it is published
+  (`ReportSeasonSnapshot`). No clips.
+- **A section of your own** (`c-<uuid>`, at most 8): a name, words and clips.
+
+Each section's heading has a menu on hover: Hide from players / Show to
+players, Move up, Move down, Remove section (not the players or Their
+actions). ⌘⇧↑/⌘⇧↓ move the section shown in the outline. A hidden section stays
+in place, dimmed, with "Hidden from players"; in the outline its row shrinks to
+a thin dimmed one with an eye-slash, and its row's context menu has the same
+items (and ⌥↑/⌥↓, ⌫). Hide, remove and move go on the undo stack, with Undo in
+the toast (`applyWithUndo`). "+ Add section" at the end lists the sections not
+in the report and "Your own section". The summary (the draft's `intro`) opens
+the document under the title.
+
+A draft without `blocks` (from before sections) reads as Their actions, then
+the players (`blocksOf`), with the same controls as any other: its intro shows
+as the summary. Opening it changes nothing, and it publishes the report it
+always did, with the same content key, until the first change to a section
+(hide, move, add, remove) gives it `blocks`; from then on it publishes as a
+report of sections, its intro as the summary. A
+report started from a team (`teamReportBlocks`) reads Keys, players, Their
+actions, then How they play and Their games hidden. An older desktop that
+saves a draft drops `blocks`: the report goes back to Team + players with
+every clip in place.
+
 ## The desktop (`apps/desktop/src/components/report/`)
 
-- **Entry**: a "Clips | Report" switch at the leading edge of both toolbars
-  (`playlist-view-switch.tsx`; a dot while a report is shared). Not in the
-  Export menu: the report is the playlist's other view, not an export of it,
-  and a centred switch would collide with the clips toolbar's actions. The
-  playlists page renders `ReportView` in place of the toolbar and panels
-  (`reportFor`); the browser column stays and switching playlist leaves the view. The editor's
-  key scope yields to the view's (`useKeyScope("editor", !reportView)`).
+- **Entry**: the report page above. The editor's toolbar has a Report button
+  (a dot while the report is shared) in place of the old Clips | Report switch.
 - **`use-report-draft.ts`**: reads the draft once per playlist (kept in a
   cache, so coming back is instant), applies ops optimistically, saves 600 ms
   after the last edit (`pruneDraft` first), flushes on unmount or a
@@ -162,6 +218,53 @@ players open from a link, and that "Save as PDF" prints.
     (true) is what a new report carries, and the page doesn't read it (see the
     page, below).
 
+## Starting from a team (`packages/shared/lib/team-report.ts`, `apps/desktop/src/lib/team-report.ts`)
+
+A coach thinks "we play AIK on Saturday", so a report can start from the
+opponent instead of from a playlist. Step A of the report-flow proposal
+(artifact "Scouting report flow", 2026-11-22): the report still lives in its
+playlist's Report view.
+
+- **Where**: **New report** in the Team page's toolbar (both Season and Plays),
+  beside Teams' "Your next game", and on Reports (the toolbar, and the empty
+  state's action). The Team page and Teams' button reads **Open report** once
+  the team has its report: one report per game against the space's team
+  (the draft's `game`), or, when they don't meet again this season, one with
+  no game (`findTeamReport`, over `listReportDrafts` and the space's playlists,
+  read again on `PLAYLISTS_CHANGED` and window focus).
+- **Reports' New report** (`components/report/new-report-popover.tsx`): the
+  space's next opponent first ("Your next game · Sat 28 Nov"), then this
+  season's catalogue teams (`useTeamCatalog`, the space's own league first),
+  and `New report for “name”` for anyone else. A catalogue team is opened by
+  its newest season (`resolveLeagueTeam`, which `/teams/find/:id` uses too);
+  its next game against the space's team is read, and its existing report for
+  that game opens instead of a second one. A typed name makes a playlist of
+  that name with a draft that holds only `opponent` (`createNamedReport`).
+- **What a team report starts with** (`createTeamReport`, the Team page's own
+  cached reads): the playlist named `teamReportName` ("AIK · Sat 28 Nov", or
+  "AIK" without a game), and a draft with `opponent` = the team, `team`
+  (`{competitionId, teamId, name}`), `game` (`{id, at, home}`, the opponent's
+  side), the sections Keys (up to three of the team's keys, surest first,
+  `teamReportKeys`; empty under five games), players, Their actions, then
+  How they play and Their games hidden (`teamReportBlocks`), and up to three
+  players with their season cards already made (`pickReportPlayers`: the
+  leading three-point shooter, offensive rebounder and free-throw getter,
+  then the most minutes; `makeSeasonCard` from the team's season page). A
+  playlist whose draft can't be saved is deleted again. The team's collect
+  target (`team:<competition>:<team>`) becomes the new playlist, so Plays'
+  + adds into the report.
+- **The picker** of a report with a `team` lists the team's season roster after
+  the clipped players (`playerRoster`'s `seasonRoster`), so a section can be
+  about anyone on the team before any clip exists; their numbers come from
+  that season (`leaderCompetition` falls back to it, and `readInto` reads the
+  season line when the player has no game in the playlist).
+- `team` and `game` are optional draft fields, added without a migration
+  (the table's check reads only `v`, `sections`, `placements`). A desktop
+  before them drops both when it saves; the report itself is unchanged.
+- Analytics: `scouting_report_started` (`from`: team_page, next_game,
+  reports; `opponent`: league, typed; `players`, `keys`, `game`), and
+  `playlist_created` with `surface: "report"`.
+
 ## Player photos (`packages/shared/lib/player-photos.ts`, `supabase/migrations/20261119100000_genius_players.sql`)
 
 A player's section shows their roster photo with the number as a badge on it; without a photo it shows the number circle as before. The player picker shows a small photo on each row.
@@ -187,13 +290,14 @@ A player's section shows their roster photo with the number as a badge on it; wi
   Draft. All / Shared / Drafts filter it (Shared includes ended ones), the
   search matches title and playlist name, and the newest change (report or
   draft) comes first. Shared rows show `openedLabel`, drafts their players.
-- A row opens the playlist in its Report view: the page navigates to
-  `/playlists` with `{ restore, view: "report" }`. Its menu (⋯ and
+- A row opens the report page (`/reports/:playlistId`, Back to Reports). Its menu (⋯ and
   right-click) copies the link, opens it in the browser (`#app`, not
   counted), shows the clips, or stops sharing (confirmed). An expired or
-  stopped report offers Share again, which adds `share: true` so the Report
-  view opens with the share sheet (`autoOpenShare`): an expired one keeps its
+  stopped report offers Share again, which opens the report page with `share: true`, so the
+  share sheet opens once the report is read (`autoOpenShare`): an expired one keeps its
   link (the publish updates its row), a stopped one gets a new one.
+- **New report** in the toolbar (once there is a report) and as the empty
+  state's action: see "Starting from a team".
 - Live reports are listed on the Reports page, and the share sheet's done step
   links to it ("See all reports").
 - Analytics: `scouting_report_list_action` (action, status) for each row
@@ -290,9 +394,32 @@ the frame it was drawn on, with the drawing burned in on the export's 16:9
 does a drawn clip whose drawn poster fails. Publishing is the only step that makes anything public; cancelling
 before it publishes nothing. A staging build links to `http://localhost:3000`.
 
+## Published sections
+
+A report of sections publishes, still as `v: 1` (the publish function checks
+only the version, the sections array, the clip keys and the posters):
+`header.intro` (the summary), then a section per shown, non-empty block, of
+kind `keys` (a `keys` block of items, then clips), `actions` (text, clips),
+`player`, `profile` (a `profile` block: context, rows of label / own / place /
+allowed / place, lines), `games` (a `games` block of rows: date, opponent,
+home, result or null for a game to play) or `custom` (with its `title`, text,
+clips). Section ids are `keys`, `actions`, `profile`, `games`, `p1…`, `x1…`.
+Hidden sections and their clips are left out, and their clips aren't cut. The
+content key hashes the summary and each new section's kind and title only
+where they exist, so a report from before sections keeps its key; a
+republished report of sections reads "Changed since sharing" once.
+`parseScoutingReport` reads the new kinds and drops any it doesn't know;
+`reportSectionTitle` names them for the page, the jump bar and the editor.
+
+**Rollout order:** the web app (main, Vercel) before the desktop release, so a
+new report never meets the old page. The old page would drop the new sections
+and show the players and Team.
+
 ## The page (`apps/web/src/app/r/[token]/`)
 
-One scrolling document: header, then a section per player. Follows the system
+One scrolling document: the header with the summary, then the coach's
+sections (Keys as a numbered list, How they play as a table, Their games as a
+list, the rest as before). Follows the system
 theme on screen and prints light (A4, a player per page, posters for clips, a
 QR per player). `X-Robots-Tag`, `Referrer-Policy: no-referrer` and no-store come
 from `next.config.ts`; the link preview carries the title, opponent and counts,

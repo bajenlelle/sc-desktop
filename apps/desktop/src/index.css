@@ -347,6 +347,14 @@ html[data-window-inactive="true"] {
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
+  /* The window never rubber-bands: a scroll that runs past a list's end would
+     otherwise carry on into the page and pull the whole window, toolbar and
+     all, away from its content. Each scroller keeps its own bounce at its
+     edge (overscroll-y-contain on the page scrollers), as a Mac view does. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
   /* SF Symbols "regular" weight for 16 px icons; filled primary buttons
      opt back into stroke-2. */
   svg.lucide { stroke-width: 1.75px; }

@@ -40,6 +40,7 @@ import {
 } from "@/lib/quick-search-store";
 import { readRecentOpens, recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { cn } from "@/lib/utils";
+import { reportPath } from "@/pages/report";
 
 const ICON: Record<SearchKind, React.ComponentType<{ className?: string }>> = { playlist: ListVideo, report: FileText, game: Film, team: Shield };
 const KIND: Record<SearchKind, string> = { playlist: "Playlist", report: "Report", game: "Game", team: "Team" };
@@ -186,7 +187,11 @@ function SearchBody({ scope }: { scope: SearchScope }) {
       navigate(`/teams/find/${item.id}`, { state: { from: "search" } });
       return;
     }
-    navigate("/playlists", { state: { restore: { playlistId: item.id }, view: item.kind === "report" ? "report" : "clips" } });
+    if (item.kind === "report") {
+      navigate(reportPath(item.id));
+      return;
+    }
+    navigate("/playlists", { state: { restore: { playlistId: item.id }, view: "clips" } });
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {

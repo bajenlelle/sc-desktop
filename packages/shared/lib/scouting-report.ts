@@ -3,9 +3,13 @@
  * draft (lib/report-draft.ts), as the public page shows it. Pure, so the
  * desktop's view and the page the recipient opens come from one walk.
  *
- * The walk (deriveReportLayout): a Team section first, holding the intro and
- * the clips no player claims, left out when empty; then a section per draft
- * player, in draft order, with the clips placed under them. The playlist's
+ * The walk (deriveReportLayout) follows the draft's sections (blocksOf): Keys,
+ * the players, Their actions, How they play, Their games and the coach's own,
+ * in the coach's order, hidden ones left out, empty ones too. A draft from
+ * before sections walks as it always did: a Team section first, holding the
+ * intro and the clips no player claims, left out when empty; then a section
+ * per draft player, in draft order, with the clips placed under them; so its
+ * report, and its content key, are what they were. The playlist's
  * text and stats cards are video cards and not part of the report. Nothing
  * else is dropped except a clip that has no hosted file yet or whose play the
  * game data no longer has (`missing`).
@@ -21,7 +25,7 @@ import { SLOW_MAX_LENGTH, SLOW_RATES } from "./clip-timeline";
 import { eventLabel, formatGameClock, periodLabel } from "./events";
 import { cyrb53 } from "./highlight-shares-db";
 import { itemKey } from "./playlist-edits";
-import { deriveReportLayout, sectionLabel, REPORT_MAX_SECTIONS, REPORT_TITLE_MAX, type ReportDraft } from "./report-draft";
+import { deriveReportLayout, keyLines, sectionLabel, REPORT_MAX_SECTIONS, REPORT_TITLE_MAX, type ReportBlockKind, type ReportDraft } from "./report-draft";
 import { isPlayerPhotoKey } from "./player-photos";
 import { cardContent, type StatsCardSpec } from "./stats-card";
 import { clipWatchEffects, type WatchDrawing, type WatchSlow } from "./watch-queue";
@@ -113,12 +117,58 @@ export interface ReportStatsBlock {
   stats: ReportStats;
 }
 
-export type ReportBlock = ReportClip | ReportText | ReportStatsBlock;
+/** The Keys section's points, a line each. */
+export interface ReportKeysBlock {
+  kind: "keys";
+  items: string[];
+}
+
+/** One row of How they play, written as the desktop's Team page writes it. */
+export interface ReportProfileRow {
+  label: string;
+  own: string;
+  /** "3rd"; null before five games. */
+  ownPlace: string | null;
+  allowed: string;
+  allowedPlace: string | null;
+}
+
+/** How they play: their numbers at both ends against their group, as the Team page shows them. */
+export interface ReportProfileBlock {
+  kind: "profile";
+  /** "Against Norra · 12 games". */
+  context: string;
+  rows: ReportProfileRow[];
+  /** "74 possessions a game, 3rd fastest", "Points a game from …". */
+  lines: string[];
+}
+
+export interface ReportGameRow {
+  /** "Sat 28 Nov". */
+  date: string;
+  opponent: string;
+  home: boolean;
+  /** "W 82–78"; null for a game still to play. */
+  result: string | null;
+}
+
+/** Their games: results, newest first, then the games still to play. */
+export interface ReportGamesBlock {
+  kind: "games";
+  rows: ReportGameRow[];
+}
+
+export type ReportBlock = ReportClip | ReportText | ReportStatsBlock | ReportKeysBlock | ReportProfileBlock | ReportGamesBlock;
+
+/** team: a report from before sections (its intro and the clips no player claims). The rest are the draft's blocks. */
+export type ReportSectionKind = "team" | "player" | Exclude<ReportBlockKind, "players">;
 
 export interface ReportSection {
-  /** "team", then p1, p2, … */
+  /** "team", p1, p2, …; keys, actions, profile, games, x1, x2, … */
   id: string;
-  kind: "team" | "player";
+  kind: ReportSectionKind;
+  /** A custom section's name; absent elsewhere (the kind names it: reportSectionTitle). */
+  title?: string;
   player: ReportPlayer | null;
   note: string;
   stats: ReportStats | null;
@@ -136,8 +186,40 @@ export interface ScoutingReport {
     clips: number;
     /** Always true now (the builder's default). The page shows the "made with scoutable." mark regardless. */
     attribution: boolean;
+    /** The summary under the title; absent in a report from before sections (its intro opened the Team section). */
+    intro?: string;
   };
   sections: ReportSection[];
+}
+
+/** What a section is called on the page and in the editor. */
+export function reportSectionTitle(kind: ReportSectionKind, title?: string): string {
+  switch (kind) {
+    case "team":
+      return "Team";
+    case "player":
+      return "Player";
+    case "keys":
+      return "Keys";
+    case "actions":
+      return "Their actions";
+    case "profile":
+      return "How they play";
+    case "games":
+      return "Their games";
+    case "custom":
+      return title?.trim() || "Untitled section";
+  }
+}
+
+/**
+ * The team's season as the report shows it, read by the desktop from the
+ * league's numbers when it builds the report: a snapshot, as the stats cards
+ * are. Null parts when the report has no team or its season couldn't be read.
+ */
+export interface ReportSeasonSnapshot {
+  profile: Omit<ReportProfileBlock, "kind"> | null;
+  games: ReportGameRow[] | null;
 }
 
 export interface MissingClip {
@@ -165,6 +247,8 @@ export interface BuildReportInput {
   /** Player photo media keys by player id (lib/player-photos.ts). */
   photos?: ReadonlyMap<string, string>;
   attribution?: boolean;
+  /** How they play and Their games, when the report has them. */
+  season?: ReportSeasonSnapshot | null;
   now?: Date;
 }
 
@@ -288,30 +372,68 @@ export function buildScoutingReport(input: BuildReportInput): BuiltReport {
 
   const sections: ReportSection[] = [];
   let players = 0;
-  for (const s of layout.sections) {
-    const blocks: ReportBlock[] = [];
-    if (!s.section) {
-      const intro = draft.intro.trim();
-      if (intro) blocks.push({ kind: "text", text: intro });
+  const playerSection = (sec: NonNullable<(typeof layout.sections)[number]["section"]>, blocks: ReportBlock[]): ReportSection => ({
+    id: `p${++players}`,
+    kind: "player",
+    player: reportPlayer(sec.player, input.photos?.get(sec.player.id)),
+    note: sec.note.trim(),
+    stats: sec.stats ? statsOf(sec.stats) : null,
+    blocks,
+  });
+  const clipsOf = (items: readonly PlaylistClipItem[]): ReportBlock[] => items.flatMap((item) => clipBlock(item) ?? []);
+
+  if (!draft.blocks) {
+    // A draft from before sections: the report it always made.
+    for (const s of layout.sections) {
+      const blocks: ReportBlock[] = [];
+      if (!s.section) {
+        const intro = draft.intro.trim();
+        if (intro) blocks.push({ kind: "text", text: intro });
+      }
+      blocks.push(...clipsOf(s.clips));
+      if (!s.section) {
+        // The layout lists the team only when it has an intro or clips; with every clip unshipped it would be empty.
+        if (blocks.length > 0) sections.push({ id: "team", kind: "team", player: null, note: "", stats: null, blocks });
+        continue;
+      }
+      sections.push(playerSection(s.section, blocks));
     }
-    for (const item of s.clips) {
-      const block = clipBlock(item);
-      if (block) blocks.push(block);
+  } else {
+    let custom = 0;
+    for (const s of layout.sections) {
+      if (s.hidden) continue;
+      if (s.section) {
+        sections.push(playerSection(s.section, clipsOf(s.clips)));
+        continue;
+      }
+      const block = s.block!;
+      const blocks: ReportBlock[] = [];
+      if (block.kind === "keys") {
+        const items = keyLines(block.text);
+        if (items.length > 0) blocks.push({ kind: "keys", items });
+      } else if (block.kind === "profile") {
+        const profile = input.season?.profile;
+        if (profile && profile.rows.length > 0) blocks.push({ kind: "profile", ...profile });
+      } else if (block.kind === "games") {
+        const rows = input.season?.games;
+        if (rows && rows.length > 0) blocks.push({ kind: "games", rows });
+      } else {
+        const text = block.text?.trim();
+        if (text) blocks.push({ kind: "text", text });
+      }
+      blocks.push(...clipsOf(s.clips));
+      if (blocks.length === 0) continue;
+      const kind = block.kind as Exclude<ReportBlockKind, "players">;
+      sections.push({
+        id: kind === "custom" ? `x${++custom}` : kind,
+        kind,
+        ...(kind === "custom" ? { title: block.title?.trim() || reportSectionTitle("custom") } : {}),
+        player: null,
+        note: "",
+        stats: null,
+        blocks,
+      });
     }
-    if (!s.section) {
-      // The layout lists the team only when it has an intro or clips; with every clip unshipped it would be empty.
-      if (blocks.length > 0) sections.push({ id: "team", kind: "team", player: null, note: "", stats: null, blocks });
-      continue;
-    }
-    const { player, note, stats } = s.section;
-    sections.push({
-      id: `p${++players}`,
-      kind: "player",
-      player: reportPlayer(player, input.photos?.get(player.id)),
-      note: note.trim(),
-      stats: stats ? statsOf(stats) : null,
-      blocks,
-    });
   }
 
   const report: ScoutingReport = {
@@ -323,6 +445,7 @@ export function buildScoutingReport(input: BuildReportInput): BuiltReport {
       players,
       clips: clipCount,
       attribution: input.attribution ?? true,
+      ...(draft.blocks && draft.intro.trim() ? { intro: draft.intro.trim() } : {}),
     },
     sections,
   };
@@ -352,18 +475,30 @@ function effectsKeyOf(b: ReportClip): { d?: string; w?: string } {
  */
 export function reportContentKey(report: ScoutingReport): string {
   const stable = {
+    // The summary and a section's kind and name only where a report has them, so one from before sections keeps its key.
+    ...(report.header.intro ? { in: report.header.intro } : {}),
     s: report.sections.map((s) => ({
       i: s.id,
+      ...(s.kind !== "team" && s.kind !== "player" ? { kd: s.kind, t: s.title ?? null } : {}),
       p: s.player,
       n: s.note,
       st: s.stats ? { c: s.stats.context, v: s.stats.cells } : null,
-      b: s.blocks.map((b) =>
-        b.kind === "clip"
-          ? { k: b.clipKey, n: b.note, l: b.labels, g: b.game, y: b.label, q: b.period, c: b.clock, ...effectsKeyOf(b) }
-          : b.kind === "text"
-            ? { x: b.text }
-            : { h: b.heading, v: b.stats.cells, c: b.stats.context },
-      ),
+      b: s.blocks.map((b) => {
+        switch (b.kind) {
+          case "clip":
+            return { k: b.clipKey, n: b.note, l: b.labels, g: b.game, y: b.label, q: b.period, c: b.clock, ...effectsKeyOf(b) };
+          case "text":
+            return { x: b.text };
+          case "stats":
+            return { h: b.heading, v: b.stats.cells, c: b.stats.context };
+          case "keys":
+            return { ky: b.items };
+          case "profile":
+            return { pf: [b.context, b.rows, b.lines] };
+          case "games":
+            return { gm: b.rows };
+        }
+      }),
     })),
   };
   return cyrb53(`r1|${JSON.stringify(stable)}`);
@@ -456,8 +591,31 @@ function parseBlock(raw: unknown): ReportBlock | null {
     const stats = parseStats(raw.stats);
     return stats ? { kind: "stats", heading: str(raw.heading), stats } : null;
   }
+  if (raw.kind === "keys") {
+    const items = Array.isArray(raw.items) ? raw.items.filter((i): i is string => typeof i === "string" && i.trim() !== "").slice(0, 20) : [];
+    return items.length > 0 ? { kind: "keys", items } : null;
+  }
+  if (raw.kind === "profile") {
+    const rows: ReportProfileRow[] = [];
+    for (const r of Array.isArray(raw.rows) ? raw.rows.slice(0, 12) : []) {
+      if (!isObj(r) || typeof r.label !== "string") continue;
+      rows.push({ label: r.label, own: str(r.own), ownPlace: strOrNull(r.ownPlace), allowed: str(r.allowed), allowedPlace: strOrNull(r.allowedPlace) });
+    }
+    const lines = Array.isArray(raw.lines) ? raw.lines.filter((l): l is string => typeof l === "string").slice(0, 6) : [];
+    return rows.length > 0 ? { kind: "profile", context: str(raw.context), rows, lines } : null;
+  }
+  if (raw.kind === "games") {
+    const rows: ReportGameRow[] = [];
+    for (const r of Array.isArray(raw.rows) ? raw.rows.slice(0, 60) : []) {
+      if (!isObj(r) || typeof r.opponent !== "string") continue;
+      rows.push({ date: str(r.date), opponent: r.opponent, home: r.home === true, result: strOrNull(r.result) });
+    }
+    return rows.length > 0 ? { kind: "games", rows } : null;
+  }
   return null;
 }
+
+const SECTION_KINDS: readonly ReportSectionKind[] = ["team", "player", "keys", "actions", "profile", "games", "custom"];
 
 /**
  * A stored report as the page can safely draw it, or null when it isn't one
@@ -469,7 +627,8 @@ export function parseScoutingReport(raw: unknown): ScoutingReport | null {
   if (!isObj(raw) || raw.v !== SCOUTING_REPORT_VERSION || !isObj(raw.header) || !Array.isArray(raw.sections)) return null;
   const sections: ReportSection[] = [];
   for (const s of raw.sections) {
-    if (!isObj(s) || (s.kind !== "team" && s.kind !== "player") || !Array.isArray(s.blocks)) continue;
+    if (!isObj(s) || !SECTION_KINDS.includes(s.kind as ReportSectionKind) || !Array.isArray(s.blocks)) continue;
+    const kind = s.kind as ReportSectionKind;
     const p = s.player;
     const player: ReportPlayer | null =
       s.kind === "player" && isObj(p) && typeof p.name === "string"
@@ -481,7 +640,8 @@ export function parseScoutingReport(raw: unknown): ScoutingReport | null {
     if (s.kind === "player" && !player) continue;
     sections.push({
       id: str(s.id, `s${sections.length + 1}`),
-      kind: s.kind,
+      kind,
+      ...(kind === "custom" ? { title: str(s.title).slice(0, 60) || reportSectionTitle("custom") } : {}),
       player,
       note: str(s.note),
       stats: s.stats == null ? null : parseStats(s.stats),
@@ -499,6 +659,7 @@ export function parseScoutingReport(raw: unknown): ScoutingReport | null {
       players: sections.filter((s) => s.kind === "player").length,
       clips,
       attribution: h.attribution !== false,
+      ...(typeof h.intro === "string" && h.intro.trim() ? { intro: h.intro } : {}),
     },
     sections,
   };
@@ -531,11 +692,17 @@ export interface OutlineRow {
  */
 export function reportOutline(draft: ReportDraft, items: readonly PlaylistItem[], eventByKey: ReadonlyMap<string, PlayByPlayEvent>): OutlineRow[] {
   let players = 0;
-  return deriveReportLayout(draft, items, eventByKey).sections.map((s) =>
-    s.section
-      ? { id: `p${++players}`, label: sectionLabel(s.section.player), clips: s.clips.length, note: s.section.note.trim().length > 0, stats: s.section.stats !== null }
-      : { id: "team", label: "Team", clips: s.clips.length, note: draft.intro.trim().length > 0, stats: false },
-  );
+  return deriveReportLayout(draft, items, eventByKey)
+    .sections.filter((s) => !s.hidden)
+    .map((s) => {
+      if (s.section) {
+        return { id: `p${++players}`, label: sectionLabel(s.section.player), clips: s.clips.length, note: s.section.note.trim().length > 0, stats: s.section.stats !== null };
+      }
+      if (!draft.blocks) return { id: "team", label: "Team", clips: s.clips.length, note: draft.intro.trim().length > 0, stats: false };
+      const b = s.block!;
+      const kind = b.kind as Exclude<ReportBlockKind, "players">;
+      return { id: b.id, label: reportSectionTitle(kind, b.title), clips: s.clips.length, note: !!b.text?.trim(), stats: kind === "profile" || kind === "games" };
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -550,10 +717,10 @@ function lastName(name: string): string {
   return parts[parts.length - 1] || name;
 }
 
-/** One chip per section, in page order: the team's as "Team", a player's as "#7 Berg" (number when known, last name). */
+/** One chip per section, in page order: a player's as "#7 Berg" (number when known, last name), the others by name ("Keys", "Team"). */
 export function reportJumpItems(sections: readonly ReportSection[]): { id: string; label: string }[] {
   return sections.map((s) => ({
     id: s.id,
-    label: s.player ? [s.player.number ? `#${s.player.number}` : null, lastName(s.player.name)].filter(Boolean).join(" ") : "Team",
+    label: s.player ? [s.player.number ? `#${s.player.number}` : null, lastName(s.player.name)].filter(Boolean).join(" ") : reportSectionTitle(s.kind, s.title),
   }));
 }

@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/empty-state";
+import { NewReportPopover } from "@/components/report/new-report-popover";
+import { reportPath, type ReportPageState } from "@/pages/report";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { useAuth } from "@/lib/auth-context";
@@ -102,10 +104,10 @@ export function ReportsPage() {
     const url = item.reportId ? scoutingReportUrl(reportBaseUrl(), item.reportId) : null;
     switch (action) {
       case "open":
-        navigate("/playlists", { state: { restore: { playlistId: item.playlistId }, view: "report" } });
+        navigate(reportPath(item.playlistId), { state: { back: { label: "Reports", path: "/reports" } } satisfies ReportPageState });
         break;
       case "share_again":
-        navigate("/playlists", { state: { restore: { playlistId: item.playlistId }, view: "report", share: true } });
+        navigate(reportPath(item.playlistId), { state: { back: { label: "Reports", path: "/reports" }, share: true } satisfies ReportPageState });
         break;
       case "show_clips":
         navigate("/playlists", { state: { restore: { playlistId: item.playlistId } } });
@@ -139,17 +141,13 @@ export function ReportsPage() {
     }
   }
 
-  const goToPlaylists = (
-    <Button size="sm" variant="outline" onClick={() => navigate("/playlists")}>
-      Go to Playlists
-    </Button>
-  );
 
   return (
     <Page>
       <Toolbar
         title="Reports"
         subtitle={counts.all > 0 ? `${counts.all} ${counts.all === 1 ? "report" : "reports"}` : undefined}
+        actions={counts.all > 0 ? <NewReportPopover /> : undefined}
         principal={
           counts.all > 0 ? (
             <SegmentedControl
@@ -203,10 +201,10 @@ export function ReportsPage() {
             title="No reports yet"
             body={
               activeOrgIsPersonal
-                ? "Open a playlist and switch to Report to build one."
-                : "Your reports from this club’s playlists show up here. Open a playlist and switch to Report to build one."
+                ? "Start one for your next opponent: their players and what stands out come filled in."
+                : "Your reports from this club’s playlists show up here. Start one for your next opponent: their players and what stands out come filled in."
             }
-            action={goToPlaylists}
+            action={<NewReportPopover variant="default" />}
           />
         ) : visible.length === 0 ? (
           <EmptyState

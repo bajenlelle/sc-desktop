@@ -1,7 +1,7 @@
 /**
  * The scouting report's side panel as a flat list of rows, for the desktop's
  * drag engine (which works on one list of rows with gaps between them): a
- * header per section with its clips under it, the Team section first and the
+ * header per section with its clips under it, in the report's order, and the
  * clips left out of the report last. Pure, so where a drop lands is tested
  * here; the view turns it into report-draft ops (moveClips, moveSection).
  */
@@ -15,6 +15,12 @@ export interface OutlineRowRef {
   /** The section the row is (a header) or sits in (a clip); LEFT_OUT for the left-out group. */
   id: Placement;
   clipKey?: string;
+  /** A header: it is a player's (players move among players). */
+  player?: boolean;
+  /** A header: clips can be dropped in it (not How they play, not Their games). */
+  accepts?: boolean;
+  /** A header: players don't see the section. */
+  hidden?: boolean;
 }
 
 export const sectionRowKey = (id: Placement) => `section:${id}`;
@@ -22,13 +28,13 @@ export const sectionRowKey = (id: Placement) => `section:${id}`;
 /** The rows as they show: every header, and the clips of each section that isn't collapsed. */
 export function outlineRows(layout: ReportLayout, collapsed: ReadonlySet<Placement>): OutlineRowRef[] {
   const rows: OutlineRowRef[] = [];
-  const push = (id: Placement, clipKeys: string[]) => {
-    rows.push({ key: sectionRowKey(id), kind: "section", id });
+  const push = (id: Placement, clipKeys: string[], head: Pick<OutlineRowRef, "player" | "accepts" | "hidden">) => {
+    rows.push({ key: sectionRowKey(id), kind: "section", id, ...head });
     if (collapsed.has(id)) return;
     for (const clipKey of clipKeys) rows.push({ key: clipKey, kind: "clip", id, clipKey });
   };
-  for (const s of layout.sections) push(s.id, s.clips.map(itemKey));
-  push(LEFT_OUT, layout.leftOut.map(itemKey));
+  for (const s of layout.sections) push(s.id, s.clips.map(itemKey), { player: !!s.section, accepts: s.accepts, hidden: s.hidden });
+  push(LEFT_OUT, layout.leftOut.map(itemKey), { player: false, accepts: true, hidden: false });
   return rows;
 }
 
@@ -45,7 +51,8 @@ export function snapClipGap(gap: number): number {
 export function clipDrop(rows: readonly OutlineRowRef[], blockKeys: readonly string[], gap: number): { to: Placement; before: string | null } {
   const at = snapClipGap(gap);
   let header = at - 1;
-  while (header > 0 && rows[header].kind !== "section") header--;
+  // The nearest section above that takes clips (How they play and Their games don't).
+  while (header > 0 && (rows[header].kind !== "section" || rows[header].accepts === false)) header--;
   const to = rows[header]?.id ?? TEAM_SECTION;
   const dragged = new Set(blockKeys);
   for (let i = at; i < rows.length; i++) {
@@ -56,7 +63,7 @@ export function clipDrop(rows: readonly OutlineRowRef[], blockKeys: readonly str
   return { to, before: null };
 }
 
-const isPlayerHeader = (row: OutlineRowRef) => row.kind === "section" && row.id !== TEAM_SECTION && row.id !== LEFT_OUT;
+const isPlayerHeader = (row: OutlineRowRef) => row.kind === "section" && (row.player ?? (row.id !== TEAM_SECTION && row.id !== LEFT_OUT));
 
 /**
  * The gap a dragged player (its header and clips) settles on: the nearest

@@ -5,8 +5,10 @@
  * not only the players who have clips: the roster is the clipped players
  * first (most clips first), then everyone else the game data has, from the
  * stored plays and, once loaded, the box score (which also lists players who
- * played without a recorded action). Pure, so the desktop picker and its
- * tests share one definition.
+ * played without a recorded action). A report started from a team
+ * (lib/team-report.ts) also lists that team's season roster, so a section can
+ * be about any of its players before there is a clip of them. Pure, so the
+ * desktop picker and its tests share one definition.
  */
 import type { PlayByPlayEvent, PlaylistItem, StoredMatch } from "../types/match";
 import { isClipItem } from "../types/match";
@@ -22,7 +24,7 @@ export interface PlayerChoice {
   teamName: string;
   /** Clips of theirs in the playlist; 0 for a player who is only in the game. */
   clips: number;
-  /** The game their numbers are read from first: the one with most of their clips, else a game they played in. */
+  /** The game their numbers are read from first: the one with most of their clips, else a game they played in; "" for a player only on the season roster. */
   matchId: string;
   /** The report already has a section about them. */
   taken: boolean;
@@ -48,6 +50,10 @@ export function playerRoster(input: {
   boxScores?: ReadonlyMap<string, GameStats>;
   /** Players the report already has a section about (report-draft's sections). Nobody, when absent. */
   taken?: ReadonlySet<string>;
+  /** The season roster of the team the report was started for, most minutes first; they follow the clipped players. */
+  seasonRoster?: readonly { personId: string; name: string; number: string | null }[];
+  /** That team's name, as its players are grouped. */
+  seasonTeamName?: string;
 }): PlayerChoice[] {
   const { items, eventByKey, matches, boxScores } = input;
   const taken = input.taken ?? new Set<string>();
@@ -109,10 +115,25 @@ export function playerRoster(input: {
   );
 
   const clipped = new Set(ranked.map((p) => p.playerId));
+  const season: PlayerChoice[] = [];
+  for (const r of input.seasonRoster ?? []) {
+    if (clipped.has(r.personId) || season.some((p) => p.playerId === r.personId)) continue;
+    const inGames = known.get(r.personId);
+    season.push({
+      playerId: r.personId,
+      name: r.name,
+      number: r.number,
+      teamName: input.seasonTeamName ?? inGames?.teamName ?? "",
+      clips: 0,
+      matchId: inGames?.matchId ?? "",
+      taken: taken.has(r.personId),
+    });
+  }
+  const listed = new Set([...clipped, ...season.map((p) => p.playerId)]);
   const teamClips = new Map<string, number>();
   for (const p of ranked) teamClips.set(p.teamName, (teamClips.get(p.teamName) ?? 0) + p.clips);
   const rest = [...known]
-    .filter(([id]) => !clipped.has(id))
+    .filter(([id]) => !listed.has(id))
     .map(([id, p]): PlayerChoice => ({ playerId: id, ...p, clips: 0, taken: taken.has(id) }));
   rest.sort(
     (a, b) =>
@@ -121,7 +142,7 @@ export function playerRoster(input: {
       jersey(a.number) - jersey(b.number) ||
       a.name.localeCompare(b.name),
   );
-  return [...ranked, ...rest];
+  return [...ranked, ...season, ...rest];
 }
 
 /**

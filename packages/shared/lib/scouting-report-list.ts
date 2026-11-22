@@ -6,6 +6,7 @@
  */
 import { foldForSearch } from "./league-teams";
 import { formatCardDate } from "./stats-card";
+import type { ReportGame, ReportTeam } from "./report-draft";
 
 /** A published report as the list reads it (`scouting_reports`, owner only). */
 export interface ReportRow {
@@ -27,6 +28,10 @@ export interface ReportDraftRow {
   /** Null: the playlist's name. */
   title: string | null;
   players: number;
+  /** The league team the report was started for (lib/report-draft.ts); absent where it wasn't read. */
+  team?: ReportTeam | null;
+  /** The game it prepares for. */
+  game?: ReportGame | null;
 }
 
 export type ReportListStatus = "live" | "expired" | "stopped" | "draft";

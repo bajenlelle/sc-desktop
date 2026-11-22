@@ -22,6 +22,8 @@ import { useLeague } from "@/lib/use-league";
 import { useLeagues } from "@/lib/use-leagues";
 import { useLibraryGames } from "@/lib/use-library-games";
 import { useMyTeamIds, useSpaceTeam } from "@/lib/use-my-team-ids";
+import { useTeamReport } from "@/lib/use-team-report";
+import { TeamReportButton } from "@/components/report/team-report-button";
 
 const rememberKey = (orgId: string) => `scoutable_teams_league:${orgId}`;
 
@@ -73,6 +75,10 @@ export function TeamsPage() {
 
   const tables = useMemo(() => (league ? leagueTables(league, fixtures, libraryIds, mine) : []), [league, fixtures, libraryIds, mine]);
   const next = useMemo(() => (payload ? nextGame(fixtures, payload, mine, new Date()) : null), [payload, fixtures, mine]);
+  // The next game's report: the row is from the space's team's side, the report from the opponent's.
+  const nextTeam = useMemo(() => (next && competitionId ? { competitionId, teamId: next.opponentId } : null), [next, competitionId]);
+  const nextReportGame = useMemo(() => (next?.at ? { id: String(next.matchId), at: next.at, home: !next.home } : null), [next]);
+  const nextReport = useTeamReport(nextTeam, nextReportGame, "next_game");
 
   const pick = (key: string) => {
     const c = choices.find((x) => choiceKey(x) === key);
@@ -128,19 +134,23 @@ export function TeamsPage() {
         ) : (
           <div className="space-y-6">
             {next && (
-              <Link
-                to={`/teams/${competitionId}/${next.opponentId}`}
-                state={{ from: "teams" }}
-                className="group flex items-center gap-3 rounded-window bg-card px-4 py-3 ring-1 ring-separator outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block text-subheadline text-muted-foreground">Your next game</span>
-                  <span className="block truncate font-medium text-foreground">
-                    {next.opponentName}, {next.home ? "home" : "away"} · {gameDay(next.at)}
+              <div className="flex items-center rounded-window bg-card ring-1 ring-separator">
+                <Link
+                  to={`/teams/${competitionId}/${next.opponentId}`}
+                  state={{ from: "teams" }}
+                  className="group flex min-w-0 flex-1 items-center gap-3 rounded-window px-4 py-3 outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-subheadline text-muted-foreground">Your next game</span>
+                    <span className="block truncate font-medium text-foreground">
+                      {next.opponentName}, {next.home ? "home" : "away"} · {gameDay(next.at)}
+                    </span>
                   </span>
-                </span>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground/50 group-hover:text-muted-foreground" />
-              </Link>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground/50 group-hover:text-muted-foreground" />
+                </Link>
+                {/* Beside the link, not in it: a button can't sit inside a link. */}
+                <TeamReportButton control={nextReport} className="mx-2 shrink-0" />
+              </div>
             )}
             {tables.map((t) => (
               <LeagueTable key={String(t.group)} table={t} competitionId={competitionId!} />
