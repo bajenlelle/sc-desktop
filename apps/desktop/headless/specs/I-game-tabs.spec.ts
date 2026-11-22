@@ -181,7 +181,10 @@ test("a row dragged past its neighbour changes places with it, and the order sta
   const [g0, g1, g2] = await openGames(page, 3);
   expect(await titles(page)).toEqual([g0.title, g1.title, g2.title]);
 
-  /** Presses a row and drags it until its middle is `past` px beyond the middle of another. */
+  /**
+   * Presses a row and drags it until its middle is `past` px beyond the middle of another, then holds still before
+   * letting go: a row let go while it still moves is a flick, and lands where the flick is going (use-list-drag.ts).
+   */
   const drag = async (from: Game, to: Game, past: number) => {
     const a = await boxOf(row(page, from.title), "the dragged row");
     const b = await boxOf(row(page, to.title), "the row it passes");
@@ -194,6 +197,7 @@ test("a row dragged past its neighbour changes places with it, and the order sta
       await page.mouse.move(x, startY + ((endY - startY) * i) / 12);
       await page.waitForTimeout(30);
     }
+    await page.waitForTimeout(200);
     await page.mouse.up();
   };
 
