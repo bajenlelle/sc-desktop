@@ -56,6 +56,25 @@ describe("velocityFromSamples", () => {
     ];
     expect(velocityFromSamples(samples, 100)).toBeCloseTo(200);
   });
+
+  it("is zero when only the last sample is in the window", () => {
+    // A slow drag that paused: the move before the pause is history, not a flick.
+    const samples = [
+      { t: 0, y: 400 },
+      { t: 20, y: 300 },
+      { t: 900, y: 301 },
+    ];
+    expect(velocityFromSamples(samples, 100)).toBe(0);
+  });
+
+  it("is zero when the pointer rested past the window before the release", () => {
+    const samples = [
+      { t: 0, y: 0 },
+      { t: 50, y: 100 },
+    ];
+    expect(velocityFromSamples(samples, 100, 60)).toBeCloseTo(2000);
+    expect(velocityFromSamples(samples, 100, 400)).toBe(0);
+  });
 });
 
 describe("clamp", () => {

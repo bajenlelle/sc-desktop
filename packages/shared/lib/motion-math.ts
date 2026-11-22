@@ -39,12 +39,15 @@ export interface MotionSample {
 
 /**
  * Release velocity (px/s) from the last `windowMs` of pointer samples.
- * Returns 0 when there is too little history to say.
+ * Returns 0 when there is too little history to say, or when the pointer
+ * has rested longer than the window by `now` (the release's timestamp): a
+ * pointer held still and let go is not a flick.
  */
-export function velocityFromSamples(samples: readonly MotionSample[], windowMs = 100): number {
+export function velocityFromSamples(samples: readonly MotionSample[], windowMs = 100, now?: number): number {
   if (samples.length < 2) return 0;
   const last = samples[samples.length - 1];
-  let first = samples[0];
+  if (now !== undefined && now - last.t > windowMs) return 0;
+  let first = last;
   for (let i = samples.length - 2; i >= 0; i--) {
     if (last.t - samples[i].t > windowMs) break;
     first = samples[i];

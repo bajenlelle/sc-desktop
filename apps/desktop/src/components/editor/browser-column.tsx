@@ -150,7 +150,7 @@ export function BrowserColumn({
     } catch {
       /* already released */
     }
-    const velocity = velocityFromSamples(d.samples);
+    const velocity = velocityFromSamples(d.samples, 100, e.timeStamp);
     if (d.mode === "reveal") {
       // A click opens at the width it had; the collapsed effect springs it.
       if (!d.moved) {

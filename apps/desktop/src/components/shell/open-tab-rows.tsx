@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, Reorder } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { gameTabForKey } from "@scoutable/shared/lib/game-tabs";
+import { moveBlock } from "@scoutable/shared/lib/clip-groups";
+import { useListDrag } from "@/components/editor/use-list-drag";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
@@ -24,8 +26,11 @@ export interface OpenTabRow {
  * and rows that open, close and drag into another order. One list, so both behave alike.
  *
  * A row lights on the press and opens on the release (a click), so a press can turn into a drag that moves
- * it without opening anything: the row follows the pointer, the others slide out of its way on the app's
- * springs, and the new order is kept when it is let go (only then, so nothing else redraws while it moves).
+ * it without opening anything. The drag is the editor's list drag (editor/use-list-drag.ts): the row lifts
+ * into a card glued to the pointer, the others slide out of its way on the app's springs, the sidebar
+ * scrolls while the pointer is at or past its edge, and the slot follows the card through any scroll, so
+ * the row lands where the card is. The new order is kept when it is let go (only then, so nothing else
+ * redraws while it moves); Escape puts it back.
  * Its × (on hover or focus), a middle click and its menu close it; a row `canClose` refuses keeps its ×
  * hidden. The keyboard moves along the rows with ↓ and ↑, Return or Space opens one, Delete closes it. A
  * click doesn't take the keyboard's focus: the page's keys go on working.
@@ -60,19 +65,40 @@ export function OpenTabRows({
   noun: string;
 }) {
   const reduced = useReducedMotionSafe();
+  const ids = rows.map((t) => t.id);
+  const list = rows;
 
-  // While a row is dragged the order is this list's own; it is kept when the row is let go.
-  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
-  const dragOrderRef = useRef<string[] | null>(null);
-  dragOrderRef.current = dragOrder;
-  const storeIds = rows.map((t) => t.id);
-  const byId = new Map(rows.map((t) => [t.id, t]));
-  const ids = dragOrder ? [...dragOrder.filter((id) => byId.has(id)), ...storeIds.filter((id) => !dragOrder.includes(id))] : storeIds;
-  const list = ids.map((id) => byId.get(id)!);
-
-  const [dragging, setDragging] = useState<string | null>(null);
-  // A press that became a drag is not a click on the row.
-  const dragged = useRef(false);
+  // The rows' own column, measured in its coordinates so a scroll never moves the slot off the card, and
+  // the sidebar's scroller, which the drag scrolls at its edges.
+  const groupRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    scrollerRef.current = groupRef.current?.closest<HTMLElement>("[data-sidebar-scroll]") ?? null;
+  });
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
+  const drag = useListDrag({
+    listRef: groupRef,
+    sidebarRef: scrollerRef,
+    reducedMotion: reduced,
+    noDragSelector: "[data-no-drag]",
+    keepFocus: true,
+    holdOutside: true,
+    canStart: () => true,
+    blockFor: (key) => [key],
+    snapGap: (gap) => gap,
+    onTarget: () => {},
+    onDrop: ({ gap, anchorKey }) => {
+      const current = idsRef.current;
+      const from = current.indexOf(anchorKey);
+      if (from < 0) return;
+      const order = moveBlock(current, [from], gap);
+      // Dragged past a neighbour and back is not a new order.
+      if (order.join("\n") !== current.join("\n")) onReorder(order);
+    },
+    onDropOnPlaylist: () => {},
+    onEnd: () => {},
+  });
 
   // The one Tab stop: the row the focus was on last, else the shown one's, else the first.
   const [stopId, setStopId] = useState<string | null>(null);
@@ -97,7 +123,8 @@ export function OpenTabRows({
         <span className="text-caption font-medium text-muted-foreground">{label}</span>
         {action}
       </div>
-      <Reorder.Group as="div" axis="y" values={ids} onReorder={setDragOrder} className="flex flex-col gap-0.5">
+      {/* No gap between rows: each row carries its 2px below it, so the drag's slots are the rows' own heights. */}
+      <div ref={groupRef} className="flex flex-col">
         <AnimatePresence initial={false}>
           {list.map((tab, index) => {
             const active = tab.id === shownId;
@@ -106,31 +133,19 @@ export function OpenTabRows({
               if (!active) onChoose(tab.id);
             };
             return (
-              <Reorder.Item
+              <motion.div
                 key={tab.id}
-                as="div"
-                value={tab.id}
+                data-row-key={tab.id}
                 transition={rowTransition}
                 initial={reduced ? { opacity: 0 } : { opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 28 }}
+                animate={{ opacity: 1, height: 30 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, height: 0 }}
-                onDragStart={() => {
-                  dragged.current = true;
-                  setDragOrder((order) => order ?? storeIds);
-                  setDragging(tab.id);
-                }}
-                onDragEnd={() => {
-                  setDragging(null);
-                  const order = dragOrderRef.current;
-                  setDragOrder(null);
-                  // Dragged past a neighbour and back is not a new order.
-                  if (order && order.join("\n") !== storeIds.join("\n")) onReorder(order);
-                }}
-                className={cn("group relative shrink-0", dragging === tab.id && "z-10")}
+                onPointerDown={(e) => drag.onRowPointerDown(e, tab.id)}
+                className="group relative shrink-0 pb-0.5"
               >
                 <ContextMenu>
                   <ContextMenuTrigger asChild>
-                    <div className="h-7">
+                    <div data-drag-face className="h-7">
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
@@ -145,16 +160,10 @@ export function OpenTabRows({
                             aria-label={tab.title || "Loading…"}
                             tabIndex={tab.id === stop ? 0 : -1}
                             onFocus={() => setStopId(tab.id)}
-                            onPointerDown={(e) => {
-                              if (e.button === 0) dragged.current = false;
-                            }}
                             // A click opens the row and leaves the keyboard where it was: the page's keys go on working.
-                            onMouseDown={(e) => {
-                              if (e.button === 0) e.preventDefault();
-                            }}
-                            onClick={() => {
-                              if (!dragged.current) choose();
-                            }}
+                            // (The drag's press handler prevents the default, so a click doesn't focus the row, and
+                            // swallows the click a drag ends with.)
+                            onClick={choose}
                             onAuxClick={(e) => {
                               if (e.button !== 1) return;
                               e.preventDefault();
@@ -180,7 +189,6 @@ export function OpenTabRows({
                               "flex h-7 w-full min-w-0 items-center rounded-md pl-2 text-left text-sm font-medium outline-none transition-[background-color,transform] duration-100 active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-selection",
                               closable ? "pr-7" : "pr-2",
                               active ? "bg-row-selected text-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
-                              dragging === tab.id && !active && "bg-fill-2",
                             )}
                           >
                             {tab.name}
@@ -196,9 +204,8 @@ export function OpenTabRows({
                           aria-label={`Close ${tab.title || noun}`}
                           // For the pointer: the keyboard closes a row with Delete.
                           tabIndex={-1}
-                          // In the capture phase: the row's drag listens on the row itself, below React's own handlers,
-                          // and a press on the × must be neither a choice of the row nor the start of a drag.
-                          onPointerDownCapture={(e) => e.stopPropagation()}
+                          // A press on the × is neither a choice of the row nor the start of a drag.
+                          data-no-drag
                           onClick={() => onClose(tab.id, "button")}
                           className={cn(
                             "absolute top-1/2 right-1 flex size-5 -translate-y-1/2 items-center justify-center rounded-md outline-none transition-[opacity,background-color,color] duration-100 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
@@ -219,11 +226,11 @@ export function OpenTabRows({
                     </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>
-              </Reorder.Item>
+              </motion.div>
             );
           })}
         </AnimatePresence>
-      </Reorder.Group>
+      </div>
     </nav>
   );
 }
