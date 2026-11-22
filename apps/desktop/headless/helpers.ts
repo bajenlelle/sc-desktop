@@ -954,6 +954,10 @@ export interface GameReadPatch {
   timeout?: { matchId: string; eventId: number; period: number; clock: string; realWorldTime: string; resumeRealWorldTime: string };
   /** null: every game read loses its video, as if none were linked on this computer; a path: every game read has that video. */
   videoUrl?: string | null;
+  /** The feed's team codes on every play, home then away. */
+  teamCodes?: [string, string];
+  /** Every play is in this period (5 = the first overtime). */
+  period?: number;
 }
 
 /**
@@ -970,6 +974,13 @@ export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<
       e.event_team = null;
       e.player = null;
       done++;
+    }
+  };
+  const recode = (events: Record<string, unknown>[]) => {
+    for (const e of events) {
+      const team = e.event_team as { teamCode?: string; teamNumber?: number } | null;
+      if (patch.teamCodes && team && (team.teamNumber === 1 || team.teamNumber === 2)) team.teamCode = patch.teamCodes[team.teamNumber - 1];
+      if (patch.period !== undefined) e.period = patch.period;
     }
   };
   const walk = (node: unknown) => {
@@ -1005,6 +1016,7 @@ export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<
       }
     }
     if (patch.teamless && Array.isArray(o.play_by_play_events)) unteam(o.play_by_play_events as Record<string, unknown>[]);
+    if (Array.isArray(o.play_by_play_events)) recode(o.play_by_play_events as Record<string, unknown>[]);
     for (const v of Object.values(o)) walk(v);
   };
   const rewrite = (change: (body: unknown) => void) => async (route: Route) => {
@@ -1020,7 +1032,16 @@ export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<
     await route.fulfill({ response, json: body });
   };
   await page.route("**/rest/v1/matches*", rewrite(walk));
-  if (patch.teamless) await page.route("**/rest/v1/play_by_play_events*", rewrite((body) => Array.isArray(body) && unteam(body as Record<string, unknown>[])));
+  if (patch.teamless || patch.teamCodes || patch.period !== undefined) {
+    await page.route(
+      "**/rest/v1/play_by_play_events*",
+      rewrite((body) => {
+        if (!Array.isArray(body)) return;
+        if (patch.teamless) unteam(body as Record<string, unknown>[]);
+        recode(body as Record<string, unknown>[]);
+      }),
+    );
+  }
 }
 
 /** The page's reads of plays: GETs of `matches` that embed `play_by_play_events` (the game list's reads don't). */

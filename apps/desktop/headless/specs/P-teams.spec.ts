@@ -4,7 +4,7 @@
  * mocked with, so nothing depends on real standings.
  */
 import type { Locator, Page } from "@playwright/test";
-import { chooseNewTarget, delayPlaysReads, deleteOwnedPlaylists, expect, failPlaysReads, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
+import { type GameReadPatch, chooseNewTarget, delayPlaysReads, deleteOwnedPlaylists, expect, failPlaysReads, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const teamRow = (page: Page, name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
@@ -364,17 +364,56 @@ const PLAYS_TARGET = owned("team plays");
  * Alfa's page with the Library's first game as one of Alfa's games, its video the test video (its reads are
  * answered so; the account is never written to: its own video is on another computer).
  */
-async function alfaWithAPlayableGame(page: Page): Promise<void> {
+async function alfaWithAPlayableGame(page: Page, patch: GameReadPatch = {}): Promise<void> {
   await page.goto("/matches");
   await deleteOwnedPlaylists(page, [PLAYS_TARGET]);
   const game = await openLibraryGame(page, 0);
   const [row] = await selectRows<{ source_game_id: string | null }>(page, "matches", "source_game_id", { id: game.id });
   expect(row?.source_game_id ?? "", "the Library's first game is a league game").toMatch(/^\d+$/);
-  await patchGameReads(page, { videoUrl: FIXTURE_VIDEO });
+  await patchGameReads(page, { videoUrl: FIXTURE_VIDEO, ...patch });
   await mockLeague(page, madeUpLeague({ libraryGame: Number(row.source_game_id) }));
   await openTeam(page, "Alfa");
   await page.getByRole("radio", { name: "Plays" }).click();
   await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * Keeps, in `window.drawn`, the key of every Plays row React draws again. Through the hook React tells its
+ * developer tools of each commit: a row was drawn when its props are a new object (a memo that holds keeps the
+ * old one). Call before the first navigation.
+ */
+async function countRowDraws(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    type Fiber = { type?: { name?: string }; memoizedProps: { row?: { key: string } }; child: Fiber | null; sibling: Fiber | null };
+    const drawn = new Set<string>();
+    const seen = new WeakSet<object>();
+    (window as unknown as { drawn: Set<string> }).drawn = drawn;
+    const visit = (first: Fiber | null) => {
+      for (let f = first; f; f = f.sibling) {
+        // The dev build may rename the row's function ("PlayRow2").
+        if (/^PlayRow\d*$/.test(f.type?.name ?? "") && f.memoizedProps?.row && !seen.has(f.memoizedProps)) {
+          seen.add(f.memoizedProps);
+          drawn.add(f.memoizedProps.row.key);
+        }
+        visit(f.child);
+      }
+    };
+    const renderers = new Map<number, unknown>();
+    (window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown }).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+      supportsFiber: true,
+      renderers,
+      inject(renderer: unknown) {
+        renderers.set(renderers.size + 1, renderer);
+        return renderers.size;
+      },
+      onCommitFiberRoot(_id: number, root: { current: Fiber }) {
+        visit(root.current.child);
+      },
+      onCommitFiberUnmount() {},
+      onPostCommitFiberRoot() {},
+      checkDCE() {},
+    };
+  });
 }
 
 /** The nth play row drawn in Plays (the list draws the rows near the view). */
@@ -620,6 +659,28 @@ test.describe("a play's row", () => {
     await row.getByRole("button", { name: `Add to ${PLAYS_TARGET}`, exact: true }).click();
     await expect(row.getByRole("button", { name: `In ${PLAYS_TARGET}. Remove`, exact: true })).toBeVisible();
     expect(await words.boundingBox()).toEqual(before);
+  });
+
+  test("an overtime play's clock keeps within its cell", async ({ page }) => {
+    await alfaWithAPlayableGame(page, { period: 5 });
+    const row = playRow(page, 0);
+    const clock = row.locator(":scope > span").nth(1);
+    await expect(clock).toHaveText(/^OT1 \d\d:\d\d$/);
+    expect(await clock.evaluate((el) => el.scrollWidth <= el.clientWidth), "the clock fits its cell").toBe(true);
+    const event = (await row.locator(":scope > span").nth(2).boundingBox())!;
+    const box = (await clock.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(event.x);
+  });
+
+  test("a click on one play draws that row again and no other", async ({ page }) => {
+    await countRowDraws(page);
+    await alfaWithAPlayableGame(page);
+    const third = playRow(page, 2);
+    const key = (await third.getAttribute("data-key"))!;
+    await page.evaluate(() => (window as unknown as { drawn: Set<string> }).drawn.clear());
+    await third.click({ modifiers: ["ControlOrMeta"] });
+    await expect(third).toHaveAttribute("aria-pressed", "true");
+    expect(await page.evaluate(() => [...(window as unknown as { drawn: Set<string> }).drawn])).toEqual([key]);
   });
 
   test("a row's label picker field takes the pointer as any field does", async ({ page }) => {

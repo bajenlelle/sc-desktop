@@ -52,7 +52,7 @@ export const GamePlayRow = memo(function GamePlayRow({
   active,
   selected,
   playing,
-  showTeam,
+  teamCodes,
   score,
   scored,
   labels,
@@ -71,8 +71,8 @@ export const GamePlayRow = memo(function GamePlayRow({
   selected: boolean;
   /** The current play, with footage on the stage (not merely selected). */
   playing: boolean;
-  /** Both teams are listed: the row names its team. */
-  showTeam: boolean;
+  /** Both teams are listed: the row names its team, in a column as wide as the widest of these codes. Null: no column. */
+  teamCodes: readonly string[] | null;
   /** The score after the play; shown when the play scored. */
   score: Score | null;
   /** Which side the play scored for. */
@@ -113,7 +113,7 @@ export const GamePlayRow = memo(function GamePlayRow({
         clock="clock-only"
         now={active && playing}
         strong={active}
-        team={showTeam}
+        team={teamCodes}
         labels={labels}
         score={score && scored ? { home: score.home, away: score.away, scored } : null}
         dim={outside !== null}

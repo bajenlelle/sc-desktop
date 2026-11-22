@@ -248,7 +248,7 @@ export function ClipRow({
               clock="with-period"
               now={isActive}
               strong={isActive}
-              team={false}
+              team={null}
               labels={assigned}
               context={isMultiMatch && matchTitle ? matchTitle : undefined}
               pill={groupPos === "first" || groupPos === "only" ? <GroupPill size={groupSize} onUngroup={onUngroup} /> : undefined}

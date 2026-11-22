@@ -7,7 +7,7 @@
  * that game's marks once, as any visit does).
  */
 import type { Locator, Page } from "@playwright/test";
-import { expect, openLibraryGame, openSampleGame, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
+import { expect, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
 
 const SIZES = [
   { width: 1440, height: 900 },
@@ -471,6 +471,22 @@ test("with both teams listed every play row says its team, and with one team non
   }
   await page.getByRole("radiogroup", { name: "Team" }).getByRole("radio").nth(1).click();
   await expect(rows.first().locator(":scope > span").nth(2)).not.toHaveText(/^[A-ZÅÄÖ0-9]{2,4}$/);
+});
+
+test("a team's code shows whole, and every row's event starts at the same place", async ({ page }) => {
+  await patchGameReads(page, { teamCodes: ["MMMM", "WWW"] });
+  await openSampleGame(page);
+  const rows = playRows(page);
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  const starts = new Set<number>();
+  for (let i = 0; i < 8; i++) {
+    const cells = rows.nth(i).locator(":scope > span");
+    const code = cells.nth(2);
+    await expect(code, `row ${i} names its team`).toHaveText(/^(MMMM|WWW)$/);
+    expect(await code.evaluate((el) => [el, ...el.querySelectorAll("*")].every((n) => n.scrollWidth <= n.clientWidth)), `row ${i}'s code shows whole`).toBe(true);
+    starts.add(Math.round((await cells.nth(3).boundingBox())!.x));
+  }
+  expect(starts.size, "every row's event starts where the others' do").toBe(1);
 });
 
 test("a play's details are under the video, and its row is one line", async ({ page }) => {

@@ -200,6 +200,13 @@ export function TeamPlaysView({
     const row = playRows.find((r) => r.key === key);
     if (row) collect.removeAdded(timed([row])[0]);
   };
+  // What the rows are handed: made once, calling the latest handlers, so a row's memo holds and a click draws only
+  // the rows it changes.
+  const latest = useRef({ onRowClick, addRow, removeRow });
+  latest.current = { onRowClick, addRow, removeRow };
+  const onPlay = useCallback((key: string, how: RowClick) => latest.current.onRowClick(key, how), []);
+  const onAdd = useCallback((key: string, anchorEl: HTMLElement) => latest.current.addRow(key, anchorEl), []);
+  const onRemove = useCallback((key: string) => latest.current.removeRow(key), []);
   const rowMenu = (key: string, anchorEl: HTMLElement) => (
     <GamePlayMenuContent
       plays={timed(targetsFor(key))}
@@ -425,9 +432,9 @@ export function TeamPlaysView({
               labelPickerFor={labelFor}
               renderLabelPicker={renderLabelPicker}
               rowMenu={rowMenu}
-              onPlay={onRowClick}
-              onAdd={addRow}
-              onRemove={removeRow}
+              onPlay={onPlay}
+              onAdd={onAdd}
+              onRemove={onRemove}
               onLabel={setLabelFor}
             />
           ) : plays.status === "reading" ? (

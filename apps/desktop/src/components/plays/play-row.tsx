@@ -166,8 +166,8 @@ export interface PlayRowCellsProps {
   now: boolean;
   /** The play on screen: its name in medium weight. */
   strong: boolean;
-  /** Draw the team's code (the game view with both teams listed). */
-  team: boolean;
+  /** Every team code the list shows (the game view with both teams listed): the column is as wide as the widest. Null draws no column. */
+  team: readonly string[] | null;
   labels: readonly Label[];
   /** The game ("vs Zeta") in a list of several games; undefined draws no column. */
   context?: string | null;
@@ -187,6 +187,15 @@ export interface PlayRowCellsProps {
 
 const cell = "relative z-10";
 
+/**
+ * A cell as wide as the widest text in its `data-sizer` (lines split by "\n"), so the column lines up on every row
+ * and nothing in it is cut: a hidden, flat pseudo-element holds that text, and the page's text is only the cell's.
+ */
+const sized = "flex flex-col before:invisible before:block before:h-0 before:overflow-hidden before:whitespace-pre before:content-[attr(data-sizer)]";
+
+/** The widest a clock with its period gets. */
+const WIDEST_CLOCK = "OT1 00:00";
+
 /** The row's cells, in the column order every list shares. */
 export function PlayRowCells({ event: e, clock, now, strong, team, labels, context, score, dim = false, lead, pill, marks, actions }: PlayRowCellsProps) {
   const faded = dim && "opacity-55";
@@ -201,8 +210,17 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
       <span className={cn(cell, "flex w-3 shrink-0 justify-center")}>
         {now && <Play aria-label="Playing" className="size-2.5 fill-current text-foreground" />}
       </span>
-      <span className={cn(cell, "shrink-0 whitespace-nowrap text-muted-foreground nums", clock === "with-period" ? "w-16" : "w-10", faded)}>{clockText}</span>
-      {team && <span className={cn(cell, "w-8 shrink-0 truncate text-muted-foreground", faded)}>{teamCode(e) ?? ""}</span>}
+      <span
+        className={cn(cell, "shrink-0 whitespace-nowrap text-muted-foreground nums", clock === "with-period" ? sized : "w-10", faded)}
+        data-sizer={clock === "with-period" ? WIDEST_CLOCK : undefined}
+      >
+        {clockText}
+      </span>
+      {team && (
+        <span className={cn(cell, sized, "max-w-16 shrink-0 text-muted-foreground", faded)} data-sizer={team.join("\n")}>
+          <span className="truncate">{teamCode(e) ?? ""}</span>
+        </span>
+      )}
       {pill && <span className={cn(cell, "shrink-0")}>{pill}</span>}
       <span className={cn(cell, "flex w-24 shrink-0 items-center gap-1.5 @max-[370px]/row:w-[7px]", faded)} title={what}>
         <EventDot event={e} />
