@@ -24,7 +24,10 @@ export interface DragOverlay {
   remove(): void;
 }
 
-export function createDragOverlay(anchor: HTMLElement, count: number, reducedMotion: boolean): DragOverlay {
+export function createDragOverlay(row: HTMLElement, count: number, reducedMotion: boolean): DragOverlay {
+  // A row whose slot is taller than what it shows (the sidebar's, which carry their spacing) marks the part
+  // the card copies; it starts at the row's top.
+  const anchor = row.querySelector<HTMLElement>("[data-drag-face]") ?? row;
   const rect = anchor.getBoundingClientRect();
 
   const el = document.createElement("div");
@@ -52,6 +55,7 @@ export function createDragOverlay(anchor: HTMLElement, count: number, reducedMot
 
   const clone = anchor.cloneNode(true) as HTMLElement;
   clone.removeAttribute("data-row-key");
+  clone.removeAttribute("data-drag-face");
   clone.style.transform = "";
   clone.style.opacity = "";
   // cloneNode copies attributes, not the checked property React sets.

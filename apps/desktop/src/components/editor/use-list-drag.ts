@@ -69,6 +69,19 @@ export interface ListDragOptions {
    * the keys and assistive tech follow the row that was pressed.
    */
   focusRef?: RefObject<HTMLElement | null>;
+  /**
+   * What a press may not start a drag on. Controls by default; a list whose
+   * rows are themselves buttons (the sidebar's open games) narrows it.
+   */
+  noDragSelector?: string;
+  /** A press leaves the focus where it is (the sidebar: the page's keys go on working). */
+  keepFocus?: boolean;
+  /**
+   * The list stays the target wherever the pointer goes: above it means the
+   * first slot, below it the last. For a short list in a column (the
+   * sidebar), where a drag a little past its ends must not cancel.
+   */
+  holdOutside?: boolean;
 }
 
 export interface ListDrag {
@@ -131,6 +144,8 @@ interface Session {
   target: DragTarget;
   gap: number | null;
   raf: number | null;
+  /** Each container's scroll at the last hit test, to catch a scroll the drag didn't make (wheel, trackpad momentum). */
+  seenScroll: Map<HTMLElement, number>;
   captureEl: Element | null;
   finished: boolean;
 }
@@ -256,6 +271,7 @@ export function useListDrag(options: ListDragOptions): ListDrag {
           if (el.dataset.folderId) return { kind: "folder", id: el.dataset.folderId };
         }
       }
+      if (list && opts.current.holdOutside) return { kind: "list", gap: gapAt(s, list, y) };
       return { kind: "none" };
     }
 
@@ -284,22 +300,31 @@ export function useListDrag(options: ListDragOptions): ListDrag {
       }
     }
 
-    // Autoscroll either container while the pointer sits near its edge; the
+    // Autoscroll either container while the pointer sits near its edge, or
+    // past it in the same column (at full speed there, as on the Mac); the
     // hit test re-runs after a scroll because the gap under a still pointer
     // changes with it.
     function step(s: Session) {
+      if (s.finished) return;
       const { x, y } = s.last;
       for (const el of [opts.current.listRef.current, opts.current.sidebarRef.current]) {
         if (!el) continue;
+        // Scrolled by the wheel or a trackpad's momentum, which go on with the pointer still: the gap under
+        // the card moved with the rows.
+        if (s.seenScroll.has(el) && s.seenScroll.get(el) !== el.scrollTop) update(s, x, y);
+        s.seenScroll.set(el, el.scrollTop);
         const r = el.getBoundingClientRect();
-        if (!inside(r, x, y) || el.scrollHeight <= el.clientHeight) continue;
+        if (x < r.left || x > r.right || el.scrollHeight <= el.clientHeight) continue;
+        // A short scroller (the sidebar in a small window) keeps a middle that doesn't scroll.
+        const edge = Math.min(EDGE_PX, r.height / 4);
         let delta = 0;
-        if (y < r.top + EDGE_PX) delta = -MAX_SCROLL_PX * (1 - (y - r.top) / EDGE_PX);
-        else if (y > r.bottom - EDGE_PX) delta = MAX_SCROLL_PX * (1 - (r.bottom - y) / EDGE_PX);
+        if (y < r.top + edge) delta = -MAX_SCROLL_PX * clamp(1 - (y - r.top) / edge, 0, 1);
+        else if (y > r.bottom - edge) delta = MAX_SCROLL_PX * clamp(1 - (r.bottom - y) / edge, 0, 1);
         if (delta === 0) continue;
         const before = el.scrollTop;
         el.scrollTop += delta;
         if (el.scrollTop !== before) update(s, x, y);
+        s.seenScroll.set(el, el.scrollTop);
       }
       if (s.xOffset !== 0) {
         s.xOffset = Math.abs(s.xOffset) < 0.5 ? 0 : s.xOffset * 0.72;
@@ -396,6 +421,9 @@ export function useListDrag(options: ListDragOptions): ListDrag {
     function cancel(s: Session) {
       if (s.finished) return;
       s.finished = true;
+      // No autoscroll from here on: a step would move the card and stop the spring home, which never ends.
+      if (s.raf !== null) cancelAnimationFrame(s.raf);
+      s.raf = null;
       applyGap(s, null);
       const list = opts.current.listRef.current;
       const anchor = s.rows.find((r) => r.key === s.anchorKey);
@@ -415,13 +443,13 @@ export function useListDrag(options: ListDragOptions): ListDrag {
       });
     }
 
-    function release(s: Session, x: number, y: number) {
+    function release(s: Session, x: number, y: number, at: number) {
       if (s.finished) return;
       s.finished = true;
       if (s.raf !== null) cancelAnimationFrame(s.raf);
       s.raf = null;
       swallowNextClick();
-      const velocity = velocityFromSamples(s.samples);
+      const velocity = velocityFromSamples(s.samples, 100, at);
       const list = opts.current.listRef.current;
       if (s.target.kind === "list" && list) {
         // Land where the flick is going, at most one slot further.
@@ -482,6 +510,7 @@ export function useListDrag(options: ListDragOptions): ListDrag {
         target: { kind: "none" },
         gap: null,
         raf: null,
+        seenScroll: new Map(),
         captureEl: null,
         finished: false,
       };
@@ -542,7 +571,7 @@ export function useListDrag(options: ListDragOptions): ListDrag {
       const s = sessionRef.current;
       if (s) {
         if (e.pointerId !== s.pointerId) return;
-        release(s, e.clientX, e.clientY);
+        release(s, e.clientX, e.clientY, e.timeStamp);
         return;
       }
       if (pendingRef.current?.pointerId === e.pointerId) {
@@ -583,7 +612,7 @@ export function useListDrag(options: ListDragOptions): ListDrag {
       onRowPointerDown(e, key) {
         if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
         if (sessionRef.current || pendingRef.current) return;
-        if ((e.target as HTMLElement).closest(INTERACTIVE)) return;
+        if ((e.target as HTMLElement).closest(opts.current.noDragSelector ?? INTERACTIVE)) return;
         // No text selection may start from a row (WebKit would extend one
         // into the sidebar as the pointer crosses it); the one default worth
         // keeping, focus leaving a field elsewhere, is done by hand: to the
@@ -591,7 +620,9 @@ export function useListDrag(options: ListDragOptions): ListDrag {
         e.preventDefault();
         const active = document.activeElement as HTMLElement | null;
         const focusTarget = opts.current.focusRef?.current;
-        if (focusTarget) {
+        if (opts.current.keepFocus) {
+          // Nothing moves.
+        } else if (focusTarget) {
           if (active !== focusTarget) focusTarget.focus({ preventScroll: true });
         } else if (active && active !== document.body && !e.currentTarget.contains(active)) {
           active.blur();

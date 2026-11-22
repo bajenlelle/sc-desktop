@@ -206,12 +206,12 @@ export function Sidebar() {
           />
         )}
 
-        {/* The scrolling middle. `layoutScroll` lets the open games' and teams' drag-to-reorder measure rows
-            against the scrolled position. Its inner column is at least as tall as the scroller, so the cards
-            below sit at the bottom while there is room and scroll with the rest when there is not. */}
-        <motion.div
+        {/* The scrolling middle. The open games' and teams' drag scrolls it at its edges (it finds it by
+            `data-sidebar-scroll`). Its inner column is at least as tall as the scroller, so the cards below
+            sit at the bottom while there is room and scroll with the rest when there is not. */}
+        <div
           ref={scrollRef}
-          layoutScroll
+          data-sidebar-scroll
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]"
           style={edgeMask(edges)}
         >
@@ -270,7 +270,7 @@ export function Sidebar() {
           <UpdateCard />
         </div>
         </div>
-        </motion.div>
+        </div>
 
         <div className="shrink-0 p-2">{user && <UserMenu user={user} />}</div>
       </div>
