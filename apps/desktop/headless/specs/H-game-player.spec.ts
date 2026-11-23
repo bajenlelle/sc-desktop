@@ -7,7 +7,7 @@
  * that game's marks once, as any visit does).
  */
 import type { Locator, Page } from "@playwright/test";
-import { expect, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
+import { expect, filterButton, filterPopover, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
 
 const SIZES = [
   { width: 1440, height: 900 },
@@ -250,9 +250,9 @@ test("pointing at the timeline never covers the footage", async ({ page, browser
   expect(scrolls, "showing the readout doesn't make the player's column scroll").toBe(false);
 });
 
-test("the moment chips fade at the edge where more of them wait", async ({ page }) => {
+test("the event chips fade at the edge where more of them wait", async ({ page }) => {
   await openSampleGame(page);
-  const row = page.getByRole("group", { name: "Moment" });
+  const row = page.getByRole("group", { name: "Event type" });
   const fits = await row.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
   expect(fits, "at the window's usual width the chips don't all fit").toBe(false);
 
@@ -276,7 +276,7 @@ test("the first visit's playlist chooser is tinted, not ringed like keyboard foc
     return { shadow: style.boxShadow, background: style.backgroundColor };
   });
   expect(shadow, "no 2px ring, which is how focus is drawn").not.toMatch(/0px 0px 0px 2px/);
-  const plain = await page.getByRole("button", { name: "Filters" }).evaluate((el) => getComputedStyle(el).backgroundColor);
+  const plain = await filterButton(page).evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(background, "it is tinted to draw the eye").not.toBe(plain);
 });
 
@@ -316,8 +316,8 @@ test("a switch's thumb stays in its track while the page around it settles", asy
 
   // And a switch still crosses its whole track when it is switched: on the game's filter sheet, which writes nothing.
   await showGameView(page);
-  await page.getByRole("button", { name: "Filters" }).click();
-  const sheet = page.getByRole("dialog");
+  await filterButton(page).click();
+  const sheet = filterPopover(page);
   await sheet.locator("button[aria-pressed]").filter({ hasText: /^#\d+/ }).first().click();
   const onFloor = sheet.getByRole("switch");
   await expect(onFloor).toHaveAttribute("aria-checked", "false");
@@ -420,7 +420,7 @@ test("a click on a play doesn't leave the keyboard's focus ring on it", async ({
   expect(await ringed(), "and still no play is ringed").toBe(-1);
 
   // The keyboard keeps its ring: Tab reaches a play, the ring shows where it is, and Return plays it.
-  await page.getByRole("button", { name: "Filters" }).focus();
+  await filterButton(page).focus();
   let reached = -1;
   for (let i = 0; i < 30 && reached < 0; i++) {
     await page.keyboard.press("Tab");

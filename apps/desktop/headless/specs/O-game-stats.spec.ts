@@ -110,7 +110,9 @@ test("Stats reads the game, and a number opens its plays in the Game view", asyn
   expect(scrolled, "the page has scrolled to the players").toBeGreaterThan(100);
   await fg.click();
   await expect(page.getByRole("button", { name: `Clear ${fgName}` })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText(`${attempts} ${attempts === 1 ? "play" : "plays"}`, { exact: true }).first()).toBeVisible();
+  // The count line: "12 of 432 plays".
+  await expect(page.getByRole("status").filter({ hasText: new RegExp(`^${attempts} of \\d+ plays?$`) }), "the count line says the attempts").toBeVisible();
+  await expect(page.getByRole("group", { name: "Stats filter" }), "the set is a token in the bar").toContainText(fgName);
   await expect(playRows(page)).toHaveCount(attempts);
   await showStats(page);
   await expect(page.getByRole("heading", { name: "Players", level: 2 })).toBeVisible();

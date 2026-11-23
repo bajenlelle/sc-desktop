@@ -4,7 +4,7 @@
  * mocked with, so nothing depends on real standings.
  */
 import type { Locator, Page } from "@playwright/test";
-import { type GameReadPatch, chooseNewTarget, delayPlaysReads, deleteOwnedPlaylists, expect, failPlaysReads, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
+import { type GameReadPatch, chooseNewTarget, delayPlaysReads, deleteOwnedPlaylists, expect, failPlaysReads, filterButton, filterPopover, filterSearch, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const teamRow = (page: Page, name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
@@ -566,15 +566,17 @@ test.describe("collecting from a team", () => {
     await expect(page.getByRole("button", { name: `Adding to ${PLAYS_TARGET}. Change playlist` })).toHaveCount(0);
   });
 
-  test("a letter typed in a filter menu doesn't add or label the play", async ({ page }) => {
+  test("a letter typed in the Filter popover goes to its search, and doesn't add or label the play", async ({ page }) => {
     await alfaWithAPlayableGame(page);
     await playRow(page, 0).click();
-    await page.getByRole("button", { name: "Player" }).click();
-    await expect(page.getByRole("menu")).toBeVisible();
+    await filterButton(page).click();
+    await expect(filterPopover(page)).toBeVisible();
     await page.keyboard.press("a");
     await page.keyboard.press("g");
+    await expect(filterSearch(page), "the letters are the search's").toHaveValue("ag");
     await expect(page.getByPlaceholder("Search or create…")).toHaveCount(0);
     await page.keyboard.press("Escape");
+    await expect(filterPopover(page)).toBeHidden();
   });
 });
 

@@ -19,9 +19,10 @@ import {
   deleteOwnRowsNamed,
   eventCount,
   expect,
+  filterToken,
   gameTrigger,
-  menuGroups,
   openAddClips,
+  pickFilter,
   pickOnlyGame,
   readSheetRows,
   shot,
@@ -121,15 +122,11 @@ test("Add clips searches several games and keeps a player across them", async ({
 
   // One player, then "Last 5 games of {their team}": that team's games, and the player stays picked.
   await pickOnlyGame(page, sheet, LULEA);
-  await sheet.getByRole("button", { name: "Player", exact: true }).click();
-  const koping = (await menuGroups(page.getByRole("menu"))).find((g) => g.heading === KOPING);
-  expect(koping, "the Player list has Köping Stars").toBeTruthy();
-  const playerLabel = koping!.options[0];
+  // The first of Köping Stars' players in the Filter popover.
+  const playerLabel = await pickFilter(page, sheet, KOPING);
   const playerName = playerLabel.replace(/^#\d+ /, "");
-  await page.getByRole("menuitemcheckbox", { name: playerLabel, exact: true }).click();
-  await page.keyboard.press("Escape");
-  const playerTrigger = sheet.getByRole("button", { name: playerLabel, exact: true });
-  await expect(playerTrigger).toBeVisible();
+  const playerTrigger = filterToken(sheet, "Player").getByRole("button", { name: playerLabel, exact: true });
+  await expect(playerTrigger, "the Player token names them").toBeVisible();
   ({ list } = await openPicker(page, sheet));
   const teamButton = page.getByRole("button", { name: `Last 5 games of ${KOPING}`, exact: true });
   await expect(teamButton, "the footer offers the player's team").toBeVisible();
@@ -154,7 +151,7 @@ test("Add clips searches several games and keeps a player across them", async ({
   await expect(triggerBehindPicker(page)).toHaveText("2 games");
   await closePicker(page);
   await waitForPlays(sheet);
-  await expect(sheet.getByRole("button", { name: "Player", exact: true }), "the player was pruned with the game that lacked them").toBeVisible();
+  await expect(filterToken(sheet, "Player"), "the player was pruned with the game that lacked them").toHaveCount(0);
   await shot(page, name("pruned"));
 
   // Close and reopen: the same games come back.

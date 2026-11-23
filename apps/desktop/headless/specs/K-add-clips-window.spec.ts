@@ -17,8 +17,10 @@ import {
   deleteOwnRowsNamed,
   eventCount,
   expect,
+  filterToken,
   gameTrigger,
   openAddClips,
+  pickFilter,
   readSheetRows,
   sheetRow,
   test,
@@ -228,16 +230,13 @@ test("the picker closes when its row leaves the list", async ({ page }) => {
   const name = await putFirstLabelOn(page, first);
   await closePicker(page);
 
-  // Only the plays with that label: the row is one of them.
-  // The filter's trigger says "Labels", or the label chosen in it.
-  const labelsFilter = (said: string) => sheet.getByRole("button", { name: said, exact: true }).and(sheet.locator('[aria-haspopup="menu"]'));
-  const filterByLabel = async (said: string) => {
-    await labelsFilter(said).click();
-    await page.getByRole("menuitemcheckbox", { name, exact: true }).click();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("menu")).toBeHidden();
+  // Only the plays with that label: the row is one of them. The label is a chip in the Filter popover's Labels;
+  // a second press takes it off again.
+  const filterByLabel = async () => {
+    await pickFilter(page, sheet, "Labels", name);
   };
-  await filterByLabel("Labels");
+  await filterByLabel();
+  await expect(filterToken(sheet, "Label"), "the label's token says it").toContainText(name);
   await expect.poll(() => eventCount(sheet), { message: "the label filter narrows the list" }).toBeLessThan(count);
   const labelled = await eventCount(sheet);
 
@@ -259,8 +258,9 @@ test("the picker closes when its row leaves the list", async ({ page }) => {
   await page.keyboard.press("Meta+a");
 
   // Clear the filter: ⌘A ticks every play, so the keys still belong to the sheet.
-  await filterByLabel(name);
+  await filterByLabel();
   await expect.poll(() => eventCount(sheet), { message: "the filter is off" }).toBe(count);
+  await expect(filterToken(sheet, "Label")).toHaveCount(0);
   await page.keyboard.press("Meta+a");
   await expect(sheet.getByRole("button", { name: `Add ${count} clips`, exact: true }), "⌘A ticks every play").toBeVisible();
 });

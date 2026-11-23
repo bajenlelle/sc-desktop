@@ -12,6 +12,8 @@ import {
   createPlaylist,
   deleteOwnRowsNamed,
   expect,
+  filterButton,
+  filterPopover,
   goViaSidebar,
   openAddClips,
   openLibraryGame,
@@ -497,9 +499,8 @@ test.describe("where there is no menu bar", () => {
   test("with the game's filter open, the chord and the sidebar's Search close it and open the search", async ({ page }) => {
     await openLibraryGame(page, 0);
     await showGameView(page);
-    const filterButton = page.getByRole("button", { name: /^Filters/ });
-    const filter = page.getByRole("dialog").filter({ has: page.getByPlaceholder("Player name or number") });
-    await filterButton.click();
+    const filter = filterPopover(page);
+    await filterButton(page).click();
     await expect(filter).toBeVisible();
     await page.keyboard.press("Control+k");
     await expect(panel(page)).toBeVisible();
@@ -508,7 +509,7 @@ test.describe("where there is no menu bar", () => {
     await page.keyboard.press("Escape");
     await expect(panel(page)).toBeHidden();
 
-    await filterButton.click();
+    await filterButton(page).click();
     await expect(filter).toBeVisible();
     await searchButton(page).click();
     await expect(panel(page)).toBeVisible();

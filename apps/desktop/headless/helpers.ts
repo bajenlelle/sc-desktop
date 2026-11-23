@@ -649,23 +649,85 @@ export async function pickOnlyGame(page: Page, sheet: Locator, title: string): P
   await waitForPlays(sheet);
 }
 
-/** A Radix menu read in order: each group heading with its options' labels (flat menus give one group named ""). */
-export async function menuGroups(menu: Locator): Promise<{ heading: string; options: string[] }[]> {
-  return menu.evaluate((el) => {
-    const groups: { heading: string; options: string[] }[] = [];
-    for (const child of Array.from(el.children)) {
-      const role = child.getAttribute("role");
-      const text = (child.textContent ?? "").trim();
-      if (role === "menuitemcheckbox") {
-        if (groups.length === 0) groups.push({ heading: "", options: [] });
-        groups[groups.length - 1].options.push(text);
-      } else if (!role && text) {
-        groups.push({ heading: text, options: [] });
-      }
-    }
-    return groups;
-  });
+// ---------------------------------------------------------------------------
+// The filter bar over every list of plays (components/plays/plays-filter-bar.tsx): the scope, Filter and
+// Presets; the event chips ("Event type"); a token per filter that is on ("Filters on").
+
+/** The bar's Filter button: "Filters", or "Filters, N on" while something in its popover is on. */
+export const filterButton = (scope: Page | Locator) => scope.getByRole("button", { name: /^Filters(, \d+ on)?$/ });
+
+/** The open Filter popover (portalled to the page, so found there): the one with the "Search filters" field. */
+export const filterPopover = (page: Page) =>
+  page.locator('[data-slot="popover-content"]').filter({ has: page.getByLabel("Search filters", { exact: true }) });
+
+/** The popover's search: it narrows the choices shown, never the plays. */
+export const filterSearch = (page: Page) => filterPopover(page).getByLabel("Search filters", { exact: true });
+
+/** Opens the Filter popover of the bar in `scope` (the page, or the Add clips sheet), unless it is open; returns it. */
+export async function openFilters(page: Page, scope: Page | Locator = page): Promise<Locator> {
+  const popover = filterPopover(page);
+  if (!(await popover.isVisible())) await filterButton(scope).click();
+  await expect(popover, "the Filter popover opens").toBeVisible();
+  return popover;
 }
+
+/** Closes the Filter popover with Escape. */
+export async function closeFilters(page: Page): Promise<void> {
+  await page.keyboard.press("Escape");
+  await expect(filterPopover(page), "Escape closes the Filter popover").toBeHidden();
+}
+
+/** A section of the open popover: a team's players (by the team's name), "Shot type", "Situation", "When", "Team", "Labels". */
+export const filterSection = (popover: Locator, name: string) => popover.getByRole("region", { name, exact: true });
+
+/** The popover's sections, by name, in order. */
+export async function filterSectionNames(popover: Locator): Promise<string[]> {
+  return popover.locator("section[aria-label]").evaluateAll((all) => all.map((s) => s.getAttribute("aria-label") ?? ""));
+}
+
+/** The sections that aren't a team's players. */
+const NOT_PLAYERS = new Set(["Shot type", "Situation", "When", "Team", "Labels"]);
+
+/** The popover's player sections (one per team, titled with its name), in order. */
+export async function playerSectionNames(popover: Locator): Promise<string[]> {
+  return (await filterSectionNames(popover)).filter((n) => !NOT_PLAYERS.has(n));
+}
+
+/** A section's chips in order, as they read ("#7 Ada Lind", "Layup"), and whether each is on. */
+export async function sectionChips(popover: Locator, section: string): Promise<{ label: string; pressed: boolean }[]> {
+  return filterSection(popover, section)
+    .locator("button[aria-pressed]")
+    .evaluateAll((all) =>
+      all.map((b) => ({
+        // The number and the name are separate spans: read them as words.
+        label: Array.from(b.childNodes)
+          .map((n) => (n.textContent ?? "").trim())
+          .filter(Boolean)
+          .join(" "),
+        pressed: b.getAttribute("aria-pressed") === "true",
+      })),
+    );
+}
+
+/**
+ * Presses one chip in a section of the Filter popover of the bar in `scope` (its first chip without `value`),
+ * checks that it flipped, and closes the popover with Escape. Returns the chip's label ("#7 Ada Lind").
+ */
+export async function pickFilter(page: Page, scope: Page | Locator, section: string, value?: string | RegExp): Promise<string> {
+  const popover = await openFilters(page, scope);
+  const chips = filterSection(popover, section).locator("button[aria-pressed]");
+  await expect(chips.first(), `the Filter popover has a "${section}" section`).toBeVisible({ timeout: 30_000 });
+  const chip = value === undefined ? chips.first() : filterSection(popover, section).getByRole("button", { name: value, exact: typeof value === "string" });
+  const was = await chip.getAttribute("aria-pressed");
+  const label = (await chip.evaluate((b) => Array.from(b.childNodes).map((n) => (n.textContent ?? "").trim()).filter(Boolean).join(" "))).trim();
+  await chip.click();
+  await expect(chip, `"${label}" in ${section} is ${was === "true" ? "off" : "on"}`).toHaveAttribute("aria-pressed", was === "true" ? "false" : "true");
+  await closeFilters(page);
+  return label;
+}
+
+/** The token of a filter that is on, by what it filters ("Player", "Shot type", "Team", "Label", "Quarter", "When"). */
+export const filterToken = (scope: Page | Locator, name: string) => scope.getByRole("group", { name: `${name} filter`, exact: true });
 
 export default async function globalSetup(): Promise<void> {
   if (!process.env.HEADLESS_DEVICE_ID) {
