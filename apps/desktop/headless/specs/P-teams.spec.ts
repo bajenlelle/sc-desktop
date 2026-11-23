@@ -4,7 +4,7 @@
  * mocked with, so nothing depends on real standings.
  */
 import type { Locator, Page } from "@playwright/test";
-import { type GameReadPatch, chooseNewTarget, delayPlaysReads, deleteOwnedPlaylists, expect, failPlaysReads, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
+import { type GameReadPatch, chooseNewTarget, delayPlaysReads, deleteOwnedPlaylists, expect, failPlaysReads, filterButton, filterPopover, filterSearch, FIXTURE_VIDEO, mockLeague, mockRoster, openLibraryGame, owned, patchGameReads, playlistClips, recordAnalytics, selectRows, shot, test, waitForQuiet, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const teamRow = (page: Page, name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
@@ -338,7 +338,9 @@ test("a pick that matches nothing says so", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("group", { name: "Picked plays" })).toHaveText("Nobody · 0", { timeout: 30_000 });
   await expect(page.getByText("No plays match.")).toBeVisible();
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  // The count line offers Clear filters too; this is the empty state's, the last of the two.
+  await expect(page.getByRole("button", { name: "Clear filters" })).toHaveCount(2);
+  await page.getByRole("button", { name: "Clear filters" }).last().click();
   await expect(page.getByText(/^\d+ plays in 1 game$/)).toBeVisible();
 });
 
@@ -564,15 +566,17 @@ test.describe("collecting from a team", () => {
     await expect(page.getByRole("button", { name: `Adding to ${PLAYS_TARGET}. Change playlist` })).toHaveCount(0);
   });
 
-  test("a letter typed in a filter menu doesn't add or label the play", async ({ page }) => {
+  test("a letter typed in the Filter popover goes to its search, and doesn't add or label the play", async ({ page }) => {
     await alfaWithAPlayableGame(page);
     await playRow(page, 0).click();
-    await page.getByRole("button", { name: "Player" }).click();
-    await expect(page.getByRole("menu")).toBeVisible();
+    await filterButton(page).click();
+    await expect(filterPopover(page)).toBeVisible();
     await page.keyboard.press("a");
     await page.keyboard.press("g");
+    await expect(filterSearch(page), "the letters are the search's").toHaveValue("ag");
     await expect(page.getByPlaceholder("Search or create…")).toHaveCount(0);
     await page.keyboard.press("Escape");
+    await expect(filterPopover(page)).toBeHidden();
   });
 });
 

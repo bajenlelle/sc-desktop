@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Film } from "lucide-react";
 import { toast } from "sonner";
-import { EMPTY_CLIP_FILTERS, hasActiveFilters, playersByTeam, type ClipFilters } from "@scoutable/shared/lib/clip-filters";
+import { playersByTeam } from "@scoutable/shared/lib/clip-filters";
+import { activeGroups, EMPTY_PLAY_FILTERS, playFiltersActive, type PlayFilters } from "@scoutable/shared/lib/play-filters";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import { pickLabel } from "@scoutable/shared/lib/team-copy";
 import { pickKeys, sideNumber, sideOf, teamPlayRows, type PlaysPick, type PlaysSide, type TeamPlayRow } from "@scoutable/shared/lib/team-video";
@@ -31,6 +32,10 @@ import { useFilterPresets } from "@/lib/use-filter-presets";
 import type { TeamPlays } from "@/lib/use-team-plays";
 import { TeamPlayList, type ListRow, type RowClick } from "./team-play-list";
 import { TeamPlaysFilters } from "./team-plays-filters";
+import { PlaysCountLine } from "@/components/plays/plays-count-line";
+import { PlaysSelectionBar } from "@/components/plays/plays-selection-bar";
+import { usePlayMoments } from "@/components/plays/use-play-moments";
+import { trackEvent } from "@/lib/analytics";
 
 /** No labels: one set, so the stage's memo of the play shown holds. */
 const EMPTY_LABELS: ReadonlySet<string> = new Set();
@@ -76,8 +81,10 @@ export function TeamPlaysView({
   /** Plays is the view shown: it owns the keys, and nothing plays while it is hidden. */
   active: boolean;
 }) {
-  const [filters, setFiltersState] = useState<ClipFilters>(EMPTY_CLIP_FILTERS);
-  const setFilters = (change: (f: ClipFilters) => ClipFilters) => setFiltersState(change);
+  const [filters, setFiltersState] = useState<PlayFilters>(EMPTY_PLAY_FILTERS);
+  const setFilters = (change: (f: PlayFilters) => PlayFilters) => setFiltersState(change);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const [unticked, setUnticked] = useState<ReadonlySet<string>>(new Set());
   const presets = useFilterPresets(orgId, "team_plays");
   const labelIds = useMemo(() => labels.map((l) => l.id), [labels]);
@@ -106,9 +113,17 @@ export function TeamPlaysView({
     [shown, side],
   );
 
+  // The When section: the quarters the games have, and each game's moments (its marks when the library has them).
+  const momentGames = useMemo(
+    () => shown.map((g) => ({ gameId: g.game.gameId, events: g.events, gameMarks: plays.matches.get(g.game.gameId)?.gameMarks ?? null })),
+    [shown, plays.matches],
+  );
+  const moments = usePlayMoments(momentGames);
+  const periods = useMemo(() => [...new Set(shown.flatMap((g) => g.events.map((e) => e.period)))].sort((a, b) => a - b), [shown]);
+
   const rows = useMemo<ListRow[]>(() => {
     const out: ListRow[] = [];
-    for (const r of teamPlayRows(shown, side, picked?.set ?? null, filters, labelsOf)) {
+    for (const r of teamPlayRows(shown, side, picked?.set ?? null, filters, labelsOf, moments.momentsOf)) {
       out.push(r);
       if (r.kind === "game") {
         const why = plays.playable(r.game.gameId);
@@ -116,7 +131,7 @@ export function TeamPlaysView({
       }
     }
     return out;
-  }, [shown, side, picked, filters, labelsOf, plays]);
+  }, [shown, side, picked, filters, labelsOf, plays, moments]);
   const playRows = useMemo(() => rows.filter((r): r is Extract<TeamPlayRow, { kind: "play" }> => r.kind === "play"), [rows]);
   const playCount = playRows.length;
   const gameCount = rows.filter((r) => r.kind === "game").length;
@@ -287,6 +302,19 @@ export function TeamPlaysView({
     }
   }, [labelling, video]);
 
+  // A filter change is one event once the coach has stopped changing it (the game view's game_view_filtered).
+  const firstFilter = useRef(true);
+  useEffect(() => {
+    if (firstFilter.current) {
+      firstFilter.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => trackEvent("plays_filtered", { surface: "team_plays", groups: activeGroups(filters), visible: playRows.length }), 800);
+    return () => window.clearTimeout(timer);
+    // The count rides along; it isn't what changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
   // ---- Keys ---------------------------------------------------------------------
   // The page's keys while Plays is shown, as the game view's are: focus is often on the toolbar's switch, so no container.
   useKeyScope("team-plays", active);
@@ -296,6 +324,13 @@ export function TeamPlaysView({
       // A filter menu's type-ahead ("a" for Andersson) keeps its letters: the scope has no container to tell it from the page.
       if (e.target instanceof Element && e.target.closest('[role="menu"],[role="listbox"],[role="dialog"]')) return;
       const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+      // ⌘F: the Filter popover with its search, as in the game view.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyF") {
+        e.preventDefault();
+        setFilterOpen(true);
+        window.setTimeout(() => searchRef.current?.focus(), 50);
+        return;
+      }
       if (plain && !e.shiftKey && e.code === "KeyA") {
         e.preventDefault();
         add(null);
@@ -409,34 +444,47 @@ export function TeamPlaysView({
     );
   }
 
-  const filtered = hasActiveFilters(filters);
+  const filtered = playFiltersActive(filters);
+  // Every filter and the pick from Season: the count line's Clear filters, and the empty state's.
+  const clearAll = () => {
+    setFiltersState(EMPTY_PLAY_FILTERS);
+    onClearPick();
+  };
   return (
     <div className="view-fade flex min-h-0 flex-1 flex-col">
-      <TeamPlaysFilters
-        side={side}
-        onSide={onSide}
-        games={allGames}
-        unticked={unticked}
-        onUntick={setUnticked}
-        filters={filters}
-        setFilters={setFilters}
-        playerGroups={playerGroups}
-        labels={labels}
-        presets={presets}
-        onApplyPreset={applyPreset}
-        pill={picked?.label ?? null}
-        onClearPick={onClearPick}
-      />
       {/* The divider between the list and the player drags, as in the game view: a wider column, a larger player. */}
       <ResizablePanelGroup direction="horizontal" autoSaveId="team-plays" className="min-h-0 flex-1">
         <ResizablePanel id="plays" defaultSize="42" minSize="320px" maxSize="60">
           <section aria-label="Their plays" className="flex h-full min-h-0 flex-col">
-            <div className="flex h-8 shrink-0 items-center justify-between border-b border-separator px-4 text-subheadline text-muted-foreground nums">
-              <span>
-                {playCount} {playCount === 1 ? "play" : "plays"} in {gameCount} {gameCount === 1 ? "game" : "games"}
-              </span>
-              <span>Newest game first</span>
-            </div>
+            {/* The filters sit over the list they narrow, so the footage starts at the top of its column. */}
+            <TeamPlaysFilters
+              side={side}
+              onSide={onSide}
+              games={allGames}
+              unticked={unticked}
+              onUntick={setUnticked}
+              filters={filters}
+              setFilters={setFilters}
+              playerGroups={playerGroups}
+              labels={labels}
+              presets={presets}
+              onApplyPreset={applyPreset}
+              pill={picked?.label ?? null}
+              onClearPick={onClearPick}
+              periods={periods}
+              moments={moments}
+              open={filterOpen}
+              onOpenChange={setFilterOpen}
+              searchRef={searchRef}
+            />
+            <PlaysCountLine
+              className="border-b border-separator px-4"
+              count={playCount}
+              detail={`in ${gameCount} ${gameCount === 1 ? "game" : "games"}`}
+              filtered={filtered || !!pick}
+              onClear={clearAll}
+              trail="Newest game first"
+            />
             {plays.failed.length > 0 && (
               <div className="flex shrink-0 items-center gap-3 border-b border-separator px-4 py-2">
                 <div className="min-w-0 flex-1 text-callout text-muted-foreground">
@@ -465,6 +513,14 @@ export function TeamPlaysView({
                 onAdd={onAdd}
                 onRemove={onRemove}
                 onLabel={setLabelFor}
+                selectionBar={
+                  <PlaysSelectionBar
+                    count={selected.size}
+                    collect={collect}
+                    plays={() => timed(playRows.filter((r) => selected.has(r.key)))}
+                    onClear={() => setSelected(new Set())}
+                  />
+                }
               />
             ) : plays.status === "reading" ? (
               <div className="space-y-2 p-4" aria-hidden>
@@ -479,10 +535,7 @@ export function TeamPlaysView({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => {
-                      setFiltersState(EMPTY_CLIP_FILTERS);
-                      onClearPick();
-                    }}
+                    onClick={clearAll}
                   >
                     Clear filters
                   </Button>
@@ -515,17 +568,6 @@ export function TeamPlaysView({
                   status={playback.currentKey ? collect.statusOf(playback.currentKey) : "none"}
                   targetName={collect.target?.name ?? null}
                 />
-                {selected.size > 0 && (
-                  <div className="flex h-11 items-center gap-2 px-1 text-subheadline text-muted-foreground nums">
-                    {selected.size} selected
-                    <Button size="sm" variant="outline" onClick={(e) => add(e.currentTarget)}>
-                      Add {selected.size}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-                      Deselect
-                    </Button>
-                  </div>
-                )}
               </div>
             </div>
           </section>

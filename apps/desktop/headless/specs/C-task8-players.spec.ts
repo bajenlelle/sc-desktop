@@ -1,14 +1,33 @@
 /**
- * Group C, Task 8: the Add clips Player dropdown lists players under their
+ * Group C, Task 8: the Add clips Filter popover lists players under their
  * team, as "#<number> <name>", numbers ascending and players without one
- * last, and type-ahead finds a player by name (not by "#"). Picking a team
- * leaves only that team's heading.
+ * last; its search narrows them by name or by shirt number ("#7"), and ⌘F
+ * opens it with the search focused. Picking a team leaves only that team's
+ * players.
  *
  * Needs the staging test account's Genius game "BC Luleå vs Köping Stars"
  * (two teams, one Luleå player without a shirt number). Creates the playlist
  * `headless-<port> players` and deletes it afterwards.
  */
-import { PORT, createPlaylist, deleteOwnRowsNamed, expect, menuGroups, openAddClips, pickOnlyGame, shot, test } from "../helpers";
+import type { Locator } from "@playwright/test";
+import {
+  PORT,
+  closeFilters,
+  createPlaylist,
+  deleteOwnRowsNamed,
+  expect,
+  filterPopover,
+  filterSearch,
+  filterToken,
+  openAddClips,
+  openFilters,
+  pickFilter,
+  pickOnlyGame,
+  playerSectionNames,
+  sectionChips,
+  shot,
+  test,
+} from "../helpers";
 
 const PLAYLIST = `headless-${PORT} players`;
 const GAME = "BC Luleå vs Köping Stars";
@@ -23,19 +42,30 @@ function parse(label: string): { number: number | null; name: string } {
   return m ? { number: Number(m[1]), name: m[2] } : { number: null, name: label };
 }
 
-test("players are grouped by team with shirt numbers, and type-ahead goes by name", async ({ page, browserName }) => {
+/** Every player chip the popover shows now, by team. */
+async function playersShown(popover: Locator): Promise<{ heading: string; options: string[] }[]> {
+  const out: { heading: string; options: string[] }[] = [];
+  for (const heading of await playerSectionNames(popover)) out.push({ heading, options: (await sectionChips(popover, heading)).map((c) => c.label) });
+  return out;
+}
+
+test("players are grouped by team with shirt numbers on Player's page, and its search narrows them by name or number", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-C-task8-${step}`;
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
   const playlistId = await createPlaylist(page, PLAYLIST);
   const sheet = await openAddClips(page, playlistId);
   await pickOnlyGame(page, sheet, GAME);
 
-  // Two team headings, each with "#N Name" options sorted by number, players without one last.
-  await sheet.getByRole("button", { name: "Player", exact: true }).click();
-  const menu = page.getByRole("menu");
-  await expect(menu.getByRole("menuitemcheckbox").first()).toBeVisible();
-  const groups = await menuGroups(menu);
-  expect(groups.map((g) => g.heading).sort(), "one heading per team").toEqual(["BC Luleå", "Köping Stars"]);
+  // ⌘F opens the Filter popover with its search focused.
+  await sheet.getByRole("group", { name: "Event type" }).getByRole("button", { name: "2PT made" }).focus();
+  await page.keyboard.press("Meta+f");
+  await expect(filterPopover(page), "⌘F opens the Filter popover").toBeVisible();
+  await expect(filterSearch(page), "with its search focused").toBeFocused();
+
+  // Two teams, each with "#N Name" chips sorted by number, players without one last.
+  const popover = filterPopover(page);
+  const groups = await playersShown(popover);
+  expect(groups.map((g) => g.heading).sort(), "one section per team").toEqual(["BC Luleå", "Köping Stars"]);
   for (const group of groups) {
     const parsed = group.options.map(parse);
     expect(parsed.length, `${group.heading} lists players`).toBeGreaterThan(0);
@@ -50,32 +80,44 @@ test("players are grouped by team with shirt numbers, and type-ahead goes by nam
   expect(luleå.at(-1), "Luleå's player without a shirt number is listed last, by name").toBe("Robert Holmes");
   await shot(page, name("groups"));
 
-  // Type-ahead: the first letters of a name whose two-letter start no one else shares.
+  // The search narrows the players to those whose name holds what is typed (any case), and keeps their team.
   const all = groups.flatMap((g) => g.options);
-  const prefix = (label: string) => parse(label).name.slice(0, 2).toLowerCase();
-  const target = all.slice(1).find((label) => all.filter((other) => prefix(other) === prefix(label)).length === 1);
-  expect(target, "some player's first two letters are their own").toBeTruthy();
-  await page.keyboard.type(prefix(target!));
-  await expect(menu.locator("[role=menuitemcheckbox][data-highlighted]"), `typing "${prefix(target!)}" moves to ${target}`).toHaveText(target!);
-  await shot(page, name("typeahead"));
-  await page.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
+  const fragment = (label: string) => parse(label).name.slice(0, 3).toLowerCase();
+  const byName = (typed: string) => all.filter((label) => parse(label).name.toLowerCase().includes(typed)).sort();
+  const target = all.find((label) => byName(fragment(label)).length < all.length / 2);
+  expect(target, "some player's first three letters narrow the players").toBeTruthy();
+  const typed = fragment(target!).toUpperCase();
+  await filterSearch(page).pressSequentially(typed);
+  await expect
+    .poll(async () => (await playersShown(popover)).flatMap((g) => g.options).sort(), { message: `"${typed}" leaves the players whose name holds it` })
+    .toEqual(byName(typed.toLowerCase()));
+  expect((await playersShown(popover)).flatMap((g) => g.options), `${target} is among them`).toContain(target);
+  await shot(page, name("search-name"));
 
-  // Typing "#" matches nothing: the numbers are in the label, not in what type-ahead reads.
-  await sheet.getByRole("button", { name: "Player", exact: true }).click();
-  await expect(menu.getByRole("menuitemcheckbox").first()).toBeVisible();
-  await page.keyboard.type("#1");
-  await expect(menu.locator("[role=menuitemcheckbox][data-highlighted]"), "type-ahead doesn't read the shirt number").toHaveCount(0);
-  await page.keyboard.press("Escape");
+  // A shirt number, with or without "#": the players whose number starts with it ("1" finds #1 and #12).
+  const numbered = all.map(parse).find((p) => p.number !== null)!;
+  const byNumber = (n: string) => all.filter((label) => String(parse(label).number ?? "").startsWith(n) || parse(label).name.toLowerCase().includes(n)).sort();
+  await filterSearch(page).fill(`#${numbered.number}`);
+  await expect
+    .poll(async () => (await playersShown(popover)).flatMap((g) => g.options).sort(), { message: `"#${numbered.number}" finds the players by number` })
+    .toEqual(byNumber(String(numbered.number)));
+  expect(byNumber(String(numbered.number)), `#${numbered.number} is some player's number`).toContain(`#${numbered.number} ${numbered.name}`);
+  await shot(page, name("search-number"));
 
-  // A team in Team leaves only that team's heading.
-  await sheet.getByRole("button", { name: "Team", exact: true }).click();
-  await page.getByRole("menuitemcheckbox", { name: "Köping Stars" }).click();
-  await page.keyboard.press("Escape");
-  await expect(sheet.getByRole("button", { name: "Köping Stars", exact: true })).toBeVisible();
-  await sheet.getByRole("button", { name: "Player", exact: true }).click();
-  await expect(menu.getByRole("menuitemcheckbox").first()).toBeVisible();
-  expect((await menuGroups(menu)).map((g) => g.heading), "only the chosen team's heading").toEqual(["Köping Stars"]);
+  // A search that matches nothing says so; clearing it brings every player back.
+  await filterSearch(page).fill("zzqx");
+  await expect(popover.getByText("No filters match “zzqx”.")).toBeVisible();
+  await filterSearch(page).fill("");
+  await expect.poll(async () => (await playersShown(popover)).flatMap((g) => g.options).length).toBe(all.length);
+  // The search narrows the choices, never the plays: nothing is chosen by it.
+  await closeFilters(page);
+  await expect(filterToken(sheet, "Player")).toHaveCount(0);
+
+  // A team in Team leaves only that team's players.
+  await pickFilter(page, sheet, "Team", "Köping Stars");
+  await expect(filterToken(sheet, "Team")).toContainText("Köping Stars");
+  await openFilters(page, sheet);
+  expect(await playerSectionNames(popover), "only the chosen team's players").toEqual(["Köping Stars"]);
   await shot(page, name("one-team"));
-  await page.keyboard.press("Escape");
+  await closeFilters(page);
 });

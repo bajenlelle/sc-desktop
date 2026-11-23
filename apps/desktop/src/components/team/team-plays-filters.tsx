@@ -1,20 +1,19 @@
-import { ChevronDown, X } from "lucide-react";
-import { EVENT_TYPE_OPTIONS, SHOT_TYPE_OPTIONS, SITUATION_OPTIONS, type ClipFilters, type PlayerGroup } from "@scoutable/shared/lib/clip-filters";
+import type * as React from "react";
+import { ChevronDown } from "lucide-react";
+import type { PlayerGroup } from "@scoutable/shared/lib/clip-filters";
+import type { GameMoment } from "@scoutable/shared/lib/game-flow";
+import type { PlayFilters } from "@scoutable/shared/lib/play-filters";
 import type { FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { PlaysSide, TeamGame } from "@scoutable/shared/lib/team-video";
-import { EventTypeChips } from "@/components/editor/event-type-chips";
 import { FilterPresetsMenu } from "@/components/filter-presets-menu";
+import { FilterToken, PlaysFilterBar } from "@/components/plays/plays-filter-bar";
 import { quietControl, quietState } from "@/components/ui/filter-button";
-import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { useFilterPresets } from "@/lib/use-filter-presets";
 import { cn } from "@/lib/utils";
 import { gameTitle } from "./team-play-list";
-
-/** Timeouts aren't plays to watch: the list holds none. */
-const TYPE_OPTIONS = EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeout");
 
 /** Which of the team's games the list holds: all ticked to start, any can be unticked; no limit (Add clips stops at 10). */
 function GamesPicker({ games, unticked, onChange }: { games: readonly TeamGame[]; unticked: ReadonlySet<string>; onChange: (next: Set<string>) => void }) {
@@ -59,8 +58,9 @@ function GamesPicker({ games, unticked, onChange }: { games: readonly TeamGame[]
 }
 
 /**
- * Plays' controls: the side of the ball, the games, Add clips' filters and
- * presets, the picked plays as one pill, and the event chips.
+ * Plays' controls, in the bar every list of plays has (PlaysFilterBar): the side of the ball and the games,
+ * Filter (players, shot types, situations, quarters and moments, labels; ⌘F) and Presets; the event chips; the
+ * picked plays and every filter that is on as tokens.
  */
 export function TeamPlaysFilters({
   side,
@@ -76,55 +76,52 @@ export function TeamPlaysFilters({
   onApplyPreset,
   pill,
   onClearPick,
+  periods,
+  moments,
+  open,
+  onOpenChange,
+  searchRef,
 }: {
   side: PlaysSide;
   onSide: (side: PlaysSide) => void;
   games: readonly TeamGame[];
   unticked: ReadonlySet<string>;
   onUntick: (next: Set<string>) => void;
-  filters: ClipFilters;
-  setFilters: (change: (f: ClipFilters) => ClipFilters) => void;
+  filters: PlayFilters;
+  setFilters: (change: (f: PlayFilters) => PlayFilters) => void;
   playerGroups: readonly PlayerGroup[];
   labels: readonly Label[];
   presets: ReturnType<typeof useFilterPresets>;
   onApplyPreset: (p: FilterPreset) => void;
   pill: string | null;
   onClearPick: () => void;
+  periods: readonly number[];
+  moments: { counts: Partial<Record<GameMoment, number>>; why?: Partial<Record<GameMoment, string>> };
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  searchRef?: React.Ref<HTMLInputElement>;
 }) {
-  const group = (key: keyof ClipFilters) => (next: Set<string>) => setFilters((f) => ({ ...f, [key]: next }));
   return (
-    <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-4 py-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <SegmentedControl
-          size="sm"
-          aria-label="Side of the ball"
-          value={side}
-          onValueChange={onSide}
-          options={[
-            { value: "with", label: "With the ball", title: "Their plays" },
-            { value: "without", label: "Without the ball", title: "What their opponents did against them" },
-          ]}
-        />
-        <GamesPicker games={games} unticked={unticked} onChange={onUntick} />
-        <MultiSelectDropdown
-          groups={playerGroups.map((g) => ({
-            label: g.teamName || "Other players",
-            options: g.players.map((p) => ({ value: p.key, label: p.number ? `#${p.number} ${p.name}` : p.name, textValue: p.name })),
-          }))}
-          selected={filters.players}
-          onChange={group("players")}
-          placeholder="Player"
-        />
-        <MultiSelectDropdown options={SHOT_TYPE_OPTIONS} selected={filters.shotTypes} onChange={group("shotTypes")} placeholder="Shot type" />
-        <MultiSelectDropdown options={SITUATION_OPTIONS} selected={filters.situations} onChange={group("situations")} placeholder="Situation" />
-        {labels.length > 0 && (
-          <MultiSelectDropdown
-            options={labels.map((l) => ({ value: l.id, label: l.name }))}
-            selected={filters.labels ?? new Set()}
-            onChange={group("labels")}
-            placeholder="Labels"
+    <PlaysFilterBar
+      className="px-4 pt-2.5 pb-1"
+      filters={filters}
+      onChange={(next) => setFilters(() => next)}
+      scope={
+        <>
+          <SegmentedControl
+            size="sm"
+            aria-label="Side of the ball"
+            value={side}
+            onValueChange={onSide}
+            options={[
+              { value: "with", label: "With the ball", title: "Their plays" },
+              { value: "without", label: "Without the ball", title: "What their opponents did against them" },
+            ]}
           />
-        )}
+          <GamesPicker games={games} unticked={unticked} onChange={onUntick} />
+        </>
+      }
+      presets={
         <FilterPresetsMenu
           presets={presets.presets}
           current={filters}
@@ -133,23 +130,17 @@ export function TeamPlaysFilters({
           onRename={presets.rename}
           onDelete={presets.remove}
         />
-      </div>
-      <div className="flex min-w-0 items-center gap-2">
-        {pill && (
-          <span role="group" aria-label="Picked plays" className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-fill-3 pr-1 pl-2.5 text-subheadline font-semibold nums">
-            {pill}
-            <button
-              type="button"
-              aria-label="Clear the picked plays"
-              onClick={onClearPick}
-              className="flex size-4 items-center justify-center rounded-full outline-none hover:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection"
-            >
-              <X className="size-3" />
-            </button>
-          </span>
-        )}
-        <EventTypeChips options={TYPE_OPTIONS} selected={filters.types} onChange={group("types")} className="min-w-0 flex-1" />
-      </div>
-    </div>
+      }
+      players={playerGroups}
+      labels={labels}
+      periods={periods}
+      moments={moments}
+      open={open}
+      onOpenChange={onOpenChange}
+      searchRef={searchRef}
+      picks={
+        pill && <FilterToken name="" values={pill} groupLabel="Picked plays" removeLabel="Clear the picked plays" onRemove={onClearPick} />
+      }
+    />
   );
 }

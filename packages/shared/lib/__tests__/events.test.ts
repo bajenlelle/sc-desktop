@@ -35,9 +35,9 @@ describe("playClock and describePlay", () => {
   });
 
   it("names the player and the play, or the team when no player is on it", () => {
-    expect(describePlay(ev({}))).toBe("#7 Ida Andersson, 3PT Made");
-    expect(describePlay(ev({ player: { playerId: 1, pno: 0, firstName: "Ida", familyName: "Andersson", teamNumber: 1 } }))).toBe("Ida Andersson, 3PT Made");
-    expect(describePlay(ev({ player: null, type: "2pt", isSuccessful: 0 }))).toBe("Lidingö, 2PT Miss");
+    expect(describePlay(ev({}))).toBe("#7 Ida Andersson, 3PT made");
+    expect(describePlay(ev({ player: { playerId: 1, pno: 0, firstName: "Ida", familyName: "Andersson", teamNumber: 1 } }))).toBe("Ida Andersson, 3PT made");
+    expect(describePlay(ev({ player: null, type: "2pt", isSuccessful: 0 }))).toBe("Lidingö, 2PT miss");
   });
 });
 
@@ -61,17 +61,17 @@ describe("isBookkeepingEvent", () => {
 
 describe("eventLabel", () => {
   it("splits shots by outcome", () => {
-    expect(eventLabel(ev({ type: "2pt", isSuccessful: 1 }))).toBe("2PT Made");
-    expect(eventLabel(ev({ type: "2pt", isSuccessful: 0 }))).toBe("2PT Miss");
-    expect(eventLabel(ev({ type: "3pt", isSuccessful: 1 }))).toBe("3PT Made");
-    expect(eventLabel(ev({ type: "freethrow", isSuccessful: 0 }))).toBe("FT Miss");
+    expect(eventLabel(ev({ type: "2pt", isSuccessful: 1 }))).toBe("2PT made");
+    expect(eventLabel(ev({ type: "2pt", isSuccessful: 0 }))).toBe("2PT miss");
+    expect(eventLabel(ev({ type: "3pt", isSuccessful: 1 }))).toBe("3PT made");
+    expect(eventLabel(ev({ type: "freethrow", isSuccessful: 0 }))).toBe("FT miss");
   });
 
   it("decodes meaningful subtypes", () => {
-    expect(eventLabel(ev({ type: "turnover", subType: "badPass" }))).toBe("Bad Pass");
+    expect(eventLabel(ev({ type: "turnover", subType: "badPass" }))).toBe("Bad pass");
     expect(eventLabel(ev({ type: "foul", subType: "offensive" }))).toBe("Charge");
-    expect(eventLabel(ev({ type: "rebound", subType: "offensiveDeadBall" }))).toBe("Inbound Play");
-    expect(eventLabel(ev({ type: "rebound", subType: "defensive" }))).toBe("Def Rebound");
+    expect(eventLabel(ev({ type: "rebound", subType: "offensiveDeadBall" }))).toBe("Inbound play");
+    expect(eventLabel(ev({ type: "rebound", subType: "defensive" }))).toBe("Def. rebound");
   });
 
   it("falls back to the raw type when unknown", () => {

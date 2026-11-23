@@ -1,3 +1,4 @@
+import { PlaysCountLine } from "@/components/plays/plays-count-line";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
@@ -30,6 +31,7 @@ import {
   Snail,
   Tag,
   VideoOff,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoPlaceholder } from "@/components/video-placeholder";
@@ -123,7 +125,13 @@ import { PurchaseSheet } from "@/components/purchase-sheet";
 import { usePlayerAccess } from "@/lib/player-access";
 import { canExport } from "@scoutable/shared/lib/player-access";
 import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
-import { PlaylistFilterBar, EMPTY_QUEUE_FILTERS, queueFiltersActive, type QueueFilters } from "@/components/playlist-filter-bar";
+import { usePlaylistFilters, EMPTY_QUEUE_FILTERS, queueFiltersActive, type QueueFilters } from "@/components/playlist-filter-bar";
+import { usePlayMoments } from "@/components/plays/use-play-moments";
+import { matchesPlay } from "@scoutable/shared/lib/play-filters";
+import { playersByTeam } from "@scoutable/shared/lib/clip-filters";
+import { applyPresetFilters as applyPreset, presetLabelsGone as presetLabelsMissing, type FilterPreset as SavedFilters } from "@scoutable/shared/lib/filter-presets";
+import { useFilterPresets } from "@/lib/use-filter-presets";
+import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import type { OrgTeam, UserProfile } from "@/types/org";
 import {
   ContextMenu,
@@ -576,7 +584,9 @@ export function PlaylistsPage() {
   const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
   // In-playlist filter lens (transient — reset on playlist switch).
   const [queueFilters, setQueueFilters] = useState<QueueFilters>({ ...EMPTY_QUEUE_FILTERS });
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  // The Filter popover inside the bar, and its search (⌘F opens both).
+  const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
+  const filterSearchRef = useRef<HTMLInputElement | null>(null);
 
   // Clip drag: what the pointer engine (use-list-drag.ts) is hovering. The
   // list gap only shows for an empty list (rows open the gap themselves);
@@ -1162,7 +1172,7 @@ export function PlaylistsPage() {
   // A filter is a momentary lens — switching playlists clears it.
   useEffect(() => {
     setQueueFilters({ ...EMPTY_QUEUE_FILTERS });
-    setFiltersOpen(false);
+    setFilterPopoverOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
 
@@ -1751,10 +1761,17 @@ export function PlaylistsPage() {
   // dimension (AND across dimensions, OR within one).
   // -------------------------------------------------------------------------
   const filtersActive = queueFiltersActive(queueFilters);
-  const activeFilterDims = [
-    queueFilters.players, queueFilters.labelIds, queueFilters.eventTypes,
-    queueFilters.periods, queueFilters.matchIds,
-  ].filter((s) => s.size > 0).length;
+
+  // The playlist's games, each with every play it has: a moment (a run, Clutch) is read off the whole game.
+  const queueMomentGames = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of sortedEvents) if (!isTextCard(item)) ids.add((item as QueueItem).matchId);
+    return [...ids].map((id) => {
+      const m = matchLookup.get(id);
+      return { gameId: id, events: m?.events ?? [], gameMarks: m?.gameMarks ?? null };
+    });
+  }, [sortedEvents, matchLookup]);
+  const queueMoments = usePlayMoments(queueMomentGames);
 
   const filteredEvents = useMemo((): PlaybackItem[] => {
     if (!filtersActive) return sortedEvents;
@@ -1763,16 +1780,9 @@ export function PlaylistsPage() {
       const qi = item as QueueItem;
       const ev = qi.event;
       if (queueFilters.matchIds.size > 0 && !queueFilters.matchIds.has(qi.matchId)) return false;
-      if (queueFilters.periods.size > 0 && !queueFilters.periods.has(String(ev.period))) return false;
-      if (queueFilters.eventTypes.size > 0 && !queueFilters.eventTypes.has(eventLabel(ev))) return false;
-      if (queueFilters.players.size > 0 && !queueFilters.players.has(playerName(ev))) return false;
-      if (queueFilters.labelIds.size > 0) {
-        const assigned = clipAssignments.get(`${qi.matchId}:${ev.eventId}`);
-        if (!assigned || ![...queueFilters.labelIds].some((id) => assigned.has(id))) return false;
-      }
-      return true;
+      return matchesPlay(queueFilters, ev, clipAssignments.get(`${qi.matchId}:${ev.eventId}`), queueMoments.momentsOf(qi.matchId, ev.eventId));
     });
-  }, [sortedEvents, filtersActive, queueFilters, clipAssignments]);
+  }, [sortedEvents, filtersActive, queueFilters, clipAssignments, queueMoments]);
 
   /** What the queue, playback, selection and export actually operate on. */
   const queueItems = filtersActive ? filteredEvents : sortedEvents;
@@ -1793,30 +1803,57 @@ export function PlaylistsPage() {
 
   // Only offer filter options the open playlist actually contains.
   const queueFilterOptions = useMemo(() => {
-    const players = new Set<string>();
-    const types = new Set<string>();
-    const periods = new Set<string>();
+    const events: PlayByPlayEvent[] = [];
+    const periods = new Set<number>();
     const gameIds = new Set<string>();
     for (const item of sortedEvents) {
       if (isTextCard(item)) continue;
       const qi = item as QueueItem;
-      const name = playerName(qi.event);
-      if (name) players.add(name);
-      types.add(eventLabel(qi.event));
-      if (qi.event.period) periods.add(String(qi.event.period));
+      events.push(qi.event);
+      if (qi.event.period) periods.add(qi.event.period);
       gameIds.add(qi.matchId);
     }
-    // Labels are one vocabulary (scope lives on the assignment) — the filter
-    // matches either scope, so a plain alphabetical list is right.
-    const sortedLabels = [...labels].sort((a, b) => a.name.localeCompare(b.name, "sv"));
     return {
-      players: [...players].sort((a, b) => a.localeCompare(b, "sv")),
-      labels: sortedLabels,
-      eventTypes: [...types].sort().map((t) => ({ value: t, label: t })),
-      periods: [...periods].sort(),
+      players: playersByTeam(events),
+      periods: [...periods].sort((a, b) => a - b),
       games: [...gameIds].map((id) => ({ id, title: matchLookup.get(id)?.title ?? "Game" })),
     };
-  }, [sortedEvents, labels, selected?.id, matchLookup]);
+  }, [sortedEvents, matchLookup]);
+
+  // Presets, as in the game view, Teams' Plays and Add clips (one set per space).
+  const queuePresets = useFilterPresets(activeOrgId, "playlist");
+  const applyQueuePreset = (p: SavedFilters) => {
+    const labelIds = labels.map((l) => l.id);
+    setQueueFilters((f) => applyPreset(f, p.filters, labelIds));
+    queuePresets.applied(p);
+    if (presetLabelsMissing(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
+  };
+  // The toolbar's Filter opens the Filter menu in place; what is on shows over the list as tokens.
+  const queueFilterUi = usePlaylistFilters({
+    filters: queueFilters,
+    onChange: (next) => {
+      if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
+      setQueueFilters(next);
+    },
+    games: queueFilterOptions.games,
+    players: queueFilterOptions.players,
+    labels,
+    periods: queueFilterOptions.periods,
+    moments: queueMoments,
+    open: filterPopoverOpen,
+    onOpenChange: setFilterPopoverOpen,
+    searchRef: filterSearchRef,
+    presets: activeOrgId ? (
+      <FilterPresetsMenu
+        presets={queuePresets.presets}
+        current={queueFilters}
+        onApply={applyQueuePreset}
+        onSave={(name) => queuePresets.save(name, queueFilters)}
+        onRename={queuePresets.rename}
+        onDelete={queuePresets.remove}
+      />
+    ) : undefined,
+  });
 
   // ---------------------------------------------------------------------------
   // Playback
@@ -3002,6 +3039,13 @@ export function PlaylistsPage() {
   // over the latest render, so no refs are needed for state.
   useKeyScope("editor", !reportView);
   useHotkeys("editor", (e) => {
+    // ⌘F: the filters, with their search, as in every list of plays.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyF") {
+      e.preventDefault();
+      setFilterPopoverOpen(true);
+      window.setTimeout(() => filterSearchRef.current?.focus(), 80);
+      return;
+    }
     const labelKey = labelKeySlot(e);
     if (labelKey !== null) {
       e.preventDefault();
@@ -5740,6 +5784,42 @@ export function PlaylistsPage() {
   const activeMatchUrl = activeMatchId ? matchLookup.get(activeMatchId)?.videoUrl : undefined;
   const activeFileUnprobed =
     !cardOnStage && !!activeMatchUrl && isLocalPath(activeMatchUrl) && !videoStatusByMatch.has(activeMatchId!);
+  // A warning about the video sits in the player's column, under the video (or its placeholder), as the game
+  // view's does: what is wrong and one way to fix it.
+  const syncWarning = syncHint ? (
+    <Callout
+      tone="warning"
+      action={
+        <span className="flex shrink-0 items-center gap-1">
+          {syncHint.firstClip ? (
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() =>
+                openSyncFix(syncHint.firstClip!, "banner", {
+                  scope: "quarter",
+                  reason: "The video looks cut between quarters.",
+                })
+              }
+            >
+              Fix sync…
+            </Button>
+          ) : (
+            <Button size="xs" variant="outline" onClick={() => navigate(`/matches/${syncHint.matchId}`, { state: { openQuarters: true } })}>
+              Set quarters…
+            </Button>
+          )}
+          <Button size="icon-xs" variant="ghost" aria-label="Dismiss" title="Dismiss" onClick={() => dismissSyncHint(syncHint.matchId, syncHint.reason)}>
+            <X />
+          </Button>
+        </span>
+      }
+    >
+      {syncHint.pastEnd > 0
+        ? `${syncHint.pastEnd} ${syncHint.pastEnd === 1 ? "clip" : "clips"} from ${syncHint.title} ${syncHint.pastEnd === 1 ? "starts" : "start"} after the video ends, probably because it skips the breaks between quarters. ${syncHint.firstClip ? "Fix the sync" : "Set the quarters"} to line them up.`
+        : `The plays of ${syncHint.title} run past the end of its video, probably because it skips the breaks between quarters. ${syncHint.firstClip ? "Fix the sync" : "Set the quarters"} to line them up.`}
+    </Callout>
+  ) : null;
   const playerStack = localVideoUrl || stageCard ? (
       <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
         {/* Stage: in fullscreen it fills the layer; every overlay's coordinate
@@ -5873,6 +5953,7 @@ export function PlaylistsPage() {
         </div>
         {!playerFs.active && (
           <div className="flex flex-col gap-2">
+            {syncWarning}
             {stageCard?.card && (
               <StatsCardInspector
                 cardId={stageCard.id}
@@ -6060,6 +6141,7 @@ export function PlaylistsPage() {
     ) : (
       <div className="space-y-2">
         <VideoPlaceholder />
+        {syncWarning}
         {noVideo && selected.items.filter(isClipItem).length > 0 && (
           <p className="text-center text-xs text-muted-foreground">
             No video linked. Add one in the game.
@@ -6126,40 +6208,6 @@ export function PlaylistsPage() {
           No tip-off set. Set it in the game to play these clips.
         </Callout>
       )}
-      {syncHint && (
-        <Callout tone="warning" className="mb-3 shrink-0">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span className="min-w-0 flex-1">
-              {syncHint.pastEnd > 0
-                ? `${syncHint.pastEnd} clip${syncHint.pastEnd === 1 ? "" : "s"} from ${syncHint.title} ${syncHint.pastEnd === 1 ? "starts" : "start"} after the video ends.`
-                : `The play-by-play of ${syncHint.title} runs past the end of its video.`}{" "}
-              The video probably skips the breaks between quarters.
-            </span>
-            <span className="flex shrink-0 gap-1.5">
-              <Button size="xs" variant="ghost" onClick={() => dismissSyncHint(syncHint.matchId, syncHint.reason)}>
-                Dismiss
-              </Button>
-              <Button size="xs" variant="ghost" onClick={() => navigate(`/matches/${syncHint.matchId}`, { state: { openQuarters: true } })}>
-                Set quarters…
-              </Button>
-              {syncHint.firstClip && (
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() =>
-                    openSyncFix(syncHint.firstClip!, "banner", {
-                      scope: "quarter",
-                      reason: "The video looks cut between quarters.",
-                    })
-                  }
-                >
-                  Fix sync…
-                </Button>
-              )}
-            </span>
-          </div>
-        </Callout>
-      )}
       {showSyncTip && (
         <Callout
           icon={<Info />}
@@ -6182,30 +6230,18 @@ export function PlaylistsPage() {
           and cross-fade (a fade only under reduced motion). */}
       <AutoHeight className="shrink-0">
         <AnimatePresence mode="popLayout" initial={false}>
-          {filtersOpen ? (
-            <motion.div key="filter-bar" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="pb-2">
-              <PlaylistFilterBar
-                filters={queueFilters}
-                onChange={(next) => {
-                  if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
-                  setQueueFilters(next);
-                }}
-                options={queueFilterOptions}
-                shownCount={shownClipCount}
-                totalCount={totalClipCount}
+          {filtersActive ? (
+            // Only while something is on: what is on, as tokens (each opens its page of the toolbar's Filter menu),
+            // and the count with Clear filters, as every list of plays has.
+            <motion.div key="filtered" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="flex flex-col gap-1.5 pb-1">
+              {queueFilterUi.tokens}
+              <PlaysCountLine
+                count={shownClipCount}
+                total={totalClipCount}
+                noun={["clip", "clips"]}
+                filtered
+                onClear={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}
               />
-            </motion.div>
-          ) : filtersActive ? (
-            <motion.div key="filtered" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="pb-2">
-              <div className="flex min-h-8 items-center gap-2 rounded-md bg-fill-1 py-1 pr-1 pl-3 text-callout text-muted-foreground">
-                <ListFilter className="size-3.5 shrink-0" aria-hidden />
-                <span className="nums">
-                  Filtered: {shownClipCount} of {totalClipCount} clips
-                </span>
-                <Button variant="ghost" size="xs" className="ml-auto" onClick={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}>
-                  Clear
-                </Button>
-              </div>
             </motion.div>
           ) : null}
         </AnimatePresence>
@@ -6213,7 +6249,8 @@ export function PlaylistsPage() {
 
       <div
         ref={playlistScrollRef}
-        className={cn("min-h-0 flex-1 overflow-y-auto", selectedClipIds.size > 0 && "pb-16")}
+        // A pixel of room above the list: the group's ring is drawn outside it, and the scroller would cut its top edge.
+        className={cn("min-h-0 flex-1 overflow-y-auto pt-px", selectedClipIds.size > 0 && "pb-16")}
         // A click on the list's empty space lets go of the selection, as in Finder.
         onClick={(e) => {
           if (e.target === e.currentTarget && !e.metaKey && !e.shiftKey && selectedClipIds.size > 0) setSelectedClipIds(new Set());
@@ -6453,10 +6490,7 @@ export function PlaylistsPage() {
         onStop={handleStop}
         onAddClips={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
         highlightAddClips={onboardingHighlight === "add-clips"}
-        filtersOpen={filtersOpen}
-        filtersActive={filtersActive}
-        activeFilterDims={activeFilterDims}
-        onToggleFilters={() => setFiltersOpen((v) => !v)}
+        filter={queueFilterUi.button}
         onAddTextCard={() => void handleInsertCard("text", { at: "toolbar" }, "menu")}
         addTextCardDisabledReason={filtersActive ? "Clear filters to edit the playlist" : null}
         onAddStatsCard={() => void handleInsertCard("stats", { at: "toolbar" }, "menu")}

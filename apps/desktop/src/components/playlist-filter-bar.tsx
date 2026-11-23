@@ -1,112 +1,165 @@
-import { Button } from "@/components/ui/button";
-import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
-import { periodLabel } from "@scoutable/shared/lib/events";
+import * as React from "react";
+import { Film, ListFilter } from "lucide-react";
+import type { PlayerGroup } from "@scoutable/shared/lib/clip-filters";
+import type { GameMoment } from "@scoutable/shared/lib/game-flow";
+import { EMPTY_PLAY_FILTERS, clearField, playFiltersCount, toggled, type PlayFilters } from "@scoutable/shared/lib/play-filters";
 import type { Label } from "@scoutable/shared/types/labels";
+import type { MenuField } from "@/components/plays/filter-menu";
+import {
+  ClearFiltersRow,
+  FilterPopover,
+  FilterToken,
+  FilterTokens,
+  PAGE_OF_FIELD,
+  usePlayFilterFields,
+} from "@/components/plays/plays-filter-bar";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-export interface QueueFilters {
-  players: Set<string>;
-  labelIds: Set<string>;
-  eventTypes: Set<string>;
-  periods: Set<string>;
-  matchIds: Set<string>;
+/** The playlist's filters (Johannes #4/#12): what every list of plays filters by, and which of its games. */
+export interface QueueFilters extends PlayFilters {
+  matchIds: ReadonlySet<string>;
 }
 
-export const EMPTY_QUEUE_FILTERS: QueueFilters = {
-  players: new Set(),
-  labelIds: new Set(),
-  eventTypes: new Set(),
-  periods: new Set(),
-  matchIds: new Set(),
-};
+export const EMPTY_QUEUE_FILTERS: QueueFilters = { ...EMPTY_PLAY_FILTERS, matchIds: new Set() };
 
 export function queueFiltersActive(f: QueueFilters): boolean {
-  return (
-    f.players.size > 0 ||
-    f.labelIds.size > 0 ||
-    f.eventTypes.size > 0 ||
-    f.periods.size > 0 ||
-    f.matchIds.size > 0
-  );
+  return queueFilterCount(f) > 0;
+}
+
+/** How many fields narrow the queue (the count on the toolbar's Filter). */
+export function queueFilterCount(f: QueueFilters): number {
+  return playFiltersCount(f) + (f.matchIds.size > 0 ? 1 : 0);
 }
 
 /**
- * The in-playlist filter bar (Johannes #4/#12): narrow the queue by player,
- * label, event type, period or game. Every dropdown only offers what the
- * open playlist actually contains; an empty dimension isn't rendered. It
- * sits above the clip list, an inset group like the list itself.
+ * The editor's filters. The editor has no filter bar: the toolbar's Filter is the menu's trigger (the Filter
+ * menu every list of plays has, FilterMenu), as Linear's view header opens its filter menu in place. With no
+ * event chips here, Event is a field of the menu, and Game one too when the playlist holds more than one. What
+ * is on shows over the list as tokens, only while something is on; a token opens its field's page. Every field
+ * only offers what the open playlist contains. Returns the toolbar's control and the tokens.
  */
-export function PlaylistFilterBar({
+export function usePlaylistFilters({
   filters,
   onChange,
-  options,
-  shownCount,
-  totalCount,
+  games,
+  players,
+  labels,
+  periods,
+  moments,
+  open,
+  onOpenChange,
+  searchRef,
+  presets,
 }: {
   filters: QueueFilters;
   onChange: (next: QueueFilters) => void;
-  options: {
-    players: string[];
-    labels: Label[];
-    eventTypes: { value: string; label: string }[];
-    periods: string[];
-    games: { id: string; title: string }[];
-  };
-  shownCount: number;
-  totalCount: number;
+  games: readonly { id: string; title: string }[];
+  players: readonly PlayerGroup[];
+  labels: readonly Label[];
+  periods: readonly number[];
+  moments: { counts: Partial<Record<GameMoment, number>>; why?: Partial<Record<GameMoment, string>> };
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  searchRef?: React.Ref<HTMLInputElement>;
+  /** The saved filters (FilterPresetsMenu), at the foot of the menu. */
+  presets?: React.ReactNode;
 }) {
-  const set = <K extends keyof QueueFilters>(key: K, next: Set<string>) =>
-    onChange({ ...filters, [key]: next });
+  const [page, setPage] = React.useState<string | null>(null);
+  const setPlay = (next: PlayFilters) => onChange({ ...next, matchIds: filters.matchIds });
 
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      {options.players.length > 1 && (
-        <MultiSelectDropdown
-          placeholder="Player"
-          options={options.players.map((p) => ({ value: p, label: p }))}
-          selected={filters.players}
-          onChange={(s) => set("players", s)}
-        />
-      )}
-      {options.labels.length > 0 && (
-        <MultiSelectDropdown
-          placeholder="Label"
-          options={options.labels.map((l) => ({ value: l.id, label: l.name }))}
-          selected={filters.labelIds}
-          onChange={(s) => set("labelIds", s)}
-        />
-      )}
-      {options.eventTypes.length > 1 && (
-        <MultiSelectDropdown
-          placeholder="Event type"
-          options={options.eventTypes}
-          selected={filters.eventTypes}
-          onChange={(s) => set("eventTypes", s)}
-        />
-      )}
-      {options.periods.length > 1 && (
-        <MultiSelectDropdown
-          placeholder="Period"
-          options={options.periods.map((p) => ({ value: p, label: periodLabel(Number(p)) }))}
-          selected={filters.periods}
-          onChange={(s) => set("periods", s)}
-        />
-      )}
-      {options.games.length > 1 && (
-        <MultiSelectDropdown
-          placeholder="Game"
-          options={options.games.map((g) => ({ value: g.id, label: g.title }))}
-          selected={filters.matchIds}
-          onChange={(s) => set("matchIds", s)}
-        />
-      )}
-      <span className="ml-auto pl-1 text-callout text-muted-foreground nums">
-        {shownCount} of {totalCount} clips
-      </span>
-      {queueFiltersActive(filters) && (
-        <Button variant="ghost" size="xs" onClick={() => onChange({ ...EMPTY_QUEUE_FILTERS })}>
-          Clear
+  const gameTitle = (id: string) => games.find((g) => g.id === id)?.title ?? "Removed game";
+  const gameField: MenuField[] =
+    games.length > 1
+      ? [
+          {
+            id: "games",
+            name: "Game",
+            icon: Film,
+            values: games.map((g) => ({ value: g.id, label: g.title })),
+            isOn: (v) => filters.matchIds.has(v),
+            toggle: (v) => onChange({ ...filters, matchIds: toggled(filters.matchIds, v) }),
+            clear: () => onChange({ ...filters, matchIds: new Set() }),
+            count: filters.matchIds.size,
+            summary: filters.matchIds.size === 1 ? gameTitle([...filters.matchIds][0]) : String(filters.matchIds.size),
+          },
+        ]
+      : [];
+  const { fields, tokens, menuCount } = usePlayFilterFields({
+    filters,
+    onChange: setPlay,
+    players,
+    labels,
+    periods,
+    moments,
+    events: true,
+    leadFields: gameField,
+  });
+
+  const openAt = (p: string | null) => {
+    setPage(p);
+    onOpenChange(true);
+  };
+  const clearAll = () => onChange({ ...EMPTY_QUEUE_FILTERS });
+
+  const footer =
+    presets || menuCount > 0 ? (
+      <div className="flex items-center gap-1">
+        {menuCount > 0 && (
+          <div className="flex-1">
+            <ClearFiltersRow onClear={clearAll} />
+          </div>
+        )}
+        {presets && <div className={cn("flex", menuCount === 0 && "flex-1")}>{presets}</div>}
+      </div>
+    ) : undefined;
+
+  /** The toolbar's Filter, as its other actions look: icon and word, the icon alone when the toolbar is compact. */
+  const button = (compact: boolean): React.ReactElement => (
+    <FilterPopover
+      align="end"
+      open={open}
+      onOpenChange={onOpenChange}
+      page={page}
+      onPage={setPage}
+      searchRef={searchRef}
+      fields={fields}
+      footer={footer}
+      trigger={
+        <Button
+          variant="ghost"
+          size={compact && menuCount === 0 ? "icon-sm" : "sm"}
+          aria-label={menuCount > 0 ? `Filters, ${menuCount} on` : "Filters"}
+          title="Filter (⌘F)"
+          className={cn("data-[state=open]:bg-fill-2", menuCount > 0 && "bg-fill-2 hover:bg-fill-3")}
+        >
+          <ListFilter />
+          {!compact && "Filter"}
+          {menuCount > 0 && <span className="nums text-muted-foreground">{menuCount}</span>}
         </Button>
-      )}
-    </div>
+      }
+    />
   );
+
+  const gameToken =
+    filters.matchIds.size > 0 ? (
+      <FilterToken
+        name="Game"
+        op={filters.matchIds.size > 1 ? "is any of" : "is"}
+        values={[...filters.matchIds].map(gameTitle).join(", ")}
+        onEdit={() => openAt("games")}
+        onRemove={() => onChange({ ...filters, matchIds: new Set() })}
+      />
+    ) : null;
+
+  const tokenRow = (
+    <FilterTokens
+      tokens={tokens}
+      picks={gameToken}
+      onEdit={(field) => openAt(PAGE_OF_FIELD[field] ?? null)}
+      onRemove={(field) => setPlay(clearField(filters, field))}
+    />
+  );
+
+  return { button, tokens: tokenRow, count: menuCount };
 }

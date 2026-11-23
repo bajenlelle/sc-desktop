@@ -35,7 +35,7 @@ const report: ScoutingReport = {
       blocks: [
         { kind: "text", text: "Press early." },
         {
-          kind: "clip", id: "c1", clipKey: CLIP, posterKey: POSTER, label: "3PT Made", type: "3pt", subType: "", made: true,
+          kind: "clip", id: "c1", clipKey: CLIP, posterKey: POSTER, label: "3PT made", type: "3pt", subType: "", made: true,
           period: "Q2", clock: "04:31", game: null, note: null, labels: [],
         },
       ],

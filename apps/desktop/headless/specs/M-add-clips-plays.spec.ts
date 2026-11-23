@@ -16,6 +16,7 @@
  */
 import type { Locator, Page, Route } from "@playwright/test";
 import {
+  addSheetRows,
   PORT,
   addClipsSheet,
   createPlaylist,
@@ -116,9 +117,8 @@ test("clips added from a game the page had not loaded show in the editor", async
   await pickOnlyGame(page, sheet, game!);
   const keys = [...(await readSheetRows(sheet)).keys()].slice(0, 3);
   expect(keys, "the game lists three plays to tick").toHaveLength(3);
-  for (const key of keys) await (await sheetRow(sheet, key)).getByRole("checkbox", { name: "Select" }).click();
   const editorStates = await watchEditorList(page);
-  await sheet.getByRole("button", { name: "Add 3 clips", exact: true }).click();
+  await addSheetRows(sheet, keys);
   await sheet.getByRole("button", { name: "Close", exact: true }).click();
   await expect(sheet).toBeHidden();
 
@@ -163,13 +163,13 @@ test("a game whose plays can't be read is named, and the others are listed", asy
   await pressGame(page, sheet, SODERTALJE);
   await expect(failed, "the game whose plays didn't come is named").toBeVisible({ timeout: 30_000 });
   await expect(tryAgain).toBeVisible();
-  await expect(sheet.getByText("Loading clips…")).toHaveCount(0);
+  await expect(sheet.getByText("Loading plays…")).toHaveCount(0);
   // Picking it alone again is a retry: it is read again (and fails again), never left loading.
   const readsBefore = failedReads;
   await pressGame(page, sheet, SODERTALJE);
   await expect.poll(() => failedReads, { message: "choosing the failed game again reads it again" }).toBeGreaterThan(readsBefore);
   await expect(failed, "it is named again").toBeVisible({ timeout: 30_000 });
-  await expect(sheet.getByText("Loading clips…")).toHaveCount(0);
+  await expect(sheet.getByText("Loading plays…")).toHaveCount(0);
 
   // Tick the first game too: its plays are listed, and the second game is named.
   await gameTrigger(sheet).click();
@@ -181,7 +181,7 @@ test("a game whose plays can't be read is named, and the others are listed", asy
   await expect(gameTrigger(sheet)).toHaveText("2 games");
   await expect(failed, "the game whose plays didn't come is named").toBeVisible({ timeout: 30_000 });
   await expect(tryAgain).toBeVisible();
-  await expect(sheet.getByText("Loading clips…")).toHaveCount(0);
+  await expect(sheet.getByText("Loading plays…")).toHaveCount(0);
   expect(await eventCount(sheet), "the first game's plays are listed").toBe(lulea);
   await shot(page, `${browserName}-M-failed-game`);
 
@@ -213,14 +213,14 @@ test("coming back to Playlists within a session, Add clips lists its plays", asy
   await waitForPlays(sheet);
 });
 
-test("a play already in the playlist shows ✓ at full contrast and can't be ticked", async ({ page }) => {
+test("a play already in the playlist shows ✓ at full contrast and has no +", async ({ page }) => {
   const [key] = await newPlaylistWithClips(page, PLAYLIST, { count: 1 });
   await page.getByRole("button", { name: "Add clips", exact: true }).first().click();
   const sheet = addClipsSheet(page);
   await expect(sheet.getByRole("grid", { name: "Events" }).getByRole("row").first()).toBeVisible({ timeout: 30_000 });
   const row = await sheetRow(sheet, key);
   await expect(row.getByLabel("Already in this playlist")).toBeVisible();
-  await expect(row.getByRole("checkbox", { name: "Select" })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Add to this playlist" })).toHaveCount(0);
   expect(await row.evaluate((el) => Number(getComputedStyle(el).opacity))).toBe(1);
   expect(Math.round((await row.boundingBox())!.height)).toBe(32);
 });

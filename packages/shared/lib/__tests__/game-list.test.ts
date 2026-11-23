@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { GameMarks, GameTimeout } from "../../types/game-marks";
 import type { PlayByPlayEvent, SyncPoint } from "../../types/match";
-import { EMPTY_CLIP_FILTERS } from "../clip-filters";
 import { gameFlow, gameMoments } from "../game-flow";
 import { EMPTY_GAME_FILTERS, gameFilterCount, gameFiltersActive, gameRows, keepPlay, type GameFilters } from "../game-list";
 import { buildGameTimeline } from "../game-timeline";
+import { EMPTY_PLAY_FILTERS, type PlayFilters } from "../play-filters";
 
 const TIP = "2026-01-10T17:00:00Z";
 const sync: SyncPoint = { syncVideoTime: 100, syncRealWorldTime: TIP };
@@ -55,7 +55,17 @@ function setup(events: PlayByPlayEvent[], marks: GameMarks | null = null) {
   const moments = gameMoments(flow, marks);
   return { timeline, flow, moments, marks };
 }
-const withFilters = (patch: Partial<GameFilters>): GameFilters => ({ ...EMPTY_GAME_FILTERS, ...patch });
+/** The game view's own fields as given; `moment`, `periods` and the Add clips groups go into `play`. */
+const withFilters = (patch: Partial<GameFilters> & Partial<PlayFilters>): GameFilters => {
+  const { team, onCourt, picked, play, ...rest } = patch;
+  return {
+    ...EMPTY_GAME_FILTERS,
+    ...(team !== undefined ? { team } : {}),
+    ...(onCourt !== undefined ? { onCourt } : {}),
+    ...(picked !== undefined ? { picked } : {}),
+    play: { ...EMPTY_PLAY_FILTERS, ...play, ...rest },
+  };
+};
 const kept = (s: ReturnType<typeof setup>, filters: GameFilters, ctx: Partial<Parameters<typeof keepPlay>[1]> = {}) =>
   s.timeline.plays.filter(keepPlay(filters, { moments: s.moments, ...ctx })).map((p) => p.event.eventId);
 
@@ -64,10 +74,8 @@ describe("filters", () => {
     expect(gameFiltersActive(EMPTY_GAME_FILTERS)).toBe(false);
     expect(gameFilterCount(EMPTY_GAME_FILTERS)).toBe(0);
     expect(gameFiltersActive(withFilters({ team: 2 }))).toBe(true);
-    expect(gameFiltersActive(withFilters({ search: "  " }))).toBe(false);
-    expect(gameFiltersActive(withFilters({ search: "berg" }))).toBe(true);
     expect(gameFiltersActive(withFilters({ moment: "clutch" }))).toBe(true);
-    const sheet = withFilters({ periods: new Set([2]), clip: { ...EMPTY_CLIP_FILTERS, types: new Set(["2pt-made", "3pt-made"]), labels: new Set(["l1"]) } });
+    const sheet = withFilters({ periods: new Set([2]), types: new Set(["2pt-made", "3pt-made"]), labels: new Set(["l1"])  });
     expect(gameFilterCount(sheet)).toBe(3);
     expect(gameFiltersActive(sheet)).toBe(true);
   });
@@ -109,19 +117,11 @@ describe("keepPlay", () => {
     expect(gameFiltersActive(withFilters({ picked: { name: "None", eventIds: new Set() } }))).toBe(true);
   });
 
-  it("searches a player by name or shirt number", () => {
-    expect(kept(s, withFilters({ search: "berg" }))).toEqual([2, 4]);
-    expect(kept(s, withFilters({ search: " IDA " }))).toEqual([1, 3]);
-    expect(kept(s, withFilters({ search: "#7" }))).toEqual([1, 3]);
-    expect(kept(s, withFilters({ search: "12" }))).toEqual([2, 4]);
-    expect(kept(s, withFilters({ search: "1" }))).toEqual([]);
-  });
-
   it("applies the Add clips filters, and combines groups", () => {
-    const types = withFilters({ clip: { ...EMPTY_CLIP_FILTERS, types: new Set(["2pt-made", "turnover"]) } });
+    const types = withFilters({ types: new Set(["2pt-made", "turnover"])  });
     expect(kept(s, types)).toEqual([1, 4]);
     expect(kept(s, { ...types, team: 2 })).toEqual([4]);
-    const players = withFilters({ clip: { ...EMPTY_CLIP_FILTERS, players: new Set(["Ida Andersson"]) } });
+    const players = withFilters({ players: new Set(["id:7"])  });
     expect(kept(s, players)).toEqual([1, 3]);
   });
 
@@ -132,18 +132,18 @@ describe("keepPlay", () => {
   });
 
   it("filters by label through the clip keys", () => {
-    const labelled = withFilters({ clip: { ...EMPTY_CLIP_FILTERS, labels: new Set(["pnr"]) } });
+    const labelled = withFilters({ labels: new Set(["pnr"])  });
     const labelsOf = (key: string) => (key === "m:2" ? new Set(["pnr", "x"]) : key === "m:3" ? new Set(["x"]) : undefined);
     expect(kept(s, labelled, { labelsOf })).toEqual([2]);
     expect(kept(s, labelled)).toEqual([]);
   });
 
   it("turns the player filter into 'while on the floor' when asked", () => {
-    const players = { ...EMPTY_CLIP_FILTERS, players: new Set(["Ida Andersson"]) };
+    const players = { players: new Set(["id:7"]) };
     const onCourtIds = new Set([2, 3]);
-    expect(kept(s, withFilters({ clip: players, onCourt: true }), { onCourtIds })).toEqual([2, 3]);
+    expect(kept(s, withFilters({ ...players, onCourt: true }), { onCourtIds })).toEqual([2, 3]);
     // Without the on-court plays, or with no player chosen, the switch changes nothing.
-    expect(kept(s, withFilters({ clip: players, onCourt: true }))).toEqual([1, 3]);
+    expect(kept(s, withFilters({ ...players, onCourt: true }))).toEqual([1, 3]);
     expect(kept(s, withFilters({ onCourt: true }), { onCourtIds })).toEqual([1, 2, 3, 4]);
   });
 });

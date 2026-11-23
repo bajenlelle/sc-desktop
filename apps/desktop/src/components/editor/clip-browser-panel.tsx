@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDown, Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
+import { Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
 import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels";
 import {
   eventColors,
@@ -17,16 +17,10 @@ import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@sco
 import { orderForAdd, playerTeam, startGames } from "@scoutable/shared/lib/add-clips-games";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import {
-  EMPTY_CLIP_FILTERS,
-  EVENT_TYPE_OPTIONS,
-  SHOT_TYPE_OPTIONS,
-  SITUATION_OPTIONS,
-  applyClipFiltersByKey,
   keepKnownChoices,
   playerKey,
   playersByTeam,
   teamsOf,
-  type ClipFilters,
 } from "@scoutable/shared/lib/clip-filters";
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
 import { isClipItem } from "@/types/match";
@@ -44,21 +38,24 @@ import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
-import { PLAY_ROW_HEIGHT, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot } from "@/components/plays/play-row";
+import { LIST_GROUP, listSelecting, PLAY_ROW_HEIGHT, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot } from "@/components/plays/play-row";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import { LeadersPopover } from "@/components/leaders-popover";
 import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
-import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { EventTypeChips } from "./event-type-chips";
+import { PlaysFilterBar } from "@/components/plays/plays-filter-bar";
+import { usePlayMoments } from "@/components/plays/use-play-moments";
+import { EMPTY_PLAY_FILTERS, activeGroups, applyPlayFilters, playFiltersActive, type PlayFilters } from "@scoutable/shared/lib/play-filters";
+import { PlaysCountLine } from "@/components/plays/plays-count-line";
+import { PILL_LABEL, PillButton, SelectionBar } from "./selection-bar";
 import { GamePicker, type GamePickVia } from "./game-picker";
 import { PlayerStage } from "./player-stage";
+import { GameNowBar } from "@/components/game/game-now-bar";
 import { usePersistentVideo } from "./use-persistent-video";
 
 // ---------------------------------------------------------------------------
@@ -66,13 +63,15 @@ import { usePersistentVideo } from "./use-persistent-video";
 // ---------------------------------------------------------------------------
 
 // No Timeout chip: timeouts live in game marks, not in the play-by-play, so it would match nothing.
-const BROWSER_TYPE_OPTIONS = EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeout");
 
 // ---------------------------------------------------------------------------
 // A row in the browser
 // ---------------------------------------------------------------------------
 
 /** Every row is this tall, so the list can draw only the rows near the view (lib/use-list-window.ts). */
+
+/** A play's key in the sheet: event ids repeat across games. */
+const activeKeyOf = (x: { matchId: string; event: PlayByPlayEvent }) => `${x.matchId}:${x.event.eventId}`;
 
 /** A clip with no labels: one array for every such row, so the row's memo holds. */
 const NO_LABELS: Label[] = [];
@@ -108,7 +107,7 @@ const BrowserRow = memo(function BrowserRow({
   assignedLabels,
   canLabel,
   labelPicker,
-  onToggle,
+  onAdd,
   onPress,
   onLabel,
 }: {
@@ -128,10 +127,10 @@ const BrowserRow = memo(function BrowserRow({
   canLabel: boolean;
   /** The label picker, on the one row being labelled; null draws the plain Tag button. */
   labelPicker: React.ReactNode | null;
-  /** The checkbox: a tick, or with Shift the range from the anchor. */
-  onToggle: (rowKey: string, e: React.MouseEvent) => void;
-  /** The row: plain plays it, ⌘ ticks it, Shift ticks the range. */
-  onPress: (event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) => void;
+  /** The + at the row's end: adds this play (the selection, when the row is in it), as in the game view. */
+  onAdd: (rowKey: string, anchor: HTMLElement) => void;
+  /** The row: plain plays it, ⌘ selects it, Shift selects the range. */
+  onPress: (event: PlayByPlayEvent, matchId: string, mods: { shift: boolean; toggle: boolean }) => void;
   /** The Tag button: opens the label picker on this row. */
   onLabel: (rowKey: string) => void;
 }) {
@@ -142,14 +141,15 @@ const BrowserRow = memo(function BrowserRow({
       aria-rowindex={index + 1}
       aria-selected={isSelected}
       aria-current={isActive ? "true" : undefined}
-      onClick={(e) => onPress(event, matchId, e)}
+      onClick={(e) => onPress(event, matchId, { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey })}
       className={cn(
         // One height for every row, whatever it holds: the list is windowed by it (PLAY_ROW_HEIGHT).
-        playRowClass({ selected: isActive }),
+        playRowClass({ selected: isSelected }),
         "box-border",
         // The separator goes by place in the list: the first row drawn isn't always the list's first.
         index > 0 && "shadow-[inset_0_1px_0_var(--separator)]",
-        !isActive && isSelected && "bg-fill-1 hover:bg-fill-2",
+        // The playing row, when it isn't selected: the current row's fill, a step lighter than the selection's.
+        !isSelected && isActive && "bg-fill-2 hover:bg-fill-2",
       )}
     >
       <PlayRowCells
@@ -160,33 +160,18 @@ const BrowserRow = memo(function BrowserRow({
         team={null}
         labels={assignedLabels}
         context={showGame ? matchTitle : undefined}
-        lead={
-          <div className="relative z-10 flex w-7 shrink-0 items-center justify-center" onClick={(e) => e.stopPropagation()}>
-            {/* A play already in the playlist has its ✓ at the row's end instead: it can't be ticked again. */}
-            {!alreadyIn && (
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => {}}
-                // No focus on press: a focused checkbox counts as a text field
-                // for the sheet's keys, and they would stop after a tick.
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggle(rowKey, e);
-                }}
-                aria-label="Select"
-                className="size-3.5 rounded accent-primary"
-              />
-            )}
-          </div>
-        }
+        check={{ on: isSelected, onToggle: (shift) => onPress(event, matchId, { shift, toggle: !shift }) }}
         actions={
           <>
             {/* A plain button until it is pressed: the picker itself is mounted on one row at a time. */}
             {canLabel &&
               (labelPicker ?? <RowLabelButton title="Labels" aria-label="Labels" onClick={() => onLabel(rowKey)} />)}
-            <RowPlaylistSlot status={alreadyIn ? "in" : "empty"} targetName="this playlist" />
+            <RowPlaylistSlot
+              status={alreadyIn ? "in" : "none"}
+              targetName="this playlist"
+              visible={isActive}
+              onAdd={(anchor) => onAdd(rowKey, anchor)}
+            />
           </>
         }
       />
@@ -216,8 +201,11 @@ export interface ClipBrowserLabelHandlers {
 
 /**
  * Add clips to the open playlist: every imported game's play-by-play,
- * filtered down, previewed on its own stage, ticked and added. Lives in a
- * sheet over the editor and owns the keys while it is open.
+ * filtered down (the bar every list of plays has), previewed on its own stage
+ * with the game view's Now bar, and added as the game view adds: a row's + or
+ * A for one play, ⌘/Shift-click and the selection's pill for several, ✓ on
+ * what the playlist has. Lives in a sheet over the editor and owns the keys
+ * while it is open; Esc lets go of a selection before it closes the sheet.
  *
  * A coach adds in rounds (one player, then the next, from the same game), so
  * Add keeps the sheet open, and the sheet starts where the last round left
@@ -273,11 +261,9 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     if (start.ids.length > 0 && start.source !== "remembered") setAddClipsScope(playlist.id, { gameIds: start.ids, teams: [] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [filters, setFilters] = useState<ClipFilters>(EMPTY_CLIP_FILTERS);
-  // One group's setter, for the dropdowns and chips.
-  const setGroup = (group: keyof ClipFilters) => (next: ReadonlySet<string>) => {
-    setFilters((f) => ({ ...f, [group]: next }));
-  };
+  const [filters, setFilters] = useState<PlayFilters>(EMPTY_PLAY_FILTERS);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterSearchRef = useRef<HTMLInputElement | null>(null);
 
   // The plays of every game the sheet has read, by game (kept when a game is unticked: ticking it again
   // reads nothing), and the games whose read failed, until they are read again.
@@ -433,10 +419,36 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     });
   }, [keyNames]);
 
+  // The When section: the quarters the chosen games have, and each game's moments.
+  const momentGames = useMemo(() => chosenGames.map((m) => ({ gameId: m.id, events: m.events, gameMarks: m.gameMarks ?? null })), [chosenGames]);
+  const moments = usePlayMoments(momentGames);
+  const periods = useMemo(() => [...new Set(allEvents.map((x) => x.event.period))].sort((a, b) => a - b), [allEvents]);
+
+  /** Whether any filter narrows the list: the count line offers Clear filters. */
+  const anyFilter = playFiltersActive(filters);
   const filtered = useMemo(
-    () => applyClipFiltersByKey(allEvents, filters, (x) => labelAssignments.get(`${x.matchId}:${x.event.eventId}`)),
-    [allEvents, filters, labelAssignments],
+    () =>
+      applyPlayFilters(
+        allEvents,
+        filters,
+        (x) => labelAssignments.get(`${x.matchId}:${x.event.eventId}`),
+        (x) => moments.momentsOf(x.matchId, x.event.eventId),
+      ),
+    [allEvents, filters, labelAssignments, moments],
   );
+
+  // A filter change is one event once the coach has stopped changing it (the game view's game_view_filtered).
+  const firstFilter = useRef(true);
+  useEffect(() => {
+    if (firstFilter.current) {
+      firstFilter.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => trackEvent("plays_filtered", { surface: "add_clips", groups: activeGroups(filters), visible: filtered.length }), 800);
+    return () => window.clearTimeout(timer);
+    // The count rides along; it isn't what changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   // Each clip's labels, in the vocabulary's order: one array per clip, rebuilt only when the labels
   // or what is put on the clips change (a row is memoised on it).
@@ -513,14 +525,15 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     readPlays(ids, chosen);
   }
 
-  function handleTeamChange(newTeams: Set<string>) {
+  /** A change of team, from the Filter popover: remembered with the games, and the players narrowed to it. */
+  function handleTeamChange(newTeams: Set<string>, rest: PlayFilters = filters) {
     pendingTeamsRef.current = null;
     if (gameIds.length > 0) setAddClipsScope(playlist.id, { gameIds, teams: [...newTeams] });
     const source = newTeams.size > 0
       ? allEvents.filter(({ event }) => newTeams.has(event.eventTeam?.teamName ?? ""))
       : allEvents;
     const validPlayers = new Set(source.map((x) => playerKey(x.event)).filter((k): k is string => k !== null));
-    setFilters((f) => ({ ...f, teams: newTeams, players: new Set([...f.players].filter((p) => validPlayers.has(p))) }));
+    setFilters({ ...rest, teams: newTeams, players: new Set([...rest.players].filter((p) => validPlayers.has(p))) });
   }
 
   // A preset holds plays, shot types, situations and labels, never games, teams or players: applying
@@ -758,6 +771,26 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
 
   const activeIdx = activeEventKey === null ? -1 : (indexByKey.get(activeEventKey) ?? -1);
   const activeEntry = activeIdx >= 0 ? filtered[activeIdx] : null;
+  // Esc lets go of a selection first and closes the sheet only after, as Finder does. The sheet closes on Esc
+  // at the document (Radix), so this listens before it, on the window; a menu or popover open over the sheet
+  // takes its own Esc.
+  const selectionSizeRef = useRef(0);
+  selectionSizeRef.current = selectedIds.size;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || selectionSizeRef.current === 0) return;
+      if (document.querySelector('[data-slot="popover-content"], [role="menu"], [role="listbox"]')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSelectedIds(new Set());
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, []);
+
+  // The Now bar's label picker (G), and its Add.
+  const [nowLabelOpen, setNowLabelOpen] = useState(false);
+  const nowAddRef = useRef<HTMLButtonElement | null>(null);
   const canPrev = isPlaying && activeIdx > 0;
   const canNext = isPlaying && activeIdx >= 0 && activeIdx < filtered.length - 1;
   const isQueueActive = isPlaying;
@@ -771,16 +804,6 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   }, [activeEntry, matchLookup, preRoll, postRoll]);
   const clipWindowRef = useRef(clipWindow);
   clipWindowRef.current = clipWindow;
-
-  const allSelected = useMemo(
-    () => filtered.length > 0 && filtered.every(({ event, matchId }) => selectedIds.has(`${matchId}:${event.eventId}`)),
-    [filtered, selectedIds],
-  );
-
-  function toggleSelectAll() {
-    if (allSelected) setSelectedIds(new Set());
-    else setSelectedIds(new Set(filtered.map(({ event, matchId }) => `${matchId}:${event.eventId}`)));
-  }
 
   function toggleOne(key: string) {
     setSelectedIds((prev) => {
@@ -824,28 +847,23 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     anchorKeyRef.current = next.anchor;
     extendFocusRef.current = next.focus;
   }
-  function handleRowPress(event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) {
+  function handleRowPress(event: PlayByPlayEvent, matchId: string, mods: { shift: boolean; toggle: boolean }) {
     const key = `${matchId}:${event.eventId}`;
-    if (e.shiftKey || e.metaKey || e.ctrlKey) {
-      applyClick(key, e.shiftKey, !e.shiftKey);
+    if (mods.shift || mods.toggle) {
+      applyClick(key, mods.shift, !mods.shift);
       return;
     }
     setAnchor(key);
     handleRowClick(event, matchId);
   }
-  function handleRowToggle(key: string, e: React.MouseEvent) {
-    if (!existingSet.has(key)) applyClick(key, e.shiftKey, !e.shiftKey);
-  }
   // What the rows are handed: made once, calling the latest handlers, so a row's memo holds.
   const handleRowPressRef = useRef(handleRowPress);
   handleRowPressRef.current = handleRowPress;
-  const handleRowToggleRef = useRef(handleRowToggle);
-  handleRowToggleRef.current = handleRowToggle;
   const onRowPress = useCallback(
-    (event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) => handleRowPressRef.current(event, matchId, e),
+    (event: PlayByPlayEvent, matchId: string, mods: { shift: boolean; toggle: boolean }) => handleRowPressRef.current(event, matchId, mods),
     [],
   );
-  const onRowToggle = useCallback((key: string, e: React.MouseEvent) => handleRowToggleRef.current(key, e), []);
+  const onRowAdd = useCallback((key: string) => addFromRowRef.current(key), []);
   const onRowLabel = useCallback((key: string) => setLabelPickerFor(key), []);
   function playKey(key: string) {
     const idx = indexByKeyRef.current.get(key);
@@ -889,19 +907,34 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
    * them (filtered out of view or not), in game order, and stays open for
    * the next round: the ticks clear, the filters stay.
    */
-  function handleAdd() {
-    // Every game the sheet holds, not only the chosen ones: a tick stays across a change of games, and the
-    // button counts it.
+  /** Adds these plays (those the playlist doesn't have), in game order; the page says "5 clips added" with an Undo. */
+  function addKeys(keys: Iterable<string>): boolean {
+    // Every game the sheet holds, not only the chosen ones: a selection stays across a change of games.
     const held = playsRef.current;
     const games = matches.filter((m) => held.has(m.id)).map((m) => ({ ...m, events: held.get(m.id)! }));
-    const toAdd = orderForAdd([...selectedIds].filter((k) => !existingSet.has(k)), games);
-    if (toAdd.length === 0) return;
-    // The page says "5 clips added" with an Undo.
+    const toAdd = orderForAdd([...keys].filter((k) => !existingSet.has(k)), games);
+    if (toAdd.length === 0) return false;
     onAddClips(toAdd);
-    setSelectedIds(new Set());
+    return true;
+  }
+  /** The selection's Add (⌘↩): the selected plays go in, and the sheet stays open for the next round. */
+  function handleAdd() {
+    if (addKeys(selectedIds)) setSelectedIds(new Set());
   }
   const handleAddRef = useRef(handleAdd);
   handleAddRef.current = handleAdd;
+  /** A row's +: the selection when the row is in it (Finder's rule), else that play alone. */
+  function addFromRow(key: string) {
+    if (selectedIds.has(key)) handleAdd();
+    else addKeys([key]);
+  }
+  const addFromRowRef = useRef(addFromRow);
+  addFromRowRef.current = addFromRow;
+  /** A: the selection, else the play on screen. */
+  function addFromKey() {
+    if (selectedIds.size > 0) handleAdd();
+    else if (activeEventKeyRef.current) addKeys([activeEventKeyRef.current]);
+  }
 
   const newCount = Array.from(selectedIds).filter((k) => !existingSet.has(k)).length;
   const isMultiMatch = gameIds.length > 1;
@@ -937,15 +970,35 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   // Keys belong to the sheet while it is open (one owner at a time), the
   // editor's where they make sense here: ↑/↓, Home/End and ⌘↑/⌘↓ walk the
   // clips, Shift with them ticks the range, ←/→ nudge (Shift: further),
-  // J/K/L shuttle, Space plays, R replays, F is full screen. Return ticks the
-  // playing clip, ⌘A ticks every shown clip, ⌘↩ adds.
+  // J/K/L shuttle, Space plays, R replays, F is full screen. Return selects the
+  // playing clip, ⌘A selects every shown clip, ⌘↩ adds the selection, A adds
+  // (the selection, else the clip on screen), G labels the clip on screen.
   useKeyScope("clip-browser", true, panelRef);
   useHotkeys("clip-browser", (e) => {
+    // ⌘F: the Filter popover with its search, as in the game view and Teams' Plays.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyF") {
+      e.preventDefault();
+      setFilterOpen(true);
+      window.setTimeout(() => filterSearchRef.current?.focus(), 50);
+      return;
+    }
     const labelKey = labelKeySlot(e);
     if (labelKey !== null) {
       e.preventDefault();
       // A held key would put the label on and take it off again.
       if (!e.repeat) labelByKey(labelKey);
+      return;
+    }
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+    // A adds the selection, else the play on screen; G labels the play on screen: as in the game view.
+    if (plain && !e.shiftKey && e.code === "KeyA") {
+      e.preventDefault();
+      addFromKey();
+      return;
+    }
+    if (plain && !e.shiftKey && e.code === "KeyG") {
+      e.preventDefault();
+      if (activeEventKeyRef.current && activeOrgId) setNowLabelOpen(true);
       return;
     }
     if (e.key === "Enter") {
@@ -1085,7 +1138,9 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     videoStatusByMatch.get(videoMatchId) !== "ok";
 
   return (
-    <div ref={panelRef} className="flex h-full flex-col overflow-hidden">
+    // Focusable, so a press on a row (which takes no focus itself) leaves the keyboard inside the panel, where its
+    // keys are listened for, not on the sheet around it.
+    <div ref={panelRef} tabIndex={-1} className="flex h-full flex-col overflow-hidden outline-none">
       {/* Header */}
       <div className="flex shrink-0 items-start gap-3 px-5 pt-4 pb-3">
         <div className="min-w-0 flex-1">
@@ -1101,41 +1156,6 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
               Import game
             </Link>
           </Button>
-          {activeOrgId && selectedClipKeyPairs.length > 0 && (
-            <LabelPickerPopover
-              trigger={
-                <Button size="sm" variant="outline" title="Labels">
-                  <Tag />
-                  Apply label
-                  <ChevronDown className="size-3 text-muted-foreground" />
-                </Button>
-              }
-              labels={labels}
-              assignedAllIds={bulkAssignedAll}
-              assignedSomeIds={bulkAssignedSome}
-              onToggle={(labelId, state) => labelHandlers.onBulkToggle(selectedClipKeyPairs, labelId, state)}
-              onCreate={labelHandlers.onCreate}
-              onRename={labelHandlers.onRename}
-              onRecolor={labelHandlers.onRecolor}
-              onDelete={labelHandlers.onDelete}
-              onSetKey={labelHandlers.onSetKey}
-              onSeedDefaults={labelHandlers.onSeedDefaults}
-            />
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <Button size="sm" onClick={handleAdd} disabled={newCount === 0}>
-                  <Plus />
-                  Add {newCount > 0 ? newCount : ""} clip{newCount !== 1 ? "s" : ""}
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="flex items-center gap-1.5">
-              {newCount === 0 ? "Tick clips to add them" : "Add to the playlist"}
-              <Kbd>⌘↩</Kbd>
-            </TooltipContent>
-          </Tooltip>
           <SheetClose
             aria-label="Close"
             className="ml-1 flex size-7 items-center justify-center rounded-full bg-fill-2 text-muted-foreground outline-none transition-[background-color,transform] duration-150 hover:bg-fill-3 hover:text-foreground active:scale-95 active:bg-fill-4 focus-visible:ring-2 focus-visible:ring-selection"
@@ -1145,48 +1165,31 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-5 pb-3">
-        <div className="-ml-2 flex flex-wrap items-center gap-1">
-          <GamePicker matches={matches} items={playlist.items} value={gameIds} onChange={handleGameChange} quickTeam={quickTeam} />
-          <MultiSelectDropdown options={SHOT_TYPE_OPTIONS} selected={filters.shotTypes} onChange={setGroup("shotTypes")} placeholder="Shot type" />
-          <MultiSelectDropdown options={SITUATION_OPTIONS} selected={filters.situations} onChange={setGroup("situations")} placeholder="Situation" />
-          <MultiSelectDropdown
-            options={teams.map((t) => ({ value: t, label: t }))}
-            selected={filters.teams}
-            onChange={handleTeamChange}
-            placeholder="Team"
-          />
-          <MultiSelectDropdown
-            groups={playerGroups.map((g) => ({
-              label: g.teamName || "Other players",
-              options: g.players.map((pl) => ({ value: pl.key, label: pl.number ? `#${pl.number} ${pl.name}` : pl.name, textValue: pl.name })),
-            }))}
-            selected={filters.players}
-            onChange={setGroup("players")}
-            placeholder="Player"
-          />
-          <LeadersPopover events={leaderEvents} selectedPlayers={leaderSelected} onTogglePlayer={handleLeaderToggle} />
-          {labels.length > 0 && (
-            <MultiSelectDropdown
-              options={labels.map((l) => ({ value: l.id, label: l.name }))}
-              selected={filters.labels ?? EMPTY_CLIP_FILTERS.labels!}
-              onChange={setGroup("labels")}
-              placeholder="Labels"
-            />
-          )}
-          {activeOrgId && (
-            <FilterPresetsMenu
-              modal
-              presets={presets.presets}
-              current={filters}
-              onApply={applyPreset}
-              onSave={(name) => presets.save(name, filters)}
-              onRename={presets.rename}
-              onDelete={presets.remove}
-            />
-          )}
-          <div className="ml-auto">
+      {/* Filters: the bar every list of plays has (PlaysFilterBar), its scope the games and the Leaders. */}
+      <PlaysFilterBar
+        className="border-b border-separator px-5 pb-3"
+        modal
+        filters={filters}
+        onChange={(next) => (next.teams !== filters.teams ? handleTeamChange(new Set(next.teams), next) : setFilters(next))}
+        scope={
+          <div className="-ml-2 flex min-w-0 flex-wrap items-center gap-1">
+            <GamePicker matches={matches} items={playlist.items} value={gameIds} onChange={handleGameChange} quickTeam={quickTeam} />
+            <LeadersPopover events={leaderEvents} selectedPlayers={leaderSelected} onTogglePlayer={handleLeaderToggle} />
+          </div>
+        }
+        presets={
+          <>
+            {activeOrgId && (
+              <FilterPresetsMenu
+                modal
+                presets={presets.presets}
+                current={filters}
+                onApply={applyPreset}
+                onSave={(name) => presets.save(name, filters)}
+                onRename={presets.rename}
+                onDelete={presets.remove}
+              />
+            )}
             <Popover>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1215,15 +1218,23 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                 </div>
               </PopoverContent>
             </Popover>
-          </div>
-        </div>
-        <EventTypeChips options={BROWSER_TYPE_OPTIONS} selected={filters.types} onChange={setGroup("types")} />
-      </div>
+          </>
+        }
+        players={playerGroups}
+        labels={labels}
+        periods={periods}
+        moments={moments}
+        teams={teams}
+        open={filterOpen}
+        onOpenChange={setFilterOpen}
+        searchRef={filterSearchRef}
+      />
 
       {/* Content: events | preview */}
       <ResizablePanelGroup direction="horizontal" autoSaveId="add-clips" className="min-h-0 flex-1">
         <ResizablePanel id="plays" defaultSize="55" minSize="30">
-          <div className="flex h-full flex-col">
+          {/* The list, and the selection's pill floating over its foot. */}
+          <div className="relative flex h-full flex-col">
           {failedChosen.length > 0 && (
             <div className="flex shrink-0 items-center gap-3 border-b border-separator py-2 pr-3 pl-4">
               <div className="min-w-0 flex-1 text-callout text-muted-foreground">
@@ -1236,35 +1247,32 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
               </Button>
             </div>
           )}
-          <label className="flex h-8 shrink-0 cursor-default items-center gap-1.5 border-b border-separator pr-3 text-subheadline text-muted-foreground select-none">
-            <span aria-hidden className="w-[3px]" />
-            <span className="flex w-8 justify-center">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={toggleSelectAll}
-                disabled={filtered.length === 0}
-                className="size-3.5 rounded accent-primary"
-              />
-            </span>
-            Select all
-            <span className="ml-auto nums">
-              {filtered.length} event{filtered.length !== 1 ? "s" : ""}
-            </span>
-          </label>
-          <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          {/* The count line every list of plays has (PlaysCountLine). */}
+          <PlaysCountLine
+            className="border-b border-separator px-4"
+            count={filtered.length}
+            total={allEvents.length}
+            filtered={anyFilter}
+            onClear={() => setFilters(EMPTY_PLAY_FILTERS)}
+          />
+          <div ref={listScrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", selectedIds.size > 0 && "pb-16")}>
             {filtered.length === 0 ? (
               eventsLoading ? (
                 // This game's play-by-play is still arriving — without this
                 // branch the filter-advice copy below would be plainly wrong.
-                <div className="py-12 text-center text-sm text-muted-foreground">Loading clips…</div>
+                <div className="py-12 text-center text-sm text-muted-foreground">Loading plays…</div>
               ) : failedChosen.length > 0 ? null : (
                 <div className="flex flex-col items-center gap-3 py-12 text-center">
                   <p className="text-sm text-muted-foreground">
                     {matches.length === 0
                       ? "No games imported yet. Import a game to get started."
-                      : "No events match the current filters. Try adjusting them."}
+                      : "No plays match these filters."}
                   </p>
+                  {matches.length > 0 && anyFilter && (
+                    <Button size="sm" variant="outline" onClick={() => setFilters(EMPTY_PLAY_FILTERS)}>
+                      Clear filters
+                    </Button>
+                  )}
                   {matches.length === 0 && (
                     <Button asChild size="sm" variant="outline">
                       <Link to="/upload">
@@ -1279,6 +1287,8 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
               <div
                 role="grid"
                 aria-label="Events"
+                className={LIST_GROUP}
+                {...listSelecting(selectedIds.size > 0)}
                 aria-rowcount={filtered.length}
                 // The rows not drawn, above and below: the list scrolls as if they were there.
                 style={{ paddingTop: listRange.padTop, paddingBottom: listRange.padBottom }}
@@ -1301,7 +1311,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                       assignedLabels={canLabel ? (labelsByKey.get(key) ?? NO_LABELS) : NO_LABELS}
                       canLabel={canLabel}
                       labelPicker={canLabel && labelPickerFor === key ? rowLabelPicker(key, matchId, event.eventId) : null}
-                      onToggle={onRowToggle}
+                      onAdd={onRowAdd}
                       onPress={onRowPress}
                       onLabel={onRowLabel}
                     />
@@ -1309,6 +1319,44 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                 })}
               </div>
             )}
+          </div>
+          {/* The pill's own container (SelectionBar sizes its labels by it): on the list's parent, a container query
+              makes WebKit throw a windowed list's scroll back when its rows are redrawn. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 @container">
+          <SelectionBar
+            count={selectedIds.size}
+            onClear={() => setSelectedIds(new Set())}
+            clearTitle="Deselect all (Esc)"
+            group={null}
+            labelPicker={
+              activeOrgId ? (
+                <LabelPickerPopover
+                  trigger={
+                    <PillButton title="Label the selected plays">
+                      <Tag />
+                      <span className={PILL_LABEL}>Label</span>
+                    </PillButton>
+                  }
+                  labels={labels}
+                  assignedAllIds={bulkAssignedAll}
+                  assignedSomeIds={bulkAssignedSome}
+                  onToggle={(labelId, state) => labelHandlers.onBulkToggle(selectedClipKeyPairs, labelId, state)}
+                  onCreate={labelHandlers.onCreate}
+                  onRename={labelHandlers.onRename}
+                  onRecolor={labelHandlers.onRecolor}
+                  onDelete={labelHandlers.onDelete}
+                  onSetKey={labelHandlers.onSetKey}
+                  onSeedDefaults={labelHandlers.onSeedDefaults}
+                />
+              ) : undefined
+            }
+            addTo={
+              <PillButton title={`Add ${selectedIds.size} ${selectedIds.size === 1 ? "play" : "plays"} to this playlist (⌘↩)`} onClick={handleAdd}>
+                <Plus />
+                <span className={PILL_LABEL}>Add to playlist</span>
+              </PillButton>
+            }
+          />
           </div>
           </div>
         </ResizablePanel>
@@ -1362,19 +1410,48 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                 Select a game with video to preview clips
               </div>
             )}
-            {activeEntry && (
-              <div className="flex min-w-0 items-center gap-2 px-1 text-sm">
-                <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium", eventColors(activeEntry.event).badge)}>
-                  {eventLabel(activeEntry.event)}
-                </span>
-                <span className="truncate font-medium">{playerName(activeEntry.event)}</span>
-                <span className="shrink-0 text-subheadline nums text-muted-foreground">
-                  Q{activeEntry.event.period} · {formatGameClock(activeEntry.event.gameClockTime)}
-                </span>
-                <span className="ml-auto shrink-0 text-subheadline nums text-muted-foreground">
-                  {queueIdx + 1} of {queueRef.current.length || 1} queued
-                </span>
-              </div>
+            {/* Under the player, the game view's Now bar: the play in words, its labels, Label (G) and Add (A). */}
+            {activeEntry ? (
+              <GameNowBar
+                play={{ key: activeKeyOf(activeEntry), event: activeEntry.event, time: 0, start: 0, reach: "in" }}
+                footage
+                moment={null}
+                score={null}
+                breakScore={null}
+                details={isMultiMatch ? [activeEntry.matchTitle] : []}
+                labels={labelsByKey.get(activeKeyOf(activeEntry)) ?? NO_LABELS}
+                collect={existingSet.has(activeKeyOf(activeEntry)) ? "in" : "none"}
+                targetName="this playlist"
+                labelButton={(trigger) =>
+                  activeOrgId ? (
+                    <LabelPickerPopover
+                      open={nowLabelOpen}
+                      onOpenChange={setNowLabelOpen}
+                      trigger={trigger}
+                      side="top"
+                      align="end"
+                      labels={labels}
+                      assignedAllIds={labelAssignments.get(activeKeyOf(activeEntry)) ?? new Set()}
+                      onToggle={(labelId, state) => labelHandlers.onToggleClip(activeEntry.matchId, activeEntry.event.eventId, labelId, state)}
+                      onCreate={labelHandlers.onCreate}
+                      onRename={labelHandlers.onRename}
+                      onRecolor={labelHandlers.onRecolor}
+                      onDelete={labelHandlers.onDelete}
+                      onSetKey={labelHandlers.onSetKey}
+                      onSeedDefaults={labelHandlers.onSeedDefaults}
+                    />
+                  ) : null
+                }
+                lastLabel={null}
+                onLabelAgain={() => {}}
+                addRef={nowAddRef}
+                onAdd={() => addKeys([activeKeyOf(activeEntry)])}
+                onSkip={null}
+              />
+            ) : (
+              <p className="flex h-11 shrink-0 items-center px-1 text-callout text-muted-foreground">
+                Choose a play to watch it. Plays run on to the next.
+              </p>
             )}
           </div>
         </ResizablePanel>

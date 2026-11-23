@@ -102,7 +102,7 @@ describe("buildScoutingReport", () => {
       ["p2", "player", "Ola Nilsson", 1],
     ]);
     expect(report.sections[0]).toMatchObject({ note: "Drives left.", stats: { context: expect.stringContaining("Season averages") } });
-    expect(report.sections[0].blocks.map((b) => (b as { clock: string; label: string }).label)).toEqual(["3PT Made", "2PT Miss"]);
+    expect(report.sections[0].blocks.map((b) => (b as { clock: string; label: string }).label)).toEqual(["3PT made", "2PT miss"]);
     expect(report.sections[1].stats).toBeNull();
     expect(report.header).toMatchObject({ title: "AIK scouting", players: 2, clips: 3, attribution: true });
   });
@@ -131,7 +131,7 @@ describe("buildScoutingReport", () => {
     const draft: ReportDraft = { ...twoPlayers(), order: ["m1:2", "m1:1"], placements: { "m1:4": LEFT_OUT } };
     const { report, missing } = buildScoutingReport(input(draft, [clip("m1", 1), clip("m1", 2), clip("m1", 3), clip("m1", 4)]));
     expect(report.sections.map((s) => s.id)).toEqual(["p1", "p2"]);
-    expect(report.sections[0].blocks.map((b) => (b as { label: string }).label)).toEqual(["2PT Miss", "3PT Made"]);
+    expect(report.sections[0].blocks.map((b) => (b as { label: string }).label)).toEqual(["2PT miss", "3PT made"]);
     expect(report.header.clips).toBe(3);
     expect(missing).toEqual([]);
   });
@@ -166,7 +166,7 @@ describe("buildScoutingReport", () => {
     expect(report.sections[0].blocks[0]).toMatchObject({
       kind: "clip",
       id: "c1",
-      label: "2PT Miss",
+      label: "2PT miss",
       type: "2pt",
       made: false,
       period: "Q2",

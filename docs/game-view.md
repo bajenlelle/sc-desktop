@@ -30,7 +30,7 @@ stretch where a game turned.
   for the app session its filters, quarter zoom, list scroll and (on a switch
   between open games) view (`lib/game-tabs.ts`), labels and playlists shown at
   once and read again behind. A link to a play opens without the filters.
-  Not kept: the filter sheet, the selection, and Undo for adds made on an
+  Not kept: the Filter popover, the selection, and Undo for adds made on an
   earlier visit. All of it but the position is dropped when the signed-in
   user changes (sign-out doesn't reload the webview).
 
@@ -177,7 +177,11 @@ lead to it, as references in the text, not new buttons:
 
 ### The player and its timeline
 
-- **One unit, in the left column** (`game-watch-view.tsx`): the footage, the
+- **The play list on the left, the play on the right**, as in Teams' Plays, Add
+  clips and the editor: the eye goes from the sidebar to the filters, the list
+  and then the footage it plays, and a coach who goes from a team's Plays to
+  Show in Game finds everything where it was.
+- **One unit, in the right column** (`game-watch-view.tsx`): the footage, the
   Now bar, the game's timeline, and under the track one line with the game's
   facts and the zoom. The timeline is as wide as the footage and sits 44 px
   under it, so the control is by what it moves; the play list has the other
@@ -186,7 +190,7 @@ lead to it, as references in the text, not new buttons:
   `components/plays/use-stage-fit.ts`, which Teams' Plays shares). A sync
   warning opens at the foot of the column.
 - **The divider between the columns drags** (`components/ui/resizable.tsx`):
-  a wider left column, a larger player. The line thickens and darkens under
+  a narrower list, a larger player. The line thickens and darkens under
   the pointer and while it is dragged, a double-click puts the columns back,
   and the split is kept for the session (panel ids `player` and `plays`, which
   the saved layout is matched by).
@@ -271,8 +275,11 @@ lead to it, as references in the text, not new buttons:
   `ACTIVE_LEAD_SECONDS` before the playhead reaches it; a jump to a quarter
   lands `PERIOD_LEAD_SECONDS` ahead of it, and those seconds already count as
   the quarter.
-- **Moments** (one at a time, combined with the team filter): After timeouts,
-  Quarter starts, Quarter ends, Clutch, Runs, Fast breaks. "After timeouts" is
+- **Moments** (one at a time, under When in the Filter popover, combined with
+  the rest): After timeouts, Quarter starts, Quarter ends, Clutch, Runs. Fast
+  break is a Situation (the feed's own qualifier), so it isn't offered twice.
+  Teams' Plays, Add clips and the editor filter by them too, each game's read
+  from its plays and marks (`usePlayMoments`). "After timeouts" is
   the first shot, turnover or foul after each team timeout in the same
   quarter.
 - **A filter keeps the game's frame.** Filtered, the list shows only the plays
@@ -425,8 +432,19 @@ released app lists each row there as a clip.
   The player's name keeps room for its number and a few letters: in a narrow
   column the keys' hints go first, then the same-label-again button (⇧G still
   does it).
-- `game-filters.tsx`: team, moments, and the filter sheet (presets, search,
-  event and shot types, situations, players, quarters, labels, on court).
+- `game-filters.tsx`: the game's own fields (team, on court, the Stats pick)
+  around the bar every list of plays has (`components/plays/plays-filter-bar.tsx`,
+  over `PlayFilters` in `packages/shared/lib/play-filters.ts`, shared with
+  Teams' Plays, Add clips and the editor): the team switch, Filter (one
+  popover: players by team, shot type, situation, When with the quarters and
+  the moments, labels; its search narrows the choices, "#7" or a name) and
+  Presets; the event chips; a token per filter that is on ("Player is #13
+  Larsson ×"), as Linear draws them. Filter and Presets follow the scope on
+  its line (in the game view the team switch fills the line, so they sit at
+  its end). The editor has no bar: its toolbar's Filter opens the same menu
+  in place (`usePlaylistFilters` in `components/playlist-filter-bar.tsx`),
+  with Event and Game as fields since it has no chips, Presets at the menu's
+  foot, and the tokens over the list only while something is on.
   Presets are saved per account and space (`filter_presets`,
   `lib/filter-presets.ts`) and shared with Add clips; a preset keeps plays,
   shot types, situations and labels, never the team or players, so the same
@@ -441,11 +459,24 @@ released app lists each row there as a clip.
 ↑ ↓ the previous or next listed play; Page Up and Page Down the previous or
 next marker (quarter start, timeout, run); 1–9 the start of that period; A
 add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
-(held: which key is which label); ⌘F the player search. ⌘-click toggles a
-play into the selection and Shift-click selects a range; Shift+↑ ↓ extends it
+(held: which key is which label); ⌘F the Filter popover, its search focused (in every list of plays). ⌘-click toggles a
+play into the selection, as a press on the row's check does (under the
+pointer at the row's start; every row shows its box while anything is
+selected), and Shift-click selects a range. A selected row is a step darker
+than the playing row (`--row-checked` over `--row-selected`) and carries a
+filled check, so what the pill's Add takes is never in doubt; Shift+↑ ↓ extends it
 and plays there; ⌘A selects every listed play; Esc lets go. The pill over the
-list adds the selection to the target or another playlist; a row's menu acts
-on the selection when that row is in it.
+list (`components/plays/plays-selection-bar.tsx`, shared with Teams' Plays)
+adds the selection to the target or another playlist; a row's menu acts on
+the selection when that row is in it.
+
+**A narrow list** (the column under about 370 px, a 1180 px window) keeps
+each play's event name: the score column goes first (the quarter header
+carries the score), the event narrows, and under about 300 px the team code
+goes too (`PlayRowCells`). **The moment chips** and every event chip row
+scroll sideways and fade where more chips wait; under the pointer a ‹ or ›
+in the fade moves the row a page (`ui/scroll-row.tsx`), so a chip that ends
+at the edge isn't taken for the last.
 
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 
@@ -464,7 +495,10 @@ game; a team's Plays view (`docs/teams.md`, "Plays") passes the team's games.
   playlist, so quick adds get increasing positions. Undo and removing through
   the row's check are `writePlaylistItems`, and only for clips added on this
   visit: a clip that was already in the playlist may carry notes and trims.
-  "Add all n" appears only while a filter or a moment is on.
+  "Add all n" appears only while a filter or a moment is on, on the count line
+  over the list (`components/plays/plays-count-line.tsx`, the same line Teams'
+  Plays, Add clips and the editor have): always "430 plays", "24 of 430
+  plays" and Clear filters while the list is narrowed.
 - **Any playlist, once**: a row's menu (right-click) adds the play to the
   target or, under "Add to another playlist", to any other playlist or a new
   one named after the game. The target doesn't change. The menu is one

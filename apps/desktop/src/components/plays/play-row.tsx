@@ -20,6 +20,15 @@ import { cn } from "@/lib/utils";
  * its cells with `PlayRowCells`.
  */
 
+/**
+ * On the element that holds a list's rows: `{...listSelecting(n > 0)}` while anything is selected, so every
+ * row's check shows (PlayRowCells' `check`) without the rows drawing again.
+ */
+export const LIST_GROUP = "group/list";
+export function listSelecting(on: boolean): { "data-selecting"?: "" } {
+  return on ? { "data-selecting": "" } : {};
+}
+
 /** Every play row is this tall, whatever it holds: Teams and Add clips window their lists by it. */
 export const PLAY_ROW_HEIGHT = 32;
 
@@ -44,13 +53,16 @@ export function ActiveRowPill() {
 /**
  * The row element's classes: one line, a container its cells measure (a narrow
  * row gives way in a set order), and the neutral hover, pressed and selected
- * fills. `menuOpen` outlines the row a menu is about, as Finder does.
+ * fills. `selected` is the list's selection, what the pill's Add acts on: a
+ * step darker than the playing row's fill (ActiveRowPill), so the two never
+ * read alike, with the row's check (PlayRowCells' `check`) saying it outright.
+ * `menuOpen` outlines the row a menu is about, as Finder does.
  */
 export function playRowClass({ selected, menuOpen = false }: { selected: boolean; menuOpen?: boolean }): string {
   return cn(
     "group @container/row relative flex h-8 w-full shrink-0 cursor-default select-none items-center gap-1.5 pr-1.5 pl-1 text-left text-sm outline-none transition-colors duration-100",
     "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
-    selected ? "bg-row-selected text-foreground" : "hover:bg-fill-1 active:bg-fill-2",
+    selected ? "bg-row-checked text-foreground" : "hover:bg-fill-1 active:bg-fill-2",
     menuOpen && "ring-2 ring-inset ring-selection",
   );
 }
@@ -177,6 +189,14 @@ export interface PlayRowCellsProps {
   dim?: boolean;
   /** Before the Now slot: a checkbox, a group rail. */
   lead?: ReactNode;
+  /**
+   * The row's place in the list's selection, drawn in the Now slot: a filled check on a selected row, an empty
+   * box on the others while anything is selected (and under the pointer otherwise, so a press selects without
+   * ⌘), ▶ on the playing row when nothing is. A press on it adds the row to the selection or takes it out
+   * (`shift`: the range from the last one). "Anything is selected" is the list's `LIST_SELECTING` flag, read
+   * by CSS, so a selection's start draws only the row pressed again. The editor draws its own checkbox in `lead`.
+   */
+  check?: { on: boolean; onToggle: (shift: boolean) => void };
   /** Before the event: the editor's group pill. */
   pill?: ReactNode;
   /** Before the actions: the editor's trim and note marks. */
@@ -197,7 +217,28 @@ const sized = "flex flex-col before:invisible before:block before:h-0 before:ove
 const WIDEST_CLOCK = "OT1 00:00";
 
 /** The row's cells, in the column order every list shares. */
-export function PlayRowCells({ event: e, clock, now, strong, team, labels, context, score, dim = false, lead, pill, marks, actions }: PlayRowCellsProps) {
+/** A row's check: the selection's mark, as Linear and Mail draw theirs. Pointer only: the row says its state. */
+function RowCheck({ on, onToggle, className }: { on: boolean; onToggle: (shift: boolean) => void; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      data-row-check={on ? "on" : "off"}
+      onClick={(ev) => {
+        ev.stopPropagation();
+        onToggle(ev.shiftKey);
+      }}
+      className={cn(
+        "flex size-3.5 items-center justify-center rounded-[4px] border transition-[background-color,border-color,opacity] duration-100",
+        on ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50 hover:border-foreground/70",
+        className,
+      )}
+    >
+      {on && <Check className="size-2.5" strokeWidth={3.5} />}
+    </span>
+  );
+}
+
+export function PlayRowCells({ event: e, clock, now, strong, team, labels, context, score, dim = false, lead, pill, marks, check, actions }: PlayRowCellsProps) {
   const faded = dim && "opacity-55";
   const clockText = clock === "with-period" ? playClock(e) : e.gameClockTime ? formatGameClock(e.gameClockTime) : periodLabel(e.period);
   const who = e.player ? `${e.player.pno ? `#${e.player.pno} ` : ""}${playerName(e)}` : (e.eventTeam?.teamName ?? "");
@@ -207,8 +248,17 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
   return (
     <>
       {lead}
-      <span className={cn(cell, "flex w-3 shrink-0 justify-center")}>
-        {now && <Play aria-label="Playing" className="size-2.5 fill-current text-foreground" />}
+      <span className={cn(cell, "flex shrink-0 items-center justify-center", check ? "w-4" : "w-3")}>
+        {check?.on ? (
+          <RowCheck on onToggle={check.onToggle} />
+        ) : now ? (
+          <>
+            <Play aria-label="Playing" className={cn("size-2.5 fill-current text-foreground", check && "group-data-[selecting]/list:hidden")} />
+            {check && <RowCheck on={false} onToggle={check.onToggle} className="hidden group-data-[selecting]/list:flex" />}
+          </>
+        ) : check ? (
+          <RowCheck on={false} onToggle={check.onToggle} className="opacity-0 group-hover:opacity-100 group-data-[selecting]/list:opacity-100" />
+        ) : null}
       </span>
       <span
         className={cn(cell, "shrink-0 whitespace-nowrap text-muted-foreground nums", clock === "with-period" ? sized : "w-10", faded)}
@@ -217,14 +267,15 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
         {clockText}
       </span>
       {team && (
-        <span className={cn(cell, sized, "max-w-16 shrink-0 text-muted-foreground", faded)} data-sizer={team.join("\n")}>
+        <span className={cn(cell, sized, "max-w-16 shrink-0 text-muted-foreground @max-[300px]/row:hidden", faded)} data-sizer={team.join("\n")}>
           <span className="truncate">{teamCode(e) ?? ""}</span>
         </span>
       )}
       {pill && <span className={cn(cell, "shrink-0")}>{pill}</span>}
-      <span className={cn(cell, "flex w-24 shrink-0 items-center gap-1.5 @max-[370px]/row:w-[7px]", faded)} title={what}>
+      {/* What happened is the one thing a row must keep: in a narrow list the score goes first, then the team. */}
+      <span className={cn(cell, "flex w-24 shrink-0 items-center gap-1.5 @max-[370px]/row:w-20", faded)} title={what}>
         <EventDot event={e} />
-        <span className="truncate text-muted-foreground @max-[370px]/row:hidden">{what}</span>
+        <span className="truncate text-muted-foreground">{what}</span>
       </span>
       <span className={cn(cell, "flex min-w-0 flex-1 items-center gap-1.5", faded)}>
         <span className={cn("min-w-0 truncate", strong && "font-medium")}>{who}</span>
@@ -242,7 +293,7 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
       )}
       {score !== undefined && (
         <span
-          className={cn(cell, "flex w-9 shrink-0 justify-end text-muted-foreground nums", faded)}
+          className={cn(cell, "flex w-9 shrink-0 justify-end text-muted-foreground nums @max-[370px]/row:hidden", faded)}
           aria-label={score ? `${score.home} to ${score.away}` : undefined}
         >
           {score && (

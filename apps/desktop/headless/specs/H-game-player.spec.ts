@@ -7,7 +7,7 @@
  * that game's marks once, as any visit does).
  */
 import type { Locator, Page } from "@playwright/test";
-import { expect, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
+import { filterSection, expect, filterButton, filterPopover, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
 
 const SIZES = [
   { width: 1440, height: 900 },
@@ -60,7 +60,8 @@ test("the timeline sits under the footage at its width, and the list has the col
     expect(Math.abs(t.width - s.width), `the timeline is as wide as the footage ${at}`).toBeLessThanOrEqual(2);
     expect(t.y, `the timeline is under the footage ${at}`).toBeGreaterThanOrEqual(s.y + s.height);
     expect(t.y - (s.y + s.height), `only the Now bar is between the footage and the timeline ${at}`).toBeLessThanOrEqual(64);
-    expect(t.x + t.width, `the timeline is in the footage's column, not under the list ${at}`).toBeLessThanOrEqual(l.x + 1);
+    // The list is on the left (as in Teams' Plays, Add clips and the editor), the footage and its timeline right of it.
+    expect(t.x, `the timeline is in the footage's column, right of the list ${at}`).toBeGreaterThanOrEqual(l.x + l.width - 1);
     expect(l.y + l.height, `the list runs to the bottom of the window ${at}`).toBeGreaterThanOrEqual(size.height - 1);
     expect(s.y, `the footage is clear of the toolbar ${at}`).toBeGreaterThanOrEqual(52);
     expect(s.width, `the footage keeps a usable size ${at}`).toBeGreaterThanOrEqual(320);
@@ -250,9 +251,9 @@ test("pointing at the timeline never covers the footage", async ({ page, browser
   expect(scrolls, "showing the readout doesn't make the player's column scroll").toBe(false);
 });
 
-test("the moment chips fade at the edge where more of them wait", async ({ page }) => {
+test("the event chips fade at the edge where more of them wait", async ({ page }) => {
   await openSampleGame(page);
-  const row = page.getByRole("group", { name: "Moment" });
+  const row = page.getByRole("group", { name: "Event type" });
   const fits = await row.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
   expect(fits, "at the window's usual width the chips don't all fit").toBe(false);
 
@@ -276,7 +277,7 @@ test("the first visit's playlist chooser is tinted, not ringed like keyboard foc
     return { shadow: style.boxShadow, background: style.backgroundColor };
   });
   expect(shadow, "no 2px ring, which is how focus is drawn").not.toMatch(/0px 0px 0px 2px/);
-  const plain = await page.getByRole("button", { name: "Filters" }).evaluate((el) => getComputedStyle(el).backgroundColor);
+  const plain = await filterButton(page).evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(background, "it is tinted to draw the eye").not.toBe(plain);
 });
 
@@ -316,9 +317,10 @@ test("a switch's thumb stays in its track while the page around it settles", asy
 
   // And a switch still crosses its whole track when it is switched: on the game's filter sheet, which writes nothing.
   await showGameView(page);
-  await page.getByRole("button", { name: "Filters" }).click();
-  const sheet = page.getByRole("dialog");
-  await sheet.locator("button[aria-pressed]").filter({ hasText: /^#\d+/ }).first().click();
+  await filterButton(page).click();
+  const sheet = filterPopover(page);
+  // One player chosen on Player's page: its foot offers "While on the floor".
+  await (await filterSection(sheet, "Player")).getByRole("option", { name: /^#\d+ / }).first().click();
   const onFloor = sheet.getByRole("switch");
   await expect(onFloor).toHaveAttribute("aria-checked", "false");
   /** The thumb's gap to the track's left and right edges. */
@@ -420,7 +422,7 @@ test("a click on a play doesn't leave the keyboard's focus ring on it", async ({
   expect(await ringed(), "and still no play is ringed").toBe(-1);
 
   // The keyboard keeps its ring: Tab reaches a play, the ring shows where it is, and Return plays it.
-  await page.getByRole("button", { name: "Filters" }).focus();
+  await filterButton(page).focus();
   let reached = -1;
   for (let i = 0; i < 30 && reached < 0; i++) {
     await page.keyboard.press("Tab");
@@ -452,13 +454,15 @@ test("the Now bar keeps room for the player's name in the narrowest column", asy
   await page.keyboard.press("k");
   const name = page.locator('[data-now="name"]');
   await expect(name).toBeVisible();
-  // The divider between the footage and the list, as far left as it goes.
+  // The divider between the list and the footage, as far right as it goes: the footage's column at its narrowest.
+  const stageBefore = (await boxOf(page.locator("video").first(), "the footage")).width;
   const divider = await boxOf(page.getByRole("separator").first(), "the divider");
   await page.mouse.move(divider.x + divider.width / 2, divider.y + divider.height / 2);
   await page.mouse.down();
-  await page.mouse.move(divider.x - 400, divider.y + divider.height / 2, { steps: 12 });
+  await page.mouse.move(divider.x + 400, divider.y + divider.height / 2, { steps: 12 });
   await page.mouse.up();
   await page.waitForTimeout(300);
+  expect((await boxOf(page.locator("video").first(), "the footage")).width, "the drag narrowed the footage's column").toBeLessThan(stageBefore);
   expect((await boxOf(name, "the player's name")).width, "the name is not cut down to its number sign").toBeGreaterThanOrEqual(64);
 });
 

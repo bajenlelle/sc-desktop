@@ -102,7 +102,7 @@ export type AnalyticsEvent =
   | "scouting_report_footer_clicked" // fired by the public page's "Made with Scoutable"
   | "folder_created"
   | "label_created"
-  | "filter_preset_saved" // surface (add_clips | game_view), groups (how many groups it holds)
+  | "filter_preset_saved" // surface (add_clips | game_view | team_plays | playlist), groups (how many groups it holds)
   | "filter_preset_applied" // surface
   | "label_applied" // bulk; surface (game_view) where it isn't the editor
   | "label_picked" // by (key | pointer | repeat: the game view's "same label again" | hotkey: the label's own key, position then its key), position (row in the picker), recent (from its Recent group), searched, created: a label put on from the label picker or by a key
@@ -110,7 +110,8 @@ export type AnalyticsEvent =
   // Game view (desktop /matches/:id: the whole game, its plays and its timeline; docs/game-view.md)
   | "game_view_opened" // plays, synced, video (ok | missing | unreadable | none | remote), score (plays | feed | none), timeouts, entry (library | details | link | tab | library_tab: a game marked Open in the Library | picker: the tab bar's + | search: the search over the space), restored (came back with filters or a quarter zoom), is_demo
   | "game_view_seeked" // via (row | timeline | key | marker | quarter | transport | now_bar | scrubber: the player's own bar | timeline_drag | wheel: a sideways swipe), kind (play | time | timeout | period | run), period; a drag or a swipe is one event, sent when it ends
-  | "game_view_filtered" // team, moment, groups (the filter sheet's active groups), search, on_court, picked (the plays behind a number in Stats), visible
+  | "game_view_filtered" // team, moment, groups (the Filter bar's active fields: types, players, shots, situations, quarters, moment, labels), on_court, picked (the plays behind a number in Stats), visible
+  | "plays_filtered" // surface (team_plays | add_clips), groups (the Filter bar's active fields), visible: a filter change in a list of plays other than the game view's, once the coach has stopped changing it
   | "game_view_closed" // seconds_played, clips_added, labels_applied
   | "game_stats_viewed" // entry, has_shots (shot positions stored), has_lineups (fives stored), plays, minutes_source (box: the league's box score | stints: from the fives | none), season (shown | none: not a Genius game or not in its season | failed), season_gaps (captions the factor bars wrote)
   | "game_stats_plays_opened" // kind (player_stat | team_stat | shot | zone | lineup | quarter | run), stat, plays

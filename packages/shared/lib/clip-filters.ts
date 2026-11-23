@@ -302,7 +302,7 @@ export function applyClipFiltersByKey<T extends { event: PlayByPlayEvent }>(
  * Players are playerKey()s. After a change of games, so a chosen team or player stays only while the new
  * games have them ("#8, last 5 games" keeps #8); the other groups never depend on the games.
  */
-export function keepKnownChoices(f: ClipFilters, events: readonly PlayByPlayEvent[]): ClipFilters {
+export function keepKnownChoices<T extends ClipFilters>(f: T, events: readonly PlayByPlayEvent[]): T {
   if (f.teams.size === 0 && f.players.size === 0) return f;
   const teams = new Set<string>();
   const players = new Set<string>();

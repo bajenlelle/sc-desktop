@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ListPlus, Play, Plus, Tag, VideoOff } from "lucide-react";
+import { Play, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, afterTimeoutPlays, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
+import { playersByTeam } from "@scoutable/shared/lib/clip-filters";
+import { activeGroups } from "@scoutable/shared/lib/play-filters";
 import { buildGameTimeline, momentAt, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
@@ -11,9 +13,8 @@ import { labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, pruneSelection, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
-import { AddToPopover } from "@/components/editor/add-to-popover";
 import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
-import { PILL_LABEL, PillButton, SelectionBar } from "@/components/editor/selection-bar";
+import { PlaysSelectionBar } from "@/components/plays/plays-selection-bar";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { usePlayLabelKeys } from "@/components/plays/use-play-label-keys";
 import { useStageFit } from "@/components/plays/use-stage-fit";
@@ -37,7 +38,6 @@ import { useClipLabels } from "@/lib/use-clip-labels";
 import { useFilterPresets } from "@/lib/use-filter-presets";
 import { useGameMarks } from "@/lib/use-game-marks";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
-import { cn } from "@/lib/utils";
 import { videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
 import { CollectControl } from "./collect-control";
@@ -181,6 +181,9 @@ export function GameWatchView({
     return [...byId.values()].sort((a, b) => a.side - b.side || (Number(a.number) || 999) - (Number(b.number) || 999));
   }, [match.events]);
 
+  // The Filter popover's players: by team, keyed as every list keys them (playerKey).
+  const playerGroups = useMemo(() => playersByTeam(match.events), [match.events]);
+
   const momentCounts = useMemo(() => {
     const counts = Object.fromEntries(GAME_MOMENTS.map((m) => [m, 0])) as Record<GameMoment, number>;
     for (const set of moments.values()) for (const m of set) counts[m]++;
@@ -196,7 +199,7 @@ export function GameWatchView({
   const presets = useFilterPresets(activeOrgId, "game_view");
   const labelIds = useMemo(() => labels.labels.map((l) => l.id), [labels.labels]);
   const applyPreset = (p: FilterPreset) => {
-    setFilters((f) => ({ ...f, clip: applyPresetFilters(f.clip, p.filters, labelIds) }));
+    setFilters((f) => ({ ...f, play: applyPresetFilters(f.play, p.filters, labelIds) }));
     presets.applied(p);
     if (presetLabelsGone(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
   };
@@ -207,7 +210,7 @@ export function GameWatchView({
   const collect = useCollect({ scope: collectScope, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
 
   // One player chosen: their stints on the floor, for the strip and the "while on the floor" switch.
-  const chosenPlayer = filters.clip.players.size === 1 ? (people.find((p) => p.name === [...filters.clip.players][0]) ?? null) : null;
+  const chosenPlayer = filters.play.players.size === 1 ? (people.find((p) => `id:${p.id}` === [...filters.play.players][0]) ?? null) : null;
   const stints = useMemo(() => (chosenPlayer ? onCourtStints(flow, chosenPlayer.id) : null), [flow, chosenPlayer]);
   const onCourtIds = useMemo(() => {
     if (!filters.onCourt || !stints || stints.length === 0) return null;
@@ -445,16 +448,8 @@ export function GameWatchView({
     const timer = window.setTimeout(() => {
       trackEvent("game_view_filtered", {
         team: filters.team,
-        moment: filters.moment,
-        groups: [
-          filters.clip.types.size > 0 && "types",
-          filters.clip.shotTypes.size > 0 && "shots",
-          filters.clip.situations.size > 0 && "situations",
-          filters.clip.players.size > 0 && "players",
-          (filters.clip.labels?.size ?? 0) > 0 && "labels",
-          filters.periods.size > 0 && "quarters",
-        ].filter(Boolean),
-        search: filters.search.trim() !== "",
+        moment: filters.play.moment,
+        groups: activeGroups(filters.play),
         on_court: filters.onCourt,
         picked: filters.picked !== null,
         visible: order.length,
@@ -598,16 +593,16 @@ export function GameWatchView({
   // A picker that has to open (no playlist chosen yet) grows from the control that asked: the Now bar's Add
   // (for the A key too), the "Add all" button, a row's plus.
   const addCurrent = useCallback(() => {
-    if (current && collect.statusOf(current.key) === "none") collect.add([current], "now_bar", filters.moment, addButtonRef.current);
-  }, [current, collect, filters.moment]);
+    if (current && collect.statusOf(current.key) === "none") collect.add([current], "now_bar", filters.play.moment, addButtonRef.current);
+  }, [current, collect, filters.play.moment]);
   const addAll = useCallback(
     (anchor: HTMLElement) => {
       const plays = order.map((i) => timeline.plays[i]).filter((p) => collect.statusOf(p.key) === "none");
-      collect.add(plays, "bulk", filters.moment, anchor);
+      collect.add(plays, "bulk", filters.play.moment, anchor);
     },
-    [order, timeline, collect, filters.moment],
+    [order, timeline, collect, filters.play.moment],
   );
-  const addOne = useCallback((play: TimedPlay, anchor: HTMLElement) => collect.add([play], "row", filters.moment, anchor), [collect, filters.moment]);
+  const addOne = useCallback((play: TimedPlay, anchor: HTMLElement) => collect.add([play], "row", filters.play.moment, anchor), [collect, filters.play.moment]);
   const openRowLabels = useCallback((play: TimedPlay) => setLabelPickerFor(play.key), []);
 
   // The label keys (⌥1–⌥9, ⇧G, Option held) act on the play on screen, as on Teams' Plays.
@@ -951,6 +946,81 @@ export function GameWatchView({
         actions={<CollectControl collect={collect} highlight={!tipSeen} />}
       />
       <ResizablePanelGroup direction="horizontal" autoSaveId="game-view" className="min-h-0 flex-1">
+        {/* The list on the left and the play on the right, as in Teams' Plays, Add clips and the editor. The ids keep each panel's saved size. */}
+        <ResizablePanel id="plays" defaultSize="34" minSize="26" maxSize="48">
+          <div className="flex h-full min-h-0 flex-col">
+            <GameFilterBar
+              filters={filters}
+              onChange={setFilters}
+              teams={teams}
+              momentCounts={momentCounts}
+              timeouts={marks && marks.timeouts.length > 0 ? "ready" : readingMarks ? "reading" : "none"}
+              periods={timeline.bands.map((b) => b.period)}
+              players={playerGroups}
+              labels={labels.labels}
+              visible={order.length}
+              total={timeline.byTime.length}
+              filtered={filtered}
+              addable={addable}
+              targetName={collect.target?.name ?? null}
+              onAddAll={addAll}
+              searchRef={searchRef}
+              sheetOpen={filterSheetOpen}
+              onSheetOpenChange={setFilterSheetOpen}
+              presetsMenu={activeOrgId ? (
+                <FilterPresetsMenu
+                  presets={presets.presets}
+                  current={filters.play}
+                  onApply={applyPreset}
+                  onSave={(name) => presets.save(name, filters.play)}
+                  onRename={presets.rename}
+                  onDelete={presets.remove}
+                />
+              ) : undefined}
+            />
+            <GamePlayList
+              rows={rows}
+              hasPlays={timeline.plays.length > 0}
+              activeKey={playback.activeKey}
+              selected={selected}
+              playing={footage}
+              showTeam={filters.team === 0}
+              flow={flow}
+              teams={teams}
+              labels={labels.labels}
+              assignments={labels.assignments}
+              statusOf={collect.statusOf}
+              targetName={collect.target?.name ?? null}
+              labelPickerFor={labelPickerFor}
+              renderLabelPicker={renderRowLabelPicker}
+              followSignal={followSignal}
+              reveal={reveal}
+              restoreScroll={remembered?.list ?? null}
+              onLeave={(list) => rememberGameView(match.id, { list })}
+              onPress={onPress}
+              onAdd={addOne}
+              onRemove={collect.removeAdded}
+              onLabel={openRowLabels}
+              onMarker={onMarker}
+              onClearFilters={() => setFilters(EMPTY_GAME_FILTERS)}
+              // Finder's rule: an action on a selected item acts on the whole selection.
+              rowMenu={(play, anchor) => (
+                <GamePlayMenuContent
+                  plays={selected.has(play.key) ? selectedPlays : [play]}
+                  collect={collect}
+                  moment={filters.play.moment}
+                  anchor={anchor}
+                  onDone={selected.has(play.key) ? clearSelection : undefined}
+                />
+              )}
+              selecting={selected.size > 0}
+              selectionBar={
+                <PlaysSelectionBar count={selected.size} collect={collect} plays={() => selectedPlays} moment={filters.play.moment} onClear={clearSelection} />
+              }
+            />
+          </div>
+        </ResizablePanel>
+        <ResizableHandle />
         <ResizablePanel id="player" defaultSize="66" minSize="45">
           <div className="flex h-full min-h-0 flex-col px-4 pt-4">
             <div ref={stageBoxRef} className="flex min-h-0 flex-1 flex-col items-center">
@@ -1082,120 +1152,6 @@ export function GameWatchView({
             </div>
             {/* A warning about the sync opens its own room at the foot of the column: the footage gives way, it doesn't jump. */}
             <AutoHeight className="shrink-0">{banner && <div className="pb-3">{banner}</div>}</AutoHeight>
-          </div>
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel id="plays" defaultSize="34" minSize="26" maxSize="48">
-          <div className="flex h-full min-h-0 flex-col">
-            <GameFilterBar
-              filters={filters}
-              onChange={setFilters}
-              teams={teams}
-              momentCounts={momentCounts}
-              timeouts={marks && marks.timeouts.length > 0 ? "ready" : readingMarks ? "reading" : "none"}
-              periods={timeline.bands.map((b) => b.period)}
-              people={people}
-              labels={labels.labels}
-              visible={order.length}
-              filtered={filtered}
-              addable={addable}
-              targetName={collect.target?.name ?? null}
-              onAddAll={addAll}
-              searchRef={searchRef}
-              sheetOpen={filterSheetOpen}
-              onSheetOpenChange={setFilterSheetOpen}
-              presetsMenu={activeOrgId ? (
-                <FilterPresetsMenu
-                  presets={presets.presets}
-                  current={filters.clip}
-                  onApply={applyPreset}
-                  onSave={(name) => presets.save(name, filters.clip)}
-                  onRename={presets.rename}
-                  onDelete={presets.remove}
-                />
-              ) : undefined}
-            />
-            <GamePlayList
-              rows={rows}
-              hasPlays={timeline.plays.length > 0}
-              activeKey={playback.activeKey}
-              selected={selected}
-              playing={footage}
-              showTeam={filters.team === 0}
-              flow={flow}
-              teams={teams}
-              labels={labels.labels}
-              assignments={labels.assignments}
-              statusOf={collect.statusOf}
-              targetName={collect.target?.name ?? null}
-              labelPickerFor={labelPickerFor}
-              renderLabelPicker={renderRowLabelPicker}
-              followSignal={followSignal}
-              reveal={reveal}
-              restoreScroll={remembered?.list ?? null}
-              onLeave={(list) => rememberGameView(match.id, { list })}
-              onPress={onPress}
-              onAdd={addOne}
-              onRemove={collect.removeAdded}
-              onLabel={openRowLabels}
-              onMarker={onMarker}
-              onClearFilters={() => setFilters(EMPTY_GAME_FILTERS)}
-              // Finder's rule: an action on a selected item acts on the whole selection.
-              rowMenu={(play, anchor) => (
-                <GamePlayMenuContent
-                  plays={selected.has(play.key) ? selectedPlays : [play]}
-                  collect={collect}
-                  moment={filters.moment}
-                  anchor={anchor}
-                  onDone={selected.has(play.key) ? clearSelection : undefined}
-                />
-              )}
-              selecting={selected.size > 0}
-              selectionBar={
-                <SelectionBar
-                  count={selected.size}
-                  onClear={clearSelection}
-                  clearTitle="Deselect all (Esc)"
-                  group={null}
-                  addTo={
-                    <>
-                      <PillButton
-                        title={collect.target ? `Add ${selected.size} ${selected.size === 1 ? "play" : "plays"} to ${collect.target.name}` : "Add to playlist…"}
-                        // With no target the picker opens from its own button (the pill leaves with the selection), and
-                        // the selection stays until a playlist is chosen and the plays are in: dismissed, nothing is lost.
-                        onClick={() => collect.add(selectedPlays, "selection", filters.moment, null, clearSelection)}
-                      >
-                        <Plus />
-                        {collect.target ? (
-                          <span className={cn(PILL_LABEL, "max-w-40 truncate")}>Add to {collect.target.name}</span>
-                        ) : (
-                          <span className={PILL_LABEL}>Add to playlist…</span>
-                        )}
-                      </PillButton>
-                      <AddToPopover
-                        playlists={collect.candidates}
-                        activePlaylistId={collect.target?.id ?? null}
-                        onAddToPlaylist={async (pl) => {
-                          collect.addToPlaylist(pl, selectedPlays, "selection", filters.moment);
-                          clearSelection();
-                        }}
-                        onCreatePlaylist={async (name) => {
-                          await collect.createAndAddTo(name, selectedPlays, "selection", filters.moment);
-                          clearSelection();
-                        }}
-                        trigger={
-                          <PillButton title="Add to another playlist">
-                            <ListPlus />
-                            <span className={PILL_LABEL}>Another playlist</span>
-                            <ChevronDown className="size-3 text-muted-foreground" />
-                          </PillButton>
-                        }
-                      />
-                    </>
-                  }
-                />
-              }
-            />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

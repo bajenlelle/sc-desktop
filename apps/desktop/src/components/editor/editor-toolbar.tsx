@@ -8,7 +8,6 @@ import {
   CircleX,
   Columns2,
   FileDown,
-  Filter,
   Loader2,
   Lock,
   MoreHorizontal,
@@ -25,7 +24,7 @@ import {
 } from "lucide-react";
 import { exportProgressLabel, exportProgressPercent, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { ExportAction } from "@/components/export-format-dialog";
-import { Toolbar, ToolbarAction } from "@/components/shell/toolbar";
+import { Toolbar, ToolbarAction, useToolbarCompact } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -144,10 +143,8 @@ export interface EditorToolbarProps {
   onAddClips: () => void;
   highlightAddClips: boolean;
 
-  filtersOpen: boolean;
-  filtersActive: boolean;
-  activeFilterDims: number;
-  onToggleFilters: () => void;
+  /** Filter: the Filter menu's trigger and popover (usePlaylistFilters), compact or with its word. */
+  filter: (compact: boolean) => React.ReactElement;
 
   onAddTextCard: () => void;
   addTextCardDisabledReason: string | null;
@@ -192,6 +189,11 @@ export interface EditorToolbarProps {
   shareDisabledReason: string | null;
   highlightShare: boolean;
   onShare: () => void;
+}
+
+/** The toolbar's Filter, compact as the bar is. */
+function FilterAction({ render }: { render: (compact: boolean) => React.ReactElement }) {
+  return render(useToolbarCompact());
 }
 
 /** A disabled button still explains itself: the tooltip wraps a span. */
@@ -334,24 +336,8 @@ export function EditorToolbar(p: EditorToolbarProps) {
             </PopoverContent>
           </Popover>
 
-          <ToolbarAction label="Filter">
-            {(compact) => (
-              <Button
-                variant={p.filtersActive ? "secondary" : "ghost"}
-                size={compact && p.activeFilterDims === 0 ? "icon-sm" : "sm"}
-                onClick={p.onToggleFilters}
-                aria-pressed={p.filtersOpen}
-                aria-label={compact ? "Filter" : undefined}
-                title={compact ? undefined : "Filter clips by player, label, event type, period or game"}
-              >
-                <Filter />
-                {!compact && "Filter"}
-                {p.activeFilterDims > 0 && (
-                  <span className="rounded-full bg-primary px-1.5 text-caption nums text-primary-foreground">{p.activeFilterDims}</span>
-                )}
-              </Button>
-            )}
-          </ToolbarAction>
+          {/* Not a ToolbarAction: its trigger sits inside the menu's popover, and says "Filter (⌘F)" itself. */}
+          <FilterAction render={p.filter} />
 
           {p.isPlaying ? (
             <ToolbarAction label="Stop">

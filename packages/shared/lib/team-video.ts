@@ -10,7 +10,8 @@
  * view says.
  */
 import type { PlayByPlayEvent } from "../types/match";
-import { applyClipFiltersByKey, type ClipFilters } from "./clip-filters";
+import type { GameMoment } from "./game-flow";
+import { applyPlayFilters, type PlayFilters } from "./play-filters";
 import { isBookkeepingEvent, sortPlaysChronologically } from "./events";
 import { gameBox, type BoxStat } from "./game-box";
 import { gameShots, SHOT_ZONES, type ChartShot, type ShotZone } from "./game-shots";
@@ -32,6 +33,8 @@ export interface TeamGame {
   opponentName: string;
   result: "W" | "L" | null;
   score: { own: number; opp: number } | null;
+  /** A game that is no team's (Add clips lists the library's games): its title, which its header shows instead. */
+  title?: string;
 }
 
 /** A game and its stored plays. */
@@ -242,25 +245,32 @@ export type TeamPlayRow =
 
 /**
  * The Plays list: newest game first, each game's plays in game order, only the
- * side asked for, narrowed by the picked plays (null: none picked) and by the
- * filters (labels through `labelsOf`). A game with nothing listed has no
- * header; a header counts its listed plays.
+ * side asked for ("all": both teams' plays and the team rows, as Add clips lists
+ * a game), narrowed by the picked plays (null: none picked) and by the filters
+ * (labels through `labelsOf`, moments through `momentsOf`). A game with nothing
+ * listed has no header; a header counts its listed plays.
  */
 export function teamPlayRows(
   games: readonly GamePlays[],
-  side: PlaysSide,
+  side: PlaysSide | "all",
   picked: ReadonlySet<string> | null,
-  filters: ClipFilters,
+  filters: PlayFilters,
   labelsOf?: (key: string) => ReadonlySet<string> | undefined,
+  momentsOf?: (gameId: string, eventId: number) => ReadonlySet<GameMoment> | undefined,
 ): TeamPlayRow[] {
   const out: TeamPlayRow[] = [];
   for (const g of [...games].sort((a, b) => newestFirst(a.game, b.game))) {
-    const n = sideNumber(g.game, side);
+    const n = side === "all" ? null : sideNumber(g.game, side);
     const entries = sortPlaysChronologically(g.events)
-      .filter((e) => !isBookkeepingEvent(e) && sideOf(e) === n)
+      .filter((e) => !isBookkeepingEvent(e) && (n === null || sideOf(e) === n))
       .map((event) => ({ event, key: keyOf(g.game, event.eventId) }))
       .filter((x) => !picked || picked.has(x.key));
-    const kept = applyClipFiltersByKey(entries, filters, labelsOf ? (x) => labelsOf(x.key) : undefined);
+    const kept = applyPlayFilters(
+      entries,
+      filters,
+      labelsOf ? (x) => labelsOf(x.key) : undefined,
+      momentsOf ? (x) => momentsOf(g.game.gameId, x.event.eventId) : undefined,
+    );
     if (kept.length === 0) continue;
     out.push({ kind: "game", game: g.game, plays: kept.length });
     for (const x of kept) out.push({ kind: "play", key: x.key, game: g.game, event: x.event });
