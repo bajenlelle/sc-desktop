@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Film } from "lucide-react";
 import { toast } from "sonner";
@@ -7,7 +7,7 @@ import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scouta
 import { pickLabel } from "@scoutable/shared/lib/team-copy";
 import { pickKeys, sideNumber, sideOf, teamPlayRows, type PlaysPick, type PlaysSide, type TeamPlayRow } from "@scoutable/shared/lib/team-video";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
-import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
+import { labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import type { ClipBrowserLabelHandlers } from "@/components/editor/clip-browser-panel";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
@@ -15,11 +15,14 @@ import type { Collect } from "@/components/game/use-collect";
 import { GamePlayMenuContent } from "@/components/game/game-play-menu";
 import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
 import { RowLabelButton } from "@/components/plays/play-row";
+import { usePlayLabelKeys } from "@/components/plays/use-play-label-keys";
+import { useStageFit } from "@/components/plays/use-stage-fit";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
-import { getRecentLabelIds, rememberLabelUsed } from "@/lib/recent-labels";
+import { rememberLabelUsed } from "@/lib/recent-labels";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL } from "@/lib/ship-clips";
-import { TeamPlaysStage } from "./team-plays-stage";
+import { TEAM_UNDER_STAGE, TeamPlaysStage } from "./team-plays-stage";
 import { useCrossGamePlayback } from "./use-cross-game-playback";
 import type { Label } from "@scoutable/shared/types/labels";
 import { EmptyState } from "@/components/empty-state";
@@ -28,6 +31,9 @@ import { useFilterPresets } from "@/lib/use-filter-presets";
 import type { TeamPlays } from "@/lib/use-team-plays";
 import { TeamPlayList, type ListRow, type RowClick } from "./team-play-list";
 import { TeamPlaysFilters } from "./team-plays-filters";
+
+/** No labels: one set, so the stage's memo of the play shown holds. */
+const EMPTY_LABELS: ReadonlySet<string> = new Set();
 
 /** The team's latest played game that can be imported: the empty view's one action. */
 export interface LatestImport {
@@ -116,6 +122,7 @@ export function TeamPlaysView({
   const gameCount = rows.filter((r) => r.kind === "game").length;
 
   // ---- Playback ---------------------------------------------------------------
+  const stageBox = useStageFit(TEAM_UNDER_STAGE);
   const video = usePersistentVideo();
   const [speed, setSpeedState] = useState(1);
   const setSpeed = (s: number) => {
@@ -250,14 +257,35 @@ export function TeamPlaysView({
     );
   };
   const [labelOpen, setLabelOpen] = useState(false);
-  const toggleLabel = (labelId: string) => {
-    const rs = targets();
-    if (rs.length === 0) return;
-    const on = rs.every((r) => labelsOf(r.key)?.has(labelId));
-    rememberLabelUsed(labelId);
-    if (rs.length === 1) void labelHandlers.onToggleClip(rs[0].game.gameId, rs[0].event.eventId, labelId, on ? "all" : "none");
-    else void labelHandlers.onBulkToggle(rs.map((r) => ({ matchId: r.game.gameId, eventId: r.event.eventId })), labelId, on ? "all" : "none");
-  };
+  // The label keys (⌥1–⌥9, ⇧G, Option held), as the game view's: on the selection when there is one, else the play on screen.
+  const labelTargets = useCallback(() => targets().map((r) => ({ key: r.key, matchId: r.game.gameId, eventId: r.event.eventId })), [targets]);
+  const openStagePicker = useCallback(() => {
+    if (playback.current) setLabelOpen(true);
+  }, [playback]);
+  const labelKeys = usePlayLabelKeys({
+    scope: "team-plays",
+    labels,
+    labelsOf,
+    targets: labelTargets,
+    handlers: labelHandlers,
+    openPicker: openStagePicker,
+  });
+
+  // Choosing a label holds the footage, as in the game view: the label goes on the play it was asked for, and
+  // nothing goes by unseen meanwhile. It carries on by itself when the picker closes.
+  const labelling = labelOpen || labelFor !== null;
+  const resumeAfterLabel = useRef(false);
+  useEffect(() => {
+    if (labelling) {
+      if (!video.paused) {
+        resumeAfterLabel.current = true;
+        video.pause();
+      }
+    } else if (resumeAfterLabel.current) {
+      resumeAfterLabel.current = false;
+      video.play().catch(() => {});
+    }
+  }, [labelling, video]);
 
   // ---- Keys ---------------------------------------------------------------------
   // The page's keys while Plays is shown, as the game view's are: focus is often on the toolbar's switch, so no container.
@@ -280,15 +308,14 @@ export function TeamPlaysView({
       }
       if (plain && e.shiftKey && e.code === "KeyG") {
         e.preventDefault();
-        const last = getRecentLabelIds().find((id) => labels.some((l) => l.id === id));
-        if (last) toggleLabel(last);
+        labelKeys.labelAgain();
         return;
       }
       const slot = labelKeySlot(e);
       if (slot !== null) {
         e.preventDefault();
-        const l = labelForKey(labels, slot);
-        if (l && !e.repeat) toggleLabel(l.id);
+        // A held key would put the label on and take it off again.
+        if (!e.repeat) labelKeys.labelByKey(slot);
         return;
       }
       if (e.code === "Escape" && selected.size > 0) {
@@ -400,95 +427,110 @@ export function TeamPlaysView({
         pill={picked?.label ?? null}
         onClearPick={onClearPick}
       />
-      <div className="flex min-h-0 flex-1">
-        <section aria-label="Their plays" className="flex w-[42%] min-w-80 shrink-0 flex-col border-r border-separator">
-          <div className="flex h-8 shrink-0 items-center justify-between border-b border-separator px-4 text-subheadline text-muted-foreground nums">
-            <span>
-              {playCount} {playCount === 1 ? "play" : "plays"} in {gameCount} {gameCount === 1 ? "game" : "games"}
-            </span>
-            <span>Newest game first</span>
-          </div>
-          {plays.failed.length > 0 && (
-            <div className="flex shrink-0 items-center gap-3 border-b border-separator px-4 py-2">
-              <div className="min-w-0 flex-1 text-callout text-muted-foreground">
-                {plays.failed.map((g) => (
-                  <p key={g.gameId}>Couldn&apos;t load plays for {g.home ? "vs" : "at"} {g.opponentName}.</p>
+      {/* The divider between the list and the player drags, as in the game view: a wider column, a larger player. */}
+      <ResizablePanelGroup direction="horizontal" autoSaveId="team-plays" className="min-h-0 flex-1">
+        <ResizablePanel id="plays" defaultSize="42" minSize="320px" maxSize="60">
+          <section aria-label="Their plays" className="flex h-full min-h-0 flex-col">
+            <div className="flex h-8 shrink-0 items-center justify-between border-b border-separator px-4 text-subheadline text-muted-foreground nums">
+              <span>
+                {playCount} {playCount === 1 ? "play" : "plays"} in {gameCount} {gameCount === 1 ? "game" : "games"}
+              </span>
+              <span>Newest game first</span>
+            </div>
+            {plays.failed.length > 0 && (
+              <div className="flex shrink-0 items-center gap-3 border-b border-separator px-4 py-2">
+                <div className="min-w-0 flex-1 text-callout text-muted-foreground">
+                  {plays.failed.map((g) => (
+                    <p key={g.gameId}>Couldn&apos;t load plays for {g.home ? "vs" : "at"} {g.opponentName}.</p>
+                  ))}
+                </div>
+                <Button size="sm" variant="outline" onClick={plays.retry}>
+                  Try again
+                </Button>
+              </div>
+            )}
+            {rows.length > 0 ? (
+              <TeamPlayList
+                rows={rows}
+                current={playback.currentKey}
+                selected={selected}
+                playable={plays.playable}
+                labelsByKey={labelsByKey}
+                statusOf={collect.statusOf}
+                targetName={collect.target?.name ?? null}
+                labelPickerFor={labelFor}
+                renderLabelPicker={renderLabelPicker}
+                rowMenu={rowMenu}
+                onPlay={onPlay}
+                onAdd={onAdd}
+                onRemove={onRemove}
+                onLabel={setLabelFor}
+              />
+            ) : plays.status === "reading" ? (
+              <div className="space-y-2 p-4" aria-hidden>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className="h-5 animate-pulse rounded bg-fill-1" />
                 ))}
               </div>
-              <Button size="sm" variant="outline" onClick={plays.retry}>
-                Try again
-              </Button>
+            ) : (
+              <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+                <p className="text-body text-muted-foreground">No plays match.</p>
+                {(filtered || pick) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setFiltersState(EMPTY_CLIP_FILTERS);
+                      onClearPick();
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+            )}
+          </section>
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel id="player" defaultSize="58" minSize="40">
+          <section aria-label="Video" className="flex h-full min-h-0 min-w-0 flex-col p-4">
+            {/* The footage as large as the column allows at 16:9, with the Now bar and the selection under it. */}
+            <div ref={stageBox.ref} className="flex min-h-0 flex-1 flex-col items-center">
+              <div className="flex flex-col" style={{ width: stageBox.width || "100%" }}>
+                <TeamPlaysStage
+                  video={video}
+                  playback={playback}
+                  why={playback.current ? plays.playable(playback.current.game.gameId) : null}
+                  speed={speed}
+                  onSpeedChange={setSpeed}
+                  labels={labels}
+                  assigned={(playback.currentKey && labelsOf(playback.currentKey)) || EMPTY_LABELS}
+                  labelHandlers={labelHandlers}
+                  labelOpen={labelOpen}
+                  onLabelOpenChange={setLabelOpen}
+                  lastLabel={labelKeys.lastLabel}
+                  onLabelAgain={labelKeys.labelAgain}
+                  keysShown={labelKeys.keysShown}
+                  onAdd={add}
+                  status={playback.currentKey ? collect.statusOf(playback.currentKey) : "none"}
+                  targetName={collect.target?.name ?? null}
+                />
+                {selected.size > 0 && (
+                  <div className="flex h-11 items-center gap-2 px-1 text-subheadline text-muted-foreground nums">
+                    {selected.size} selected
+                    <Button size="sm" variant="outline" onClick={(e) => add(e.currentTarget)}>
+                      Add {selected.size}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+                      Deselect
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-          {rows.length > 0 ? (
-            <TeamPlayList
-              rows={rows}
-              current={playback.currentKey}
-              selected={selected}
-              playable={plays.playable}
-              labelsByKey={labelsByKey}
-              statusOf={collect.statusOf}
-              targetName={collect.target?.name ?? null}
-              labelPickerFor={labelFor}
-              renderLabelPicker={renderLabelPicker}
-              rowMenu={rowMenu}
-              onPlay={onPlay}
-              onAdd={onAdd}
-              onRemove={onRemove}
-              onLabel={setLabelFor}
-            />
-          ) : plays.status === "reading" ? (
-            <div className="space-y-2 p-4" aria-hidden>
-              {[0, 1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-5 animate-pulse rounded bg-fill-1" />
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-              <p className="text-body text-muted-foreground">No plays match.</p>
-              {(filtered || pick) && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setFiltersState(EMPTY_CLIP_FILTERS);
-                    onClearPick();
-                  }}
-                >
-                  Clear filters
-                </Button>
-              )}
-            </div>
-          )}
-        </section>
-        <section aria-label="Video" className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-          <TeamPlaysStage
-            video={video}
-            playback={playback}
-            why={playback.current ? plays.playable(playback.current.game.gameId) : null}
-            speed={speed}
-            onSpeedChange={setSpeed}
-            labels={labels}
-            assigned={(playback.currentKey && labelsOf(playback.currentKey)) || new Set()}
-            labelHandlers={labelHandlers}
-            labelOpen={labelOpen}
-            onLabelOpenChange={setLabelOpen}
-            onAdd={add}
-            added={!!playback.currentKey && collect.statusOf(playback.currentKey) !== "none"}
-          />
-          {selected.size > 0 && (
-            <div className="flex items-center gap-2 px-1 text-subheadline text-muted-foreground nums">
-              {selected.size} selected
-              <Button size="sm" variant="outline" onClick={(e) => add(e.currentTarget)}>
-                Add {selected.size}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-                Deselect
-              </Button>
-            </div>
-          )}
-        </section>
-      </div>
+          </section>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }

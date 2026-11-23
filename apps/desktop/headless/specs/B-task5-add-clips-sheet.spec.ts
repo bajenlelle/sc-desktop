@@ -1,6 +1,7 @@
 /**
- * Task 5: Add clips stays open on a click on the dim scrim and closes with Esc
- * or its Close button; the Fix sync sheet still closes on a scrim click; with a
+ * Task 5: Add clips closes on a click on the dim scrim (as the game's filters
+ * close on a press outside), with Esc or with its Close button, and stays open
+ * on a press anywhere else outside; the Fix sync sheet closes on a scrim click; with a
  * sheet open, a childless drag strip of the title bar's height sits above the
  * scrim, and a press on it never dismisses a sheet. Real window drag and resize
  * stay manual. Creates "headless-<port> sheet" with one clip and deletes it.
@@ -69,31 +70,33 @@ async function clickScrim(page: Page) {
   await page.mouse.click(point.x, point.y);
 }
 
-test("Add clips stays open on the scrim and the strip; Esc and Close close it; Fix sync still closes on the scrim", async ({ page, browserName }) => {
+test("Add clips closes on the scrim, Esc and Close, and stays open on the strip; Fix sync closes on the scrim", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-B-task5-${step}`;
   const [key] = await newPlaylistWithClips(page, NAME, { count: 1 });
   const addClips = page.getByRole("button", { name: "Add clips", exact: true }).first();
   const sheet = page.getByRole("dialog");
   const heading = sheet.getByRole("heading", { name: "Add clips" });
 
-  // Manual check (3): a scrim click leaves Add clips open.
   await addClips.click();
   await expect(heading).toBeVisible();
   const stripHeight = await expectDragStrip(page);
   await shot(page, name("add-clips-open"));
-  await clickScrim(page);
-  // Nothing should happen: give a dismissal the sheet's exit time to show, then look.
-  await page.waitForTimeout(600);
-  await expect(heading, "Add clips stays open after a scrim click").toBeVisible();
-  // A press on the drag strip (where the window drag starts in the app) doesn't close it either.
+  // A press on the drag strip (where the window drag starts in the app) leaves it open.
   if (stripHeight > 0) {
     await page.mouse.click(page.viewportSize()!.width / 2, stripHeight / 2);
+    // Nothing should happen: give a dismissal the sheet's exit time to show, then look.
     await page.waitForTimeout(600);
     await expect(heading, "Add clips stays open after a press on the drag strip").toBeVisible();
   }
+  // A scrim click closes it, and the strip goes with the sheet.
+  await clickScrim(page);
+  await expect(heading, "a scrim click closes Add clips").toBeHidden();
+  await expect(page.locator("body > [data-tauri-drag-region][aria-hidden]")).toHaveCount(0);
   await shot(page, name("add-clips-after-scrim"));
 
-  // Esc closes it, and the strip goes with the sheet.
+  // Esc closes it.
+  await addClips.click();
+  await expect(heading).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(heading, "Esc closes Add clips").toBeHidden();
   await expect(page.locator("body > [data-tauri-drag-region][aria-hidden]")).toHaveCount(0);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { toast } from "sonner";
 import { ChevronDown, ListPlus, Play, Plus, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
@@ -7,7 +7,7 @@ import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFil
 import { buildGameTimeline, momentAt, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
-import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
+import { labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, pruneSelection, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
@@ -15,6 +15,8 @@ import { AddToPopover } from "@/components/editor/add-to-popover";
 import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
 import { PILL_LABEL, PillButton, SelectionBar } from "@/components/editor/selection-bar";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
+import { usePlayLabelKeys } from "@/components/plays/use-play-label-keys";
+import { useStageFit } from "@/components/plays/use-stage-fit";
 import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
 import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import { Page } from "@/components/shell/page";
@@ -30,8 +32,6 @@ import { recallGamePosition, recallGameView, rememberGamePosition, rememberGameV
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { getGameTimelineTipSeen, setGameTimelineTipSeen } from "@/lib/prefs";
-import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey, useOptionHeld } from "@/lib/label-keys";
-import { rememberLabelUsed, useRecentLabelIds } from "@/lib/recent-labels";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { useClipLabels } from "@/lib/use-clip-labels";
 import { useFilterPresets } from "@/lib/use-filter-presets";
@@ -610,67 +610,26 @@ export function GameWatchView({
   const addOne = useCallback((play: TimedPlay, anchor: HTMLElement) => collect.add([play], "row", filters.moment, anchor), [collect, filters.moment]);
   const openRowLabels = useCallback((play: TimedPlay) => setLabelPickerFor(play.key), []);
 
-  // The label used last, of this space's vocabulary: what "the same label again" puts on.
-  const recentLabelIds = useRecentLabelIds();
-  const lastLabel = useMemo(() => {
-    const byId = new Map(labels.labels.map((l) => [l.id, l]));
-    for (const id of recentLabelIds) {
-      const label = byId.get(id);
-      if (label) return label;
-    }
-    return null;
-  }, [recentLabelIds, labels.labels]);
-
-  /**
-   * The same label again, on the play on screen, without the picker: one key (or one click) per play for
-   * a coach who is looking for one thing through the whole game. It only ever puts the label on; with no
-   * label used yet it opens the picker.
-   */
-  const labelAgain = useCallback(() => {
-    if (!current) return;
-    if (!lastLabel) {
-      setNowLabelFor(current);
-      return;
-    }
-    if (labels.assignments.get(current.key)?.has(lastLabel.id)) return;
-    const { eventId } = current.event;
-    void labels.handlers.onToggleClip(match.id, eventId, lastLabel.id, "none");
-    rememberLabelUsed(lastLabel.id);
-    trackEvent("label_picked", { by: "repeat", position: 0, recent: true, searched: false, created: false });
-    toast(labelKeyMessage(lastLabel.name, true), {
-      id: LABEL_KEY_TOAST,
-      action: { label: "Undo", onClick: () => void labels.handlers.onToggleClip(match.id, eventId, lastLabel.id, "all") },
-    });
-  }, [current, lastLabel, labels.assignments, labels.handlers, match.id]);
-
-  /**
-   * A label's own key (⌥1–⌥9): the label goes on the play on screen, or comes off it, while the footage
-   * plays on. Undo names the play the key was pressed on: by then another one may be on screen.
-   */
-  const labelByKey = useCallback(
-    (slot: number) => {
-      const label = labelForKey(labels.labels, slot);
-      if (!label) {
-        toastNoLabelOnKey(slot);
-        return;
-      }
-      if (!current) return;
-      const { eventId } = current.event;
-      const on = !(labels.assignments.get(current.key)?.has(label.id) ?? false);
-      void labels.handlers.onToggleClip(match.id, eventId, label.id, on ? "none" : "all");
-      if (on) {
-        rememberLabelUsed(label.id);
-        trackEvent("label_picked", { by: "hotkey", position: slot, recent: false, searched: false, created: false });
-      }
-      toast(labelKeyMessage(label.name, on), {
-        id: LABEL_KEY_TOAST,
-        action: { label: "Undo", onClick: () => void labels.handlers.onToggleClip(match.id, eventId, label.id, on ? "all" : "none") },
-      });
-    },
-    [current, labels.labels, labels.assignments, labels.handlers, match.id],
+  // The label keys (⌥1–⌥9, ⇧G, Option held) act on the play on screen, as on Teams' Plays.
+  const labelTargets = useCallback(
+    () => (current ? [{ key: current.key, matchId: match.id, eventId: current.event.eventId }] : []),
+    [current, match.id],
   );
-  // Option held for a moment asks which key is which label.
-  const labelKeysShown = useOptionHeld("game");
+  const labelsOfPlay = useCallback((key: string) => labels.assignments.get(key), [labels.assignments]);
+  const openNowPicker = useCallback(() => setNowLabelFor(current), [current]);
+  const {
+    lastLabel,
+    labelAgain,
+    labelByKey,
+    keysShown: labelKeysShown,
+  } = usePlayLabelKeys({
+    scope: "game",
+    labels: labels.labels,
+    labelsOf: labelsOfPlay,
+    targets: labelTargets,
+    handlers: labels.handlers,
+    openPicker: openNowPicker,
+  });
 
   // Choosing a label holds the footage: the label goes on the play it was asked for, and nothing
   // goes by unseen meanwhile. It carries on by itself when the picker closes.
@@ -898,21 +857,7 @@ export function GameWatchView({
   });
 
   // ---- The stage's size: as large as the column allows, 16:9 --------------------
-  const stageBoxRef = useRef<HTMLDivElement | null>(null);
-  const [stageWidth, setStageWidth] = useState(0);
-  useLayoutEffect(() => {
-    const el = stageBoxRef.current;
-    if (!el) return;
-    const measure = () => {
-      const w = el.clientWidth;
-      const h = el.clientHeight - UNDER_STAGE;
-      setStageWidth(Math.max(240, Math.floor(Math.min(w, (h * 16) / 9))));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const { ref: stageBoxRef, width: stageWidth } = useStageFit(UNDER_STAGE);
 
   // ---- What stands in the way of the footage, and of its timing -----------------
   const fileName = match.videoUrl ? videoBasename(match.videoUrl) : null;
@@ -1006,7 +951,7 @@ export function GameWatchView({
         actions={<CollectControl collect={collect} highlight={!tipSeen} />}
       />
       <ResizablePanelGroup direction="horizontal" autoSaveId="game-view" className="min-h-0 flex-1">
-        <ResizablePanel defaultSize="66" minSize="45">
+        <ResizablePanel id="player" defaultSize="66" minSize="45">
           <div className="flex h-full min-h-0 flex-col px-4 pt-4">
             <div ref={stageBoxRef} className="flex min-h-0 flex-1 flex-col items-center">
               <div className="flex flex-col" style={{ width: stageWidth || "100%" }}>
@@ -1140,7 +1085,7 @@ export function GameWatchView({
           </div>
         </ResizablePanel>
         <ResizableHandle />
-        <ResizablePanel defaultSize="34" minSize="26" maxSize="48">
+        <ResizablePanel id="plays" defaultSize="34" minSize="26" maxSize="48">
           <div className="flex h-full min-h-0 flex-col">
             <GameFilterBar
               filters={filters}

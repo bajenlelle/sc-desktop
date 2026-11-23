@@ -145,11 +145,24 @@ it, and playback skips it.
   Label, + and menu act on the selection when the row is in it, else on that
   row alone (Finder's rule); the keys act on the selection, else the play on
   screen.
+- **Under the player** is the game view's Now bar (`GameNowBar`): quarter,
+  clock and the game, the event, the player, the labels the play has, the
+  same label again (⇧G), Label (G) and Add (A), or "In playlist" once the
+  play is in the target. A label put on by a key shows there at once.
+  Holding Option shows which label each key puts on over the footage
+  (`GameLabelKeys`), and the footage holds while a label picker is open, as
+  in the game view.
 - **Keys** (scope `team-plays`, only while Plays shows): Space, J K L, ← →, R;
   ↑ ↓ the previous or next play that can play; A add; G label; ⇧G the label
-  used last; ⌥1–⌥9 a label's key; ⌘-click and Shift-click select, ⌘A every
-  listed play, Esc lets go. A click on a play takes the keyboard from the
-  toolbar's switch, whose arrows would otherwise move between its options.
+  used last (it only puts it on); ⌥1–⌥9 a label's key (a toggle); both say
+  what they did in a toast with Undo, through the game view's
+  `usePlayLabelKeys`. ⌘-click and Shift-click select, ⌘A every listed play,
+  Esc lets go. A click on a play takes the keyboard from the toolbar's
+  switch, whose arrows would otherwise move between its options.
+- **The divider between the list and the player drags** (`autoSaveId`
+  `team-plays`, panels `plays` and `player`): the list from 320 px to 60 %,
+  the player as large as its column allows at 16:9 (`useStageFit`), never in
+  a scroll. A double-click puts it back; the split is kept for the session.
 - **With none of the team's games**, Plays offers their latest importable
   game ("Import their latest game: at Beta, 22 Nov").
 - Plays is mounted the first time it shows and kept: switching back and forth
