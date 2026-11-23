@@ -936,6 +936,7 @@ export function GameWatchView({
     <Page>
       <Toolbar
         variant="static"
+        compactBelow="auto"
         title={<GameTitle title={match.title} />}
         leading={
           <>

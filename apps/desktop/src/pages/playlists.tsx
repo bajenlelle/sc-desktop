@@ -6935,8 +6935,9 @@ export function PlaylistsPage() {
               if (!open) setAddClipsFrom(null);
             }}
           >
-            {/* A press on the dim scrim closes it, as a press outside the game's filters does. Nothing else outside
-                does: the window moved or resized by its edges, focus leaving with the window, an Undo on a toast. */}
+            {/* A press on the dim scrim closes it, as a press outside the game's filters does, and so does a click
+                on the title bar's band over it (the toolbar behind: SheetTitleStrip). Nothing else outside does: the
+                window moved or resized by its edges, focus leaving with the window, an Undo on a toast. */}
             <SheetContent
               onInteractOutside={(e) => {
                 const t = e.detail.originalEvent.target;

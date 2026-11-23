@@ -2,9 +2,10 @@
  * Task 5: Add clips closes on a click on the dim scrim (as the game's filters
  * close on a press outside), with Esc or with its Close button, and stays open
  * on a press anywhere else outside; the Fix sync sheet closes on a scrim click; with a
- * sheet open, a childless drag strip of the title bar's height sits above the
- * scrim, and a press on it never dismisses a sheet. Real window drag and resize
- * stay manual. Creates "headless-<port> sheet" with one clip and deletes it.
+ * sheet open, a childless strip of the title bar's height sits above the scrim:
+ * a click on it closes the sheet (the toolbar behind is scrim too), a drag on it
+ * moves the window and leaves the sheet open. Real window drag and resize stay
+ * manual. Creates "headless-<port> sheet" with one clip and deletes it.
  */
 import type { Locator, Page } from "@playwright/test";
 import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, PORT, sheetScrimPoint, shot, test } from "../helpers";
@@ -20,16 +21,18 @@ test.afterEach(async ({ page }) => {
   await deletePlaylistsNamed(page, NAME);
 });
 
+const STRIP = "body > [data-sheet-title-strip]";
+
 /**
- * The open sheet's drag strip: one fixed, childless [data-tauri-drag-region]
+ * The open sheet's title strip: one fixed, childless [data-sheet-title-strip]
  * across the top, as tall as --titlebar-inset. On macOS (WebKit's Safari user
  * agent) that is the overlay title bar's 52 px and the strip is on top at its
  * own points; on Windows (Playwright's Desktop Chrome user agent says Windows)
  * the inset is 0 and the strip disappears. Returns its height.
  */
 async function expectDragStrip(page: Page) {
-  const strip = page.locator("body > [data-tauri-drag-region][aria-hidden]");
-  await expect(strip, "one drag strip while a sheet is open").toHaveCount(1);
+  const strip = page.locator(STRIP);
+  await expect(strip, "one title strip while a sheet is open").toHaveCount(1);
   const viewport = page.viewportSize()!;
   const facts = await strip.evaluate((el, width) => {
     const style = getComputedStyle(el);
@@ -62,6 +65,29 @@ async function expectDragStrip(page: Page) {
   return facts.height;
 }
 
+/** The window commands the page sends from here on (the strip's drag is `plugin:window|start_dragging`). */
+async function recordWindowCommands(page: Page): Promise<() => Promise<string[]>> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __TAURI_INTERNALS__: { invoke: (cmd: string, ...rest: unknown[]) => unknown }; __windowCommands: string[] };
+    w.__windowCommands = [];
+    const invoke = w.__TAURI_INTERNALS__.invoke;
+    w.__TAURI_INTERNALS__.invoke = (cmd, ...rest) => {
+      if (cmd.startsWith("plugin:window|")) w.__windowCommands.push(cmd);
+      return invoke(cmd, ...rest);
+    };
+  });
+  return () => page.evaluate(() => (window as unknown as { __windowCommands: string[] }).__windowCommands);
+}
+
+/** Presses the strip, moves 30 px along it and lets go: a window drag. */
+async function dragStrip(page: Page, stripHeight: number) {
+  const x = page.viewportSize()!.width / 2;
+  await page.mouse.move(x, stripHeight / 2);
+  await page.mouse.down();
+  await page.mouse.move(x + 30, stripHeight / 2, { steps: 6 });
+  await page.mouse.up();
+}
+
 /** Clicks the dim scrim beside or under the sheet, after checking that is what lies there. */
 async function clickScrim(page: Page) {
   const point = await sheetScrimPoint(page);
@@ -70,7 +96,7 @@ async function clickScrim(page: Page) {
   await page.mouse.click(point.x, point.y);
 }
 
-test("Add clips closes on the scrim, Esc and Close, and stays open on the strip; Fix sync closes on the scrim", async ({ page, browserName }) => {
+test("Add clips closes on the scrim, a click on the title strip, Esc and Close, and stays open through a drag on the strip; Fix sync too", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-B-task5-${step}`;
   const [key] = await newPlaylistWithClips(page, NAME, { count: 1 });
   const addClips = page.getByRole("button", { name: "Add clips", exact: true }).first();
@@ -81,17 +107,25 @@ test("Add clips closes on the scrim, Esc and Close, and stays open on the strip;
   await expect(heading).toBeVisible();
   const stripHeight = await expectDragStrip(page);
   await shot(page, name("add-clips-open"));
-  // A press on the drag strip (where the window drag starts in the app) leaves it open.
   if (stripHeight > 0) {
-    await page.mouse.click(page.viewportSize()!.width / 2, stripHeight / 2);
-    // Nothing should happen: give a dismissal the sheet's exit time to show, then look.
+    // A drag on the strip moves the window and leaves the sheet open.
+    const windowCommands = await recordWindowCommands(page);
+    await dragStrip(page, stripHeight);
+    // Nothing should close: give a dismissal the sheet's exit time to show, then look.
     await page.waitForTimeout(600);
-    await expect(heading, "Add clips stays open after a press on the drag strip").toBeVisible();
+    await expect(heading, "Add clips stays open after a drag on the strip").toBeVisible();
+    expect(await windowCommands(), "the drag moves the window").toContain("plugin:window|start_dragging");
+    // A click on it, over the toolbar behind, closes it.
+    await page.mouse.click(page.viewportSize()!.width / 2, stripHeight / 2);
+    await expect(heading, "a click on the strip closes Add clips").toBeHidden();
+    expect(await windowCommands(), "a click moves nothing").toEqual(["plugin:window|start_dragging"]);
+    await addClips.click();
+    await expect(heading).toBeVisible();
   }
   // A scrim click closes it, and the strip goes with the sheet.
   await clickScrim(page);
   await expect(heading, "a scrim click closes Add clips").toBeHidden();
-  await expect(page.locator("body > [data-tauri-drag-region][aria-hidden]")).toHaveCount(0);
+  await expect(page.locator(STRIP)).toHaveCount(0);
   await shot(page, name("add-clips-after-scrim"));
 
   // Esc closes it.
@@ -99,7 +133,7 @@ test("Add clips closes on the scrim, Esc and Close, and stays open on the strip;
   await expect(heading).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(heading, "Esc closes Add clips").toBeHidden();
-  await expect(page.locator("body > [data-tauri-drag-region][aria-hidden]")).toHaveCount(0);
+  await expect(page.locator(STRIP)).toHaveCount(0);
 
   // Its Close button closes it.
   await addClips.click();
@@ -116,14 +150,18 @@ test("Add clips closes on the scrim, Esc and Close, and stays open on the strip;
   await expect(fixSync).toBeVisible();
   await expectDragStrip(page);
   if (stripHeight > 0) {
-    await page.mouse.click(page.viewportSize()!.width / 2, stripHeight / 2);
+    await dragStrip(page, stripHeight);
     await page.waitForTimeout(600);
-    await expect(fixSync, "a press on the drag strip leaves Fix sync open").toBeVisible();
+    await expect(fixSync, "a drag on the strip leaves Fix sync open").toBeVisible();
+    await page.mouse.click(page.viewportSize()!.width / 2, stripHeight / 2);
+    await expect(fixSync, "a click on the strip closes Fix sync").toBeHidden();
+    await bar.getByRole("button", { name: "Fix sync…" }).click();
+    await expect(fixSync).toBeVisible();
   }
   await shot(page, name("fix-sync-open"));
   await clickScrim(page);
   await expect(fixSync, "a scrim click closes Fix sync").toBeHidden();
-  await expect(page.locator("body > [data-tauri-drag-region][aria-hidden]")).toHaveCount(0);
+  await expect(page.locator(STRIP)).toHaveCount(0);
   await shot(page, name("fix-sync-closed"));
 });
 

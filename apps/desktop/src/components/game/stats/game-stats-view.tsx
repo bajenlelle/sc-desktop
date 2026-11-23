@@ -117,6 +117,7 @@ export function GameStatsView({
   return (
     <Page>
       <Toolbar
+        compactBelow="auto"
         title={<GameTitle title={match.title} />}
         leading={
           <>
