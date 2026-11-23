@@ -338,7 +338,9 @@ test("a pick that matches nothing says so", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("group", { name: "Picked plays" })).toHaveText("Nobody · 0", { timeout: 30_000 });
   await expect(page.getByText("No plays match.")).toBeVisible();
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  // The count line offers Clear filters too; this is the empty state's, the last of the two.
+  await expect(page.getByRole("button", { name: "Clear filters" })).toHaveCount(2);
+  await page.getByRole("button", { name: "Clear filters" }).last().click();
   await expect(page.getByText(/^\d+ plays in 1 game$/)).toBeVisible();
 });
 
