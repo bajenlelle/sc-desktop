@@ -6823,7 +6823,7 @@ export function PlaylistsPage() {
             {/* Layout: horizontal split (default) or vertical theater mode */}
             {theaterMode ? (
               <ResizablePanelGroup key="theater" direction="vertical" autoSaveId="playlists-theater" className="min-h-0 flex-1">
-                <ResizablePanel defaultSize="70" minSize="25">
+                <ResizablePanel id="player" defaultSize="70" minSize="25">
                 <div className="flex h-full flex-col gap-2 pb-3 min-w-0">
                 {playerStack}
                 </div>
@@ -6831,7 +6831,7 @@ export function PlaylistsPage() {
 
                 <ResizableHandle />
 
-                <ResizablePanel defaultSize="30" minSize="20">
+                <ResizablePanel id="clips" defaultSize="30" minSize="20">
                 <div className="flex h-full flex-col gap-3 overflow-hidden pt-3">
                 {clipListStack}
                 </div>
@@ -6839,7 +6839,7 @@ export function PlaylistsPage() {
               </ResizablePanelGroup>
             ) : (
               <ResizablePanelGroup key="split" direction="horizontal" autoSaveId="playlists-split" className="min-h-0 flex-1">
-                <ResizablePanel defaultSize="45" minSize="20">
+                <ResizablePanel id="clips" defaultSize="45" minSize="20">
                 <div className="flex h-full flex-col gap-3 overflow-hidden pr-3">
                 {clipListStack}
                 </div>
@@ -6847,7 +6847,7 @@ export function PlaylistsPage() {
 
                 <ResizableHandle />
 
-                <ResizablePanel defaultSize="55" minSize="20">
+                <ResizablePanel id="player" defaultSize="55" minSize="20">
                 <div className="flex h-full flex-col gap-2 pl-3 min-w-0">
                 {playerStack}
                 </div>
