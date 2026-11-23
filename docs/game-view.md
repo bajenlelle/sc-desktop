@@ -177,7 +177,11 @@ lead to it, as references in the text, not new buttons:
 
 ### The player and its timeline
 
-- **One unit, in the left column** (`game-watch-view.tsx`): the footage, the
+- **The play list on the left, the play on the right**, as in Teams' Plays, Add
+  clips and the editor: the eye goes from the sidebar to the filters, the list
+  and then the footage it plays, and a coach who goes from a team's Plays to
+  Show in Game finds everything where it was.
+- **One unit, in the right column** (`game-watch-view.tsx`): the footage, the
   Now bar, the game's timeline, and under the track one line with the game's
   facts and the zoom. The timeline is as wide as the footage and sits 44 px
   under it, so the control is by what it moves; the play list has the other
@@ -186,7 +190,7 @@ lead to it, as references in the text, not new buttons:
   `components/plays/use-stage-fit.ts`, which Teams' Plays shares). A sync
   warning opens at the foot of the column.
 - **The divider between the columns drags** (`components/ui/resizable.tsx`):
-  a wider left column, a larger player. The line thickens and darkens under
+  a narrower list, a larger player. The line thickens and darkens under
   the pointer and while it is dragged, a double-click puts the columns back,
   and the split is kept for the session (panel ids `player` and `plays`, which
   the saved layout is matched by).

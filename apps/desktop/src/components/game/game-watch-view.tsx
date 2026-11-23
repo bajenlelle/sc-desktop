@@ -946,6 +946,81 @@ export function GameWatchView({
         actions={<CollectControl collect={collect} highlight={!tipSeen} />}
       />
       <ResizablePanelGroup direction="horizontal" autoSaveId="game-view" className="min-h-0 flex-1">
+        {/* The list on the left and the play on the right, as in Teams' Plays, Add clips and the editor. The ids keep each panel's saved size. */}
+        <ResizablePanel id="plays" defaultSize="34" minSize="26" maxSize="48">
+          <div className="flex h-full min-h-0 flex-col">
+            <GameFilterBar
+              filters={filters}
+              onChange={setFilters}
+              teams={teams}
+              momentCounts={momentCounts}
+              timeouts={marks && marks.timeouts.length > 0 ? "ready" : readingMarks ? "reading" : "none"}
+              periods={timeline.bands.map((b) => b.period)}
+              players={playerGroups}
+              labels={labels.labels}
+              visible={order.length}
+              total={timeline.byTime.length}
+              filtered={filtered}
+              addable={addable}
+              targetName={collect.target?.name ?? null}
+              onAddAll={addAll}
+              searchRef={searchRef}
+              sheetOpen={filterSheetOpen}
+              onSheetOpenChange={setFilterSheetOpen}
+              presetsMenu={activeOrgId ? (
+                <FilterPresetsMenu
+                  presets={presets.presets}
+                  current={filters.play}
+                  onApply={applyPreset}
+                  onSave={(name) => presets.save(name, filters.play)}
+                  onRename={presets.rename}
+                  onDelete={presets.remove}
+                />
+              ) : undefined}
+            />
+            <GamePlayList
+              rows={rows}
+              hasPlays={timeline.plays.length > 0}
+              activeKey={playback.activeKey}
+              selected={selected}
+              playing={footage}
+              showTeam={filters.team === 0}
+              flow={flow}
+              teams={teams}
+              labels={labels.labels}
+              assignments={labels.assignments}
+              statusOf={collect.statusOf}
+              targetName={collect.target?.name ?? null}
+              labelPickerFor={labelPickerFor}
+              renderLabelPicker={renderRowLabelPicker}
+              followSignal={followSignal}
+              reveal={reveal}
+              restoreScroll={remembered?.list ?? null}
+              onLeave={(list) => rememberGameView(match.id, { list })}
+              onPress={onPress}
+              onAdd={addOne}
+              onRemove={collect.removeAdded}
+              onLabel={openRowLabels}
+              onMarker={onMarker}
+              onClearFilters={() => setFilters(EMPTY_GAME_FILTERS)}
+              // Finder's rule: an action on a selected item acts on the whole selection.
+              rowMenu={(play, anchor) => (
+                <GamePlayMenuContent
+                  plays={selected.has(play.key) ? selectedPlays : [play]}
+                  collect={collect}
+                  moment={filters.play.moment}
+                  anchor={anchor}
+                  onDone={selected.has(play.key) ? clearSelection : undefined}
+                />
+              )}
+              selecting={selected.size > 0}
+              selectionBar={
+                <PlaysSelectionBar count={selected.size} collect={collect} plays={() => selectedPlays} moment={filters.play.moment} onClear={clearSelection} />
+              }
+            />
+          </div>
+        </ResizablePanel>
+        <ResizableHandle />
         <ResizablePanel id="player" defaultSize="66" minSize="45">
           <div className="flex h-full min-h-0 flex-col px-4 pt-4">
             <div ref={stageBoxRef} className="flex min-h-0 flex-1 flex-col items-center">
@@ -1077,80 +1152,6 @@ export function GameWatchView({
             </div>
             {/* A warning about the sync opens its own room at the foot of the column: the footage gives way, it doesn't jump. */}
             <AutoHeight className="shrink-0">{banner && <div className="pb-3">{banner}</div>}</AutoHeight>
-          </div>
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel id="plays" defaultSize="34" minSize="26" maxSize="48">
-          <div className="flex h-full min-h-0 flex-col">
-            <GameFilterBar
-              filters={filters}
-              onChange={setFilters}
-              teams={teams}
-              momentCounts={momentCounts}
-              timeouts={marks && marks.timeouts.length > 0 ? "ready" : readingMarks ? "reading" : "none"}
-              periods={timeline.bands.map((b) => b.period)}
-              players={playerGroups}
-              labels={labels.labels}
-              visible={order.length}
-              total={timeline.byTime.length}
-              filtered={filtered}
-              addable={addable}
-              targetName={collect.target?.name ?? null}
-              onAddAll={addAll}
-              searchRef={searchRef}
-              sheetOpen={filterSheetOpen}
-              onSheetOpenChange={setFilterSheetOpen}
-              presetsMenu={activeOrgId ? (
-                <FilterPresetsMenu
-                  presets={presets.presets}
-                  current={filters.play}
-                  onApply={applyPreset}
-                  onSave={(name) => presets.save(name, filters.play)}
-                  onRename={presets.rename}
-                  onDelete={presets.remove}
-                />
-              ) : undefined}
-            />
-            <GamePlayList
-              rows={rows}
-              hasPlays={timeline.plays.length > 0}
-              activeKey={playback.activeKey}
-              selected={selected}
-              playing={footage}
-              showTeam={filters.team === 0}
-              flow={flow}
-              teams={teams}
-              labels={labels.labels}
-              assignments={labels.assignments}
-              statusOf={collect.statusOf}
-              targetName={collect.target?.name ?? null}
-              labelPickerFor={labelPickerFor}
-              renderLabelPicker={renderRowLabelPicker}
-              followSignal={followSignal}
-              reveal={reveal}
-              restoreScroll={remembered?.list ?? null}
-              onLeave={(list) => rememberGameView(match.id, { list })}
-              onPress={onPress}
-              onAdd={addOne}
-              onRemove={collect.removeAdded}
-              onLabel={openRowLabels}
-              onMarker={onMarker}
-              onClearFilters={() => setFilters(EMPTY_GAME_FILTERS)}
-              // Finder's rule: an action on a selected item acts on the whole selection.
-              rowMenu={(play, anchor) => (
-                <GamePlayMenuContent
-                  plays={selected.has(play.key) ? selectedPlays : [play]}
-                  collect={collect}
-                  moment={filters.play.moment}
-                  anchor={anchor}
-                  onDone={selected.has(play.key) ? clearSelection : undefined}
-                />
-              )}
-              selecting={selected.size > 0}
-              selectionBar={
-                <PlaysSelectionBar count={selected.size} collect={collect} plays={() => selectedPlays} moment={filters.play.moment} onClear={clearSelection} />
-              }
-            />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
