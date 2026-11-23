@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   availableColumns,
   cardContent,
+  cardRowSummary,
   defaultColumns,
   fallbackText,
   formatCardDate,
@@ -198,6 +199,36 @@ describe("fallbackText", () => {
     expect(fallbackText(gameCard({ note: "Box out early\n\nTalk on every switch" }))).toBe(
       "Alva Berg · 24 PTS · 10 REB · 5 AST · 9/14 FG · vs AIK · Box out early / Talk on every switch",
     );
+  });
+});
+
+describe("cardRowSummary", () => {
+  it("names a game card's player, then the numbers and where", () => {
+    expect(cardRowSummary({ text: "ignored", durationSeconds: 5, card: gameCard() })).toEqual({
+      kind: "stats",
+      title: "Alva Berg",
+      meta: "24 PTS · 10 REB · 5 AST · 9/14 FG · vs AIK",
+      hasNote: false,
+      label: "Stats card, Alva Berg, 24 PTS · 10 REB · 5 AST · 9/14 FG · vs AIK",
+    });
+  });
+
+  it("says season averages, and marks a note", () => {
+    const row = cardRowSummary({ text: "", durationSeconds: 5, card: seasonCard({ columns: ["pts", "reb"], note: "Watch the closeouts" }) });
+    expect(row.meta).toBe("13.3 PTS · 4.7 REB · Season averages");
+    expect(row.hasNote).toBe(true);
+    expect(row.label).toContain("note from your coach: Watch the closeouts");
+  });
+
+  it("puts a text card's words on one line, with how long it shows", () => {
+    expect(cardRowSummary({ text: "Box out early\n\nTalk  on every switch ", durationSeconds: 4.6 })).toEqual({
+      kind: "text",
+      title: "Box out early Talk on every switch",
+      meta: "Text card · 5 s",
+      hasNote: false,
+      label: "Text card: Box out early Talk on every switch",
+    });
+    expect(cardRowSummary({ text: "  ", durationSeconds: 0 })).toMatchObject({ title: "Text card", meta: "Text card · 1 s", label: "Text card" });
   });
 });
 
