@@ -248,7 +248,7 @@ test.describe("where there is no menu bar", () => {
   });
 });
 
-test("Games marks the games that are open, from one", async ({ page, browserName }) => {
+test("Games marks the games that are open, from one", { tag: "@smoke" }, async ({ page, browserName }) => {
   const [g0] = await openGames(page, 1);
   await page.locator("header").getByRole("button", { name: "Games", exact: true }).click();
   await expect(libraryRow(page, g0.id).getByText("Open", { exact: true }), "one open game is marked").toBeVisible({ timeout: 30_000 });

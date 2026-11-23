@@ -1,7 +1,7 @@
 /**
  * Group D, Task 13: a play goes to any playlist from its row's menu, and
  * "Adding to" doesn't change. Makes two playlists of its own through the
- * game view's picker (`headless-<port> target`, `headless-<port> other`) and
+ * game view's picker (`headless-<port>-<slot> target`, `headless-<port>-<slot> other`) and
  * deletes them at the end, however the test ends.
  */
 import {

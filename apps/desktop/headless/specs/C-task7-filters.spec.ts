@@ -8,11 +8,11 @@
  *
  * Needs the staging test account's games "BC Luleå vs Köping Stars" and
  * "Nässjö Basket vs Norrköping Dolphins", and a label in the space. Creates
- * the playlist `headless-<port> filters` and deletes it afterwards.
+ * the playlist `headless-<port>-<slot> filters` and deletes it afterwards.
  */
 import {
   hasFilterField,
-  PORT,
+  owned,
   closeFilters,
   createPlaylist,
   deleteOwnRowsNamed,
@@ -32,7 +32,7 @@ import {
   test,
 } from "../helpers";
 
-const PLAYLIST = `headless-${PORT} filters`;
+const PLAYLIST = owned("filters");
 const GAME = "BC Luleå vs Köping Stars";
 const OTHER_GAME = "Nässjö Basket vs Norrköping Dolphins";
 

@@ -10,12 +10,12 @@
  * after the plays of every game its playlists hold clips from.
  *
  * Needs a game with plays on the staging test account. Creates the playlist
- * `headless-<port> pending` and deletes it afterwards. The failures and delays
+ * `headless-<port>-<slot> pending` and deletes it afterwards. The failures and delays
  * are the page's own reads, rewritten in the browser: nothing on staging fails.
  */
 import type { Page, Response, Route } from "@playwright/test";
 import {
-  PORT,
+  owned,
   delayPlaysReads,
   deleteOwnRowsNamed,
   expect,
@@ -28,7 +28,7 @@ import {
   waitForQuiet,
 } from "../helpers";
 
-const NAME = `headless-${PORT} pending`;
+const NAME = owned("pending");
 const FAILED = "Couldn't load this playlist's clips.";
 
 test.beforeEach(async ({ page }) => {

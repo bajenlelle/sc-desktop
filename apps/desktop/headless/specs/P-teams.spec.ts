@@ -66,7 +66,7 @@ test("Teams is a row in the sidebar", async ({ page }) => {
   await expect(nav.getByRole("link", { name: "Teams", exact: true })).toHaveAttribute("aria-current", "page");
 });
 
-test("two groups make two titled tables", async ({ page }) => {
+test("two groups make two titled tables", { tag: "@smoke" }, async ({ page }) => {
   await mockLeague(page, madeUpLeague({ groups: { Norra: [1, 2, 3], Södra: [4, 5, 6] } }));
   await page.goto("/teams");
   await expect(page.getByRole("table")).toHaveCount(2, { timeout: 30_000 });
@@ -598,7 +598,7 @@ test.describe("a play's row", () => {
     await expect.poll(() => playlistClips(page, PLAYS_TARGET).then((c) => c?.map((x) => `${x.matchId}:${x.eventId}`)), { timeout: 15_000 }).toEqual([key]);
   });
 
-  test("Label on a row outside the selection labels that row alone", async ({ page }) => {
+  test("Label on a row outside the selection labels that row alone", { tag: "@alone" }, async ({ page }) => {
     await alfaWithAPlayableGame(page);
     await makeLabels(page, (await playRow(page, 0).getAttribute("data-key"))!, [LABELS[0]], []);
     await reopenPlays(page);
@@ -626,7 +626,7 @@ test.describe("a play's row", () => {
     await expect.poll(() => playlistClips(page, PLAYS_TARGET).then((c) => c?.length ?? 0), { timeout: 15_000 }).toBe(2);
   });
 
-  test("a long name with three labels fits its row at the narrowest window", async ({ page, browserName }) => {
+  test("a long name with three labels fits its row at the narrowest window", { tag: "@alone" }, async ({ page, browserName }) => {
     await page.setViewportSize({ width: 1024, height: 720 });
     await alfaWithAPlayableGame(page);
     // The drawn row with the longest text gets three labels.
@@ -722,7 +722,7 @@ test.describe("a play's row", () => {
   });
 });
 
-test.describe("labels from the keys, as in the game view", () => {
+test.describe("labels from the keys, as in the game view", { tag: "@alone" }, () => {
   const KEYED = owned("keyed label");
   const SLOT = 9;
   /** The label that had the key before this test took it, given it back after. */

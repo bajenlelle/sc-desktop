@@ -29,7 +29,7 @@ async function gameView(page: Page): Promise<void> {
 
 const count = (page: Page) => page.getByRole("status").filter({ hasText: /^\d+( of \d+)? plays?$/ });
 
-test("the menu lists its fields; a field's page has its values, and a value goes on at once and stays on", async ({ page, browserName }) => {
+test("the menu lists its fields; a field's page has its values, and a value goes on at once and stays on", { tag: "@smoke" }, async ({ page, browserName }) => {
   await gameView(page);
   const all = await count(page).innerText();
   const menu = await openFilters(page);

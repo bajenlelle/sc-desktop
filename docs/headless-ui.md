@@ -6,20 +6,28 @@ checked without opening the app: no window, no GUI, no Rust.
 
 ```
 cd apps/desktop
-npm run headless                                   # every spec, WebKit then Chrome
+npm run headless                                   # every spec in WebKit: day to day
+npm run headless:full                              # WebKit and Chrome: before a merge to staging
+npm run headless:smoke                             # the @smoke tests in WebKit
 HEADLESS_PORT=1433 npm run headless -- smoke       # one spec, on a worktree's port
-npm run headless -- smoke --project webkit         # one browser
+npm run headless:full -- smoke --project='chrome*' # one spec in Chrome only
+HEADLESS_WORKERS=1 npm run headless -- K-search    # one worker (the default is 4)
 ```
 
 ## What runs where
 
 - `playwright.config.ts` starts `vite --mode headless` on `HEADLESS_PORT`
   (default 1430; an existing server on that port is reused), signs in once
-  (the global setup in `headless/helpers.ts`) and runs `headless/specs/`
-  one test at a time in two projects: `webkit` (Playwright's WebKit, the
-  closest thing to the app's WKWebView, H.264 through the system media stack)
-  and `chrome` (the installed Google Chrome, `channel: "chrome"`, as the
-  cross-check; Playwright's own Chromium has no H.264).
+  (the global setup in `headless/helpers.ts`) and runs `headless/specs/` in
+  four workers side by side (`HEADLESS_WORKERS` changes it; see Running side
+  by side). Two browsers: WebKit (Playwright's WebKit, the closest thing to
+  the app's WKWebView, H.264 through the system media stack), which `npm run
+  headless` runs alone, and Chrome (the installed Google Chrome, `channel:
+  "chrome"`, as the cross-check; Playwright's own Chromium has no H.264),
+  which only `npm run headless:full` adds. Run the full one before a merge
+  to staging. Each browser has two projects: `webkit` (every test but the
+  @alone ones) and `webkit-alone`, likewise `chrome` and `chrome-alone`;
+  `--project='webkit*'` picks both of a browser's.
 - `vite.config.ts` in `headless` mode, and only there: injects
   `headless/install-mocks.ts` ahead of `src/main.tsx`, so the mocks exist
   before any app module evaluates; aliases `@tauri-apps/plugin-http` to
@@ -147,13 +155,16 @@ Put `headless/specs/<area>.spec.ts` next to `smoke.spec.ts`. Import `test`
 and `expect` from `../helpers`, never from `@playwright/test`: that `test`
 fails a test whose page logged a `headless:` line (an unmocked or native
 call, even one the app caught) or threw an uncaught error, and prints them.
-Tests start signed in (the saved storage state). Use
+Tests start signed in (the saved storage state), in any order and in any
+worker (see Running side by side). Use
 `openFirstGame(page, { shotLibraryAs })` (returns the opened game's title),
 `shot(page, name)` and `signIn(page)` from `headless/helpers.ts`; name shots
 with the browser (`${browserName}-…`) so the two projects don't overwrite
 each other. Assert visible text, not just that nothing threw. The account is
-shared by every worktree: name what a spec creates with its port
-(`headless-1433 …`) and delete it in the same spec. Run it with
+shared by every worktree and every worker: name what a spec creates with
+`owned("…")` (`headless-<port>-<slot> …`, see Running side by side) and delete
+it in the same spec. A test that changes what other tests see gets `{ tag:
+"@alone" }`. Run it with
 `HEADLESS_PORT=<port> npm run headless -- <spec>` and name the screenshots in
 the task's report. The harness itself is typechecked with
 `npx tsc --noEmit -p headless/tsconfig.json` in `apps/desktop` (the app's
@@ -163,6 +174,119 @@ The smoke spec (`specs/smoke.spec.ts`) is the harness's own proof: the Games pag
 lists games, the first game's Game view draws its play list and timeline, a
 playlist's Add clips lists events. It reads only. It needs the test account
 to have at least one game and one playlist.
+
+`npm run headless:smoke` runs the tests tagged `@smoke`: the smoke spec and one
+quick test of each main view (the start page, Playlists, the player, the
+strip, open games, Teams, an open team, search, Stats, the filter menu,
+Reports), twelve in all, in under half a minute. Tag a test `{ tag: "@smoke" }`
+(or add it to its tags) only when it is quick and covers a view the set
+doesn't.
+
+## Running side by side
+
+The suite runs in four workers (`HEADLESS_WORKERS`), and a file's tests are
+spread over them (`fullyParallel`). Every test starts from the saved storage
+state on a fresh page, so no test may lean on one that ran before it.
+
+- **Names.** What a test writes on the shared account carries its owner,
+  `OWNER` in `headless/helpers.ts`: `headless-<port>-<slot>`, the slot being
+  Playwright's `parallelIndex` (0 to workers−1). Two workers that run at the
+  same time never share a slot, and a worker that replaces a crashed one takes
+  its slot, so its sweeps clear what the crashed one left. Name rows with
+  `owned("…")` (or `${OWNER} …`); every delete helper refuses a prefix that
+  isn't this worker's. The footage journal is per slot too.
+- **`@alone`.** A test that changes what other tests see, beyond its own rows,
+  carries `{ tag: "@alone" }` (on the test or its describe): archiving a game
+  (`E-task18`), linking a game to the test video (`B-task4`, `F-esc-crop`),
+  renaming a game (`D-task15`), putting labels on a game's plays or taking a
+  label's key (`D-task16`, two in `K-add-clips-window`, three in `P-teams`).
+  They run in the `webkit-alone` and `chrome-alone` projects, one at a time,
+  queued after everything else, and nothing else of the run is in flight
+  while one runs.
+- **`@alone:<group>`.** Tests that only see each other's writes take turns
+  among themselves and run beside everything else: `@alone:presets`
+  (`C-task12`: the space's presets list shows every worker's presets) and
+  `@alone:team-report` (`R-team-report`: a report is found by the made-up
+  league's team id, the same in every worker).
+- **The lock.** Every test holds the account lock for its whole length, hooks
+  included: a folder in the system's temp folder,
+  `scoutable-headless-lock-<port>`, with a file per holder named by its
+  process. A holder that died (a killed worker, a stopped run) is noticed and
+  cleared. The wait for the lock has its own timeout (20 minutes), not the
+  test's.
+- **Route handlers.** A handler still waiting on `route.fetch()` when its
+  test ends would throw outside any test and take its worker down; the shared
+  `test` lets them go quietly (`page.unrouteAll({ behavior: "ignoreErrors" })`).
+
+A new spec that writes something every test can see (a label, a preset, a
+change to a game) needs `@alone` or a group. When in doubt, run it with
+`HEADLESS_WORKERS=1` first, then with the default, twice.
+
+## Timings
+
+Measured 2026-11-23 on Leonard's Mac (14 cores), staging, `--trace off`, 222
+tests (one skips itself).
+
+| Run | Before (1 worker) | After (4 workers) |
+| --- | --- | --- |
+| `npm run headless` (WebKit) | 20 min 4 s | 8 min 7 s, 7 min 24 s (two runs, both green) |
+| `npm run headless:full` (WebKit + Chrome) | about 35 min (not re-measured) | 30 min 51 s (31 failed), then 18 min 55 s (6 failed); every failure passed on a rerun |
+| `npm run headless:smoke` (12 tests) | — | 26 s |
+
+In the 4-worker WebKit run the side-by-side part does about 19 minutes of test
+time in under 6 minutes; the 11 `@alone` tests then take about 2 minutes one
+at a time. Each test is somewhat slower beside three others (the sum of the
+test times rose from 1,186 s to about 1,290 s).
+
+The two full runs failed on staging's speed, not on tests meeting each other:
+reads of `matches` or the `genius` function open for over 15 s, a library
+read that hadn't landed within a 5 s poll, the Plays list not drawn in 30 s.
+In the second run the WebKit half took 8 minutes against 6 in the WebKit-only
+runs, slow in one stretch (P-teams), while the Chrome half was as quick as
+ever; in the first, everything ran two to three times slower than usual from
+the first minute. Staging is a small instance shared by every worktree. A
+failure of that kind: rerun it once (`npx playwright test -c
+playwright.config.ts --last-failed`) before chasing it; `HEADLESS_WORKERS=3`
+asks less of staging.
+
+The slowest specs, one worker, WebKit (seconds, tests):
+
+| Spec | s | Tests | Why |
+| --- | --- | --- | --- |
+| `P-teams` | 171 | 42 | Many short tests, each a fresh page load and the made-up league; one holds the library read 8 s on purpose |
+| `H-game-player` | 102 | 16 | Each test opens the sample game and waits for its video from the network; about 5 s of fixed waits |
+| `C-task12-presets` | 95 | 3 | Long flows through Add clips and the game view against staging; one holds Luleå's plays 10 s on purpose |
+| `I-game-tabs` | 87 | 16 | Opens several staging games per test; one waits 6 s to prove a notice stays |
+| `J-game-strip` | 80 | 22 | Short tests, a league game or the sample game each; about 4 s of fixed waits |
+| `K-search` | 59 | 15 | Short tests, staging reads |
+| `K-add-clips-window` | 52 | 8 | Add clips reads every game's plays from staging |
+| `B-task6-card-note` | 37 | 1 | Genius' hosted stats pages, read cold through the network, twice |
+
+Fixed `waitForTimeout`s add up to about 40 s a browser (`A-task1` 5.5 s,
+`D-task16` 4.9 s, `H-game-player` about 5 s, `I-game-tabs` 6.6 s,
+`J-game-strip` about 4 s): a few percent. Most of the time is staging: every
+test loads the app afresh, signs in from the saved state and reads the space,
+its games and their plays.
+
+What would help next, worst first (none mocks the backend):
+
+- **The @alone tail, about 2 minutes a browser.** The two label tests in
+  `K-add-clips-window` and the three in `P-teams` could make and use a label
+  of their own (`owned(…)`) instead of the space's, and join a
+  `@alone:labels` group with `D-task16`; the footage specs (`B-task4`,
+  `F-esc-crop`) could take a group of their own if no other test opens the
+  game they link.
+- **Deliberate holds.** `C-task12` holds Luleå's plays 10 s and `P-teams`
+  ("Plays never says none…") holds the library 8 s: both could hold until the
+  test lets go (as `C-task12`'s last test does), saving about 15 s a browser.
+  `I-game-tabs` waits 6 s to see that a notice stays: `page.clock` could run
+  the 6 s instead.
+- **`H-game-player`** opens the sample game and waits for its network video in
+  each of 16 tests; the tests that only need a game view (not playback) could
+  open a league game.
+- **`B-task6-card-note`** reads Genius' hosted pages cold. Answering those two
+  pages from a saved copy would cut it to a few seconds, but that mocks a
+  backend: ask Leonard first.
 
 ## A second space
 
@@ -196,7 +320,7 @@ links the game to the test video for the length of the test:
 the player's real Locate file… (the dialog mock picks this worktree's
 `headless/fixtures/game.mp4`). Before the click it reads the game's own
 `video_url`, writes it to a journal, `<system
-temp>/scoutable-headless-video-link-<port>.json`, and hands the link to
+temp>/scoutable-headless-video-link-<port>-<slot>.json`, and hands the link to
 `track`, so `afterEach` can call `restoreGameVideo` even when a later wait
 fails. The journal stays out of `apps/desktop`: Playwright empties `out/` when
 a run starts, and Vite reloads the open page when a watched file is removed,

@@ -10,11 +10,11 @@
  * "Södertälje BBK vs Köping Stars" (Köping Stars in two games) and "Nässjö
  * Basket vs Norrköping Dolphins". The account has fewer than 11 games, so the
  * 10-game cap can't be reached here. Creates the playlist
- * `headless-<port> games` and deletes it afterwards.
+ * `headless-<port>-<slot> games` and deletes it afterwards.
  */
 import type { Locator, Page } from "@playwright/test";
 import {
-  PORT,
+  owned,
   createPlaylist,
   deleteOwnRowsNamed,
   eventCount,
@@ -30,7 +30,7 @@ import {
   waitForPlays,
 } from "../helpers";
 
-const PLAYLIST = `headless-${PORT} games`;
+const PLAYLIST = owned("games");
 const LULEA = "BC Luleå vs Köping Stars";
 const SODERTALJE = "Södertälje BBK vs Köping Stars";
 const NASSJO = "Nässjö Basket vs Norrköping Dolphins";

@@ -3,7 +3,7 @@
  * playlist at once. ⌘-click toggles (Meta in both browsers: the row reads
  * `metaKey || ctrlKey`, and Control-click is the context menu on macOS),
  * Shift+↓ extends and plays, ⌘A selects the listed plays, Esc clears.
- * Makes its own target, `headless-<port> target`, and deletes it at the end.
+ * Makes its own target, `headless-<port>-<slot> target`, and deletes it at the end.
  */
 import type { Page } from "@playwright/test";
 import {

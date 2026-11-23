@@ -7,11 +7,11 @@
  *
  * Needs the staging test account's Genius game "BC Luleå vs Köping Stars"
  * (two teams, one Luleå player without a shirt number). Creates the playlist
- * `headless-<port> players` and deletes it afterwards.
+ * `headless-<port>-<slot> players` and deletes it afterwards.
  */
 import type { Locator } from "@playwright/test";
 import {
-  PORT,
+  owned,
   closeFilters,
   createPlaylist,
   deleteOwnRowsNamed,
@@ -29,7 +29,7 @@ import {
   test,
 } from "../helpers";
 
-const PLAYLIST = `headless-${PORT} players`;
+const PLAYLIST = owned("players");
 const GAME = "BC Luleå vs Köping Stars";
 
 test.afterEach(async ({ page }) => {

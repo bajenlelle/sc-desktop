@@ -4,12 +4,12 @@
  * on a press anywhere else outside; the Fix sync sheet closes on a scrim click; with a
  * sheet open, a childless drag strip of the title bar's height sits above the
  * scrim, and a press on it never dismisses a sheet. Real window drag and resize
- * stay manual. Creates "headless-<port> sheet" with one clip and deletes it.
+ * stay manual. Creates "headless-<port>-<slot> sheet" with one clip and deletes it.
  */
 import type { Locator, Page } from "@playwright/test";
-import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, PORT, sheetScrimPoint, shot, test } from "../helpers";
+import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, owned, sheetScrimPoint, shot, test } from "../helpers";
 
-const NAME = `headless-${PORT} sheet`;
+const NAME = owned("sheet");
 
 test.beforeEach(async ({ page }) => {
   // A crashed run's playlist, swept in a scratch page so the test's page starts clean.

@@ -1,6 +1,6 @@
 /**
  * Fix round, change 3: Esc leaves the vertical (9:16) crop in the editor and
- * does nothing else. Makes "headless-<port> crop" with one clip from the
+ * does nothing else. Makes "headless-<port>-<slot> crop" with one clip from the
  * first minute and a half of a game's footage, links that game to the test
  * video through the player's Locate file… (the crop sits on a playing clip),
  * and puts both back afterwards.
@@ -12,7 +12,7 @@ import {
   type FixtureLink,
   linkStageGameToFixture,
   newPlaylistWithClips,
-  PORT,
+  owned,
   restoreGameVideo,
   restoreJournalledVideoLink,
   selectRows,
@@ -20,7 +20,7 @@ import {
   test,
 } from "../helpers";
 
-const NAME = `headless-${PORT} crop`;
+const NAME = owned("crop");
 let link: FixtureLink | null = null;
 
 test.beforeEach(async ({ page }) => {
@@ -60,7 +60,7 @@ async function earlyPlay(page: import("@playwright/test").Page, rowKeys: string[
   return early;
 }
 
-test("Esc leaves the vertical crop and only that", async ({ page, browserName }) => {
+test("Esc leaves the vertical crop and only that", { tag: "@alone" }, async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-F-esc-crop-${step}`;
   const keys = await newPlaylistWithClips(page, NAME, { pick: (rows) => earlyPlay(page, rows) });
   const matchId = keys[0].slice(0, keys[0].lastIndexOf(":"));

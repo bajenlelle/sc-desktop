@@ -1,7 +1,7 @@
 /**
  * Task 4: the "This clip" bar drops its Before/After steppers; Trim stays, and
  * "Reset trim" (with a tooltip naming the playlist's seconds) takes a trim back.
- * Creates "headless-<port> bar" with two clips from the first minute and a half
+ * Creates "headless-<port>-<slot> bar" with two clips from the first minute and a half
  * of a game's footage, links that game to the test video through the player's
  * Locate file… for the trim, and puts both back afterwards.
  */
@@ -13,7 +13,7 @@ import {
   linkStageGameToFixture,
   newPlaylistWithClips,
   playlistIdNamed,
-  PORT,
+  owned,
   restoreGameVideo,
   restoreJournalledVideoLink,
   selectRows,
@@ -21,7 +21,7 @@ import {
   test,
 } from "../helpers";
 
-const NAME = `headless-${PORT} bar`;
+const NAME = owned("bar");
 let link: FixtureLink | null = null;
 
 test.beforeEach(async ({ page }) => {
@@ -62,7 +62,7 @@ async function earlyPlays(page: import("@playwright/test").Page, rowKeys: string
   return early;
 }
 
-test("the This clip bar has no steppers; a trim shows Reset trim, which takes it back", async ({ page, browserName }) => {
+test("the This clip bar has no steppers; a trim shows Reset trim, which takes it back", { tag: "@alone" }, async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-B-task4-${step}`;
   const keys = await newPlaylistWithClips(page, NAME, { pick: (rows) => earlyPlays(page, rows) });
   const matchId = keys[0].slice(0, keys[0].lastIndexOf(":"));

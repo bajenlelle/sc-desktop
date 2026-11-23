@@ -1,7 +1,7 @@
 /**
  * The search over a space (docs/search.md): the panel the sidebar's Search and
  * ⌘K / Ctrl+K open, what it offers before and while one types, and where a
- * choice goes. Creates playlists named `headless-<port> search …` and deletes
+ * choice goes. Creates playlists named `headless-<port>-<slot> search …` and deletes
  * them; everything else is read.
  *
  * The native menu's ⌘K can't fire here (the menu is mocked): the Mac runs go
@@ -397,7 +397,7 @@ test("a playlist the page can't read leaves its list as it was", async ({ page }
   await page.unroute(pageReads);
 });
 
-test("a team is found by name and opens its page", async ({ page }) => {
+test("a team is found by name and opens its page", { tag: "@smoke" }, async ({ page }) => {
   await goViaSidebar(page, "Games");
   const teams = await withAppModule<null, { id: string; name: string }[]>(
     page,

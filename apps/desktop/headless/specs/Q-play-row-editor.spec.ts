@@ -1,7 +1,7 @@
 /**
  * The playlist editor's play rows on the shared play row (docs/superpowers/specs/2026-11-21-play-row-design.md):
  * one line, while its text cards keep their own height, and the drag engine and the checkboxes work as before
- * across rows of both heights. Makes the playlist `headless-<port> play row editor` and deletes it.
+ * across rows of both heights. Makes the playlist `headless-<port>-<slot> play row editor` and deletes it.
  */
 import type { Locator, Page } from "@playwright/test";
 import { deletePlaylistsNamed, expect, newPlaylistWithClips, owned, shot, test } from "../helpers";

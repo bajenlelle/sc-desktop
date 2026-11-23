@@ -7,13 +7,13 @@
  * labelled, and it closes when that row leaves the list.
  *
  * Needs the staging test account's five games and a label in its space.
- * Creates the playlist `headless-<port> window` and deletes it afterwards;
+ * Creates the playlist `headless-<port>-<slot> window` and deletes it afterwards;
  * takes off every label it puts on.
  */
 import type { Locator, Page } from "@playwright/test";
 import {
   selectionPill,
-  PORT,
+  owned,
   createPlaylist,
   deleteOwnRowsNamed,
   eventCount,
@@ -29,7 +29,7 @@ import {
   withAppModule,
 } from "../helpers";
 
-const PLAYLIST = `headless-${PORT} window`;
+const PLAYLIST = owned("window");
 
 test.afterEach(async ({ page }) => {
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
@@ -208,7 +208,7 @@ test("⌘A selects every play, and Esc lets go before it closes the sheet", asyn
   await expect(grid.locator("[role=row]").first().getByLabel("Already in this playlist")).toBeVisible();
 });
 
-test("a row's Tag button opens the one label picker", async ({ page }) => {
+test("a row's Tag button opens the one label picker", { tag: "@alone" }, async ({ page }) => {
   await openOnFiveGames(page);
   const row = page.locator(`${GRID} [role=row][aria-rowindex="2"]`);
   await expect(listTriggers(page), "no row holds a picker while none is open").toHaveCount(0);
@@ -228,7 +228,7 @@ test("a row's Tag button opens the one label picker", async ({ page }) => {
   await expect(row.getByText(name, { exact: true }), "the chip is gone").toHaveCount(0);
 });
 
-test("the picker closes when its row leaves the list", async ({ page }) => {
+test("the picker closes when its row leaves the list", { tag: "@alone" }, async ({ page }) => {
   const { sheet, count } = await openOnFiveGames(page);
   const first = page.locator(`${GRID} [role=row][aria-rowindex="1"]`);
   const rowKey = (await first.getAttribute("data-row-key"))!;

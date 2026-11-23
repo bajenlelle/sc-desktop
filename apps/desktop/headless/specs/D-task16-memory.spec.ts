@@ -111,7 +111,7 @@ test.afterEach(async ({ page }) => {
   }
 });
 
-test("a game comes back by its tab as it was left", async ({ page, browserName }) => {
+test("a game comes back by its tab as it was left", { tag: "@alone" }, async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-D-task16-${step}`;
   await page.goto("/matches");
   try {

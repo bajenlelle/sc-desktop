@@ -176,7 +176,7 @@ test("each team's season marks the factor bars", async ({ page, browserName }) =
     .toMatchObject({ season: "shown", season_gaps: 2 });
 });
 
-test("without the season the bars stay as they were", async ({ page }) => {
+test("without the season the bars stay as they were", { tag: "@smoke" }, async ({ page }) => {
   await mockSeason(page, () => "fail");
   const tracked = await recordAnalytics(page);
   await openFirstGame(page);

@@ -3,7 +3,7 @@
  * game"): the editor's subtitle names the playlist's game and opens it, a
  * clip row's Show in Game and Go → Show Clip in Game open the game at that
  * play, and the game's back button names the playlist and returns to it.
- * Makes one playlist of its own (`headless-<port> links`) and deletes it at
+ * Makes one playlist of its own (`headless-<port>-<slot> links`) and deletes it at
  * the end.
  */
 import { deleteOwnedPlaylists, expect, newPlaylistWithClips, owned, shot, test } from "../helpers";
