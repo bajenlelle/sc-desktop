@@ -102,8 +102,8 @@ export default function WatchScreen() {
 
   const playlistId = playlist?.id ?? null;
   const onWatched = useCallback(
-    (matchId: string, eventId: number) => {
-      if (playlistId) recordWatched(playlistId, matchId, eventId);
+    (item: { matchId: string; event: PlayByPlayEvent }) => {
+      if (playlistId) recordWatched(playlistId, item.matchId, item.event.eventId);
     },
     [playlistId, recordWatched],
   );

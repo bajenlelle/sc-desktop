@@ -23,6 +23,8 @@ import {
 import { APP_OPEN_HASH, isLiveReport, openedLabel, scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
 import { formatCardDate } from "@scoutable/shared/lib/stats-card";
 import type { OrgPlanTier } from "@scoutable/shared/types/org";
+import { useAuth } from "@/lib/auth-context";
+import { ReportDelivery } from "@/components/report/report-delivery";
 
 type Phase =
   | { kind: "review" }
@@ -82,6 +84,9 @@ export interface ReportSummary {
  * this sheet. Closing while it works cancels, and a cancelled run publishes
  * nothing: the page is only made public in the last step.
  *
+ * In a club space the link sheet also sends the report to players' phones and
+ * shows who read it (ReportDelivery).
+ *
  * A free plan shares one report at a time. The sheet says so before any clip
  * is prepared, and when another report is live it offers to stop that one or
  * go Pro instead of making the coach wait for an upload that can't publish.
@@ -119,6 +124,9 @@ export function ScoutingReportDialog({
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "review" });
   const navigate = useNavigate();
+  const { activeOrgId, activeOrgIsPersonal } = useAuth();
+  /** The report was updated in this sheet: players who have it can be told. */
+  const [updated, setUpdated] = useState(false);
   const [copied, setCopied] = useState(false);
   // What the plan allows for this playlist; null until it is read, or when the read failed (no line, no block).
   const [limit, setLimit] = useState<ShareLimit | null>(null);
@@ -144,6 +152,7 @@ export function ScoutingReportDialog({
   useEffect(() => {
     if (!open) return;
     setCopied(false);
+    setUpdated(false);
     setLimit(null);
     let current = true;
     void getScoutingReportShareLimit(playlistId).then((l) => {
@@ -213,6 +222,7 @@ export function ScoutingReportDialog({
           plan,
           limited: limit?.limited ?? null,
         });
+        setUpdated(!outcome.created);
         setPhase({ kind: "done", id: outcome.id, expiresAt: outcome.expiresAt, leftOut: outcome.leftOut.length });
         onExistingChange();
       })
@@ -454,6 +464,7 @@ export function ScoutingReportDialog({
                               Stop sharing
                             </Button>
                           </div>
+                          <ReportDelivery reportId={phase.id} orgId={activeOrgId} personal={activeOrgIsPersonal} updated={updated} />
                         </>
                       ) : (
                         <div role="alertdialog" aria-label="Stop sharing this report?" className="flex flex-col items-center gap-3 rounded-window bg-fill-1 px-4 py-3 text-center">

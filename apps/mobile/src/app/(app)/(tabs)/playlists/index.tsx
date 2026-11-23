@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
+import { featuredReport } from "@scoutable/shared/lib/scouting-report-inbox";
+import { useReports } from "@/lib/reports-store";
+import { FeaturedReportCard } from "@/components/report/ReportRow";
 import {
   activeFeedFilterCount,
   computeHero,
@@ -36,6 +39,8 @@ type Option = { value: string; label: string };
  * the `view` param so the path stays /playlists: Shared by me (who watched
  * what they shared) and Shared with me (what other coaches shared with
  * them). Search sits at the top of the content; pull to refresh reloads both.
+ * Above the feed, the scouting report for what's next (featuredReport), until
+ * the game is played and the report read.
  */
 
 export default function PlaylistsScreen() {
@@ -43,6 +48,8 @@ export default function PlaylistsScreen() {
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const { loading, allPlaylists, feedItems, directPlaylistIds, teamMap, refresh } = usePlaylists();
   const { openPlaylist, resumePlaylist } = usePlaylistOpener();
+  const { reports, refresh: refreshReports } = useReports();
+  const featured = useMemo(() => featuredReport(reports), [reports]);
   const { view } = useLocalSearchParams<{ view?: string }>();
   const colors = useThemeColors();
   const [refreshing, setRefreshing] = useState(false);
@@ -86,11 +93,11 @@ export default function PlaylistsScreen() {
     setRefreshing(true);
     try {
       setRefreshNonce((n) => n + 1);
-      await refresh();
+      await Promise.all([refresh(), refreshReports()]);
     } finally {
       setRefreshing(false);
     }
-  }, [refresh]);
+  }, [refresh, refreshReports]);
 
   const sharerOptions = useMemo<Option[]>(() => sharerFilterOptions(feedItems), [feedItems]);
   // Counts in the sheet describe what's reachable under the current team,
@@ -228,6 +235,10 @@ export default function PlaylistsScreen() {
             onRowCountChange={setDashRows}
           />
         ) : (
+          <>
+          {featured && query.length === 0 && activeFilters === 0 ? (
+            <FeaturedReportCard report={featured} onOpen={() => router.push(`/reports/${featured.id}`)} />
+          ) : null}
           <PlaylistFeed
             playlists={feedItems}
             query={query}
@@ -237,6 +248,7 @@ export default function PlaylistsScreen() {
             onResume={resumePlaylist}
             emptyCopy={isCoachOrAdmin ? "Playlists other coaches share with you show up here." : undefined}
           />
+          </>
         )}
         <PopoverMenu
           visible={filtersOpen && !showDashboard}

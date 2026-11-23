@@ -124,7 +124,7 @@ export type EventHue =
   | "foul"
   | "neutral";
 
-export function eventHue(e: PlayByPlayEvent): EventHue {
+export function eventHue(e: Pick<PlayByPlayEvent, "type"> & { isSuccessful: number | boolean }): EventHue {
   switch (e.type) {
     case "freethrow":
     case "2pt":

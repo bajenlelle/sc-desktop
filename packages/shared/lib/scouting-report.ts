@@ -188,6 +188,12 @@ export interface ScoutingReport {
     attribution: boolean;
     /** The summary under the title; absent in a report from before sections (its intro opened the Team section). */
     intro?: string;
+    /**
+     * The game the report prepares for (the draft's `game`): when it starts
+     * (ISO) and whether the opponent is at home. The players' app dates the
+     * report by it; absent when the report has no game to come.
+     */
+    game?: { at: string; home: boolean };
   };
   sections: ReportSection[];
 }
@@ -446,6 +452,7 @@ export function buildScoutingReport(input: BuildReportInput): BuiltReport {
       clips: clipCount,
       attribution: input.attribution ?? true,
       ...(draft.blocks && draft.intro.trim() ? { intro: draft.intro.trim() } : {}),
+      ...(draft.game?.at ? { game: { at: draft.game.at, home: draft.game.home } } : {}),
     },
     sections,
   };
@@ -499,6 +506,8 @@ export function reportContentKey(report: ScoutingReport): string {
   const stable = {
     // The summary and a section's kind and name only where a report has them, so one from before sections keeps its key.
     ...(report.header.intro ? { in: report.header.intro } : {}),
+    // The game only where a report has one, so every report from before keeps its key.
+    ...(report.header.game ? { gm: report.header.game } : {}),
     s: report.sections.map((s) => ({
       i: s.id,
       ...(s.kind !== "team" && s.kind !== "player" ? { kd: s.kind, t: s.title ?? null } : {}),
@@ -682,6 +691,9 @@ export function parseScoutingReport(raw: unknown): ScoutingReport | null {
       clips,
       attribution: h.attribution !== false,
       ...(typeof h.intro === "string" && h.intro.trim() ? { intro: h.intro } : {}),
+      ...(isObj(h.game) && typeof h.game.at === "string" && !Number.isNaN(Date.parse(h.game.at))
+        ? { game: { at: h.game.at, home: h.game.home === true } }
+        : {}),
     },
     sections,
   };

@@ -35,6 +35,7 @@ import { revokeScoutingReport } from "@/lib/scouting-reports-db";
 import { useReportList } from "@/lib/use-report-list";
 import { cn } from "@/lib/utils";
 import { APP_OPEN_HASH, openedLabel, scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
+import { listMyReportReach } from "@/lib/scouting-report-inbox-db";
 import {
   filterReportList,
   reportStatusLabel,
@@ -87,6 +88,18 @@ export function ReportsPage() {
   }, [activeOrgId, canAccess, profileLoading, navigate]);
 
   const items = state.kind === "ready" ? state.items : [];
+  // Reports sent to players' phones say how many of those they reach opened them.
+  const [reach, setReach] = useState<Map<string, { reached: number; opened: number }>>(new Map());
+  useEffect(() => {
+    if (state.kind !== "ready") return;
+    let current = true;
+    listMyReportReach()
+      .then((m) => current && setReach(m))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [state]);
   const counts = useMemo(
     () => ({
       all: items.length,
@@ -226,7 +239,7 @@ export function ReportsPage() {
         ) : (
           <GroupedList>
             {visible.map((item) => (
-              <ReportRow key={item.playlistId} item={item} onAction={(a) => act(item, a)} />
+              <ReportRow key={item.playlistId} item={item} reach={item.reportId ? reach.get(item.reportId) : undefined} onAction={(a) => act(item, a)} />
             ))}
           </GroupedList>
         )}
@@ -252,9 +265,19 @@ export function ReportsPage() {
   );
 }
 
-function ReportRow({ item, onAction }: { item: ReportListItem; onAction: (a: RowAction) => void }) {
+function ReportRow({
+  item,
+  reach,
+  onAction,
+}: {
+  item: ReportListItem;
+  /** For a report sent to players' phones: how many it reaches, and how many of them opened it. */
+  reach?: { reached: number; opened: number };
+  onAction: (a: RowAction) => void;
+}) {
   // What the report holds goes in the meta line; the trailing column is only
-  // ever how often it was opened, so it reads the same on every row.
+  // ever how it was read (players who opened it, else opens of the link), so
+  // it reads the same on every row.
   const players =
     item.players > 0
       ? `${item.players} ${item.players === 1 ? "player" : "players"}`
@@ -270,7 +293,8 @@ function ReportRow({ item, onAction }: { item: ReportListItem; onAction: (a: Row
     .filter(Boolean)
     .join(" · ");
   // A draft has no link yet, so nothing to have been opened.
-  const trailing = item.status === "draft" ? null : openedLabel(item.opens);
+  const trailing =
+    item.status === "draft" ? null : reach && reach.reached > 0 ? `Seen by ${reach.opened} of ${reach.reached}` : openedLabel(item.opens);
   const actions = rowActions(item);
 
   return (

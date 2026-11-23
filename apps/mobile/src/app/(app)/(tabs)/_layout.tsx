@@ -5,6 +5,8 @@ import { Drawer } from "expo-router/drawer";
 import { feedCounts } from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
+import { useReports } from "@/lib/reports-store";
+import { unreadReportCount } from "@scoutable/shared/lib/scouting-report-inbox";
 import { syncAppBadge } from "@/lib/notifications";
 import { offerTeamStepOnce, useMyTeam } from "@/lib/my-team";
 import { trackEvent } from "@/lib/analytics";
@@ -17,7 +19,7 @@ import { Sidebar } from "@/components/shell/Sidebar";
  * fills the window, a menu button (or a swipe from the left edge) slides the
  * sidebar in beside it, and the screen slides along under a dimmed overlay.
  * The same on iOS and Android. The routes are the tab routes they always
- * were (playlists, highlights), each its own stack, so every path, deep link
+ * were (playlists, highlights) and the scouting reports, each its own stack, so every path, deep link
  * and notification target is unchanged. The watch screen, /team and the
  * settings sheet (/profile) live OUTSIDE this group, so they cover the
  * sidebar too.
@@ -30,6 +32,7 @@ export default function TabsLayout() {
   const { isPlayerOnly, activeOrg, profile, profileLoading } = useAuth();
   const { choices, loaded: teamsLoaded } = useMyTeam();
   const { feedItems, loading } = usePlaylists();
+  const { reports, loading: reportsLoading } = useReports();
   const colors = useThemeColors();
   const { resolvedMode } = useAppTheme();
   const { width } = useWindowDimensions();
@@ -43,11 +46,14 @@ export default function TabsLayout() {
   // (both derive from the store's shared feedItems).
   const newCount = useMemo(() => feedCounts(feedItems).new, [feedItems]);
 
-  // App-icon badge mirrors the sidebar's count. The !loading guard stops the
-  // initial fetch from flashing the icon count to 0.
+  const unreadReports = useMemo(() => unreadReportCount(reports), [reports]);
+
+  // App-icon badge mirrors the sidebar's counts (new playlists and unread
+  // reports). The loading guards stop the initial fetches from flashing the
+  // icon count to 0.
   useEffect(() => {
-    if (!loading) syncAppBadge(newCount);
-  }, [newCount, loading]);
+    if (!loading && !reportsLoading) syncAppBadge(newCount + unreadReports);
+  }, [newCount, unreadReports, loading, reportsLoading]);
 
   // "Which team do you play for?" once per club space: shown over the tabs
   // until answered (skip counts), at most once per launch. Only while the
@@ -85,6 +91,7 @@ export default function TabsLayout() {
       }}
     >
       <Drawer.Screen name="playlists" />
+      <Drawer.Screen name="reports" />
       <Drawer.Screen name="highlights" />
     </Drawer>
   );

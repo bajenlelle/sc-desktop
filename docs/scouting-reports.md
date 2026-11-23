@@ -4,7 +4,9 @@ A coach scouts an opponent next to a playlist: the **report** is a document of
 its own (a title and opponent, a team intro, one section per player with their
 stats, a note and their clips) built from the playlist's clips. **Share** turns
 it into one public, unlisted web page (clips play inline) that staff and
-players open from a link, and that "Save as PDF" prints.
+players open from a link, and that "Save as PDF" prints. In a club space the
+coach can also **send** it to players' phones, where the app draws it natively
+and tells the coach who read it ("On players' phones" below).
 
 ## The draft (`packages/shared/lib/report-draft.ts`)
 
@@ -470,6 +472,104 @@ never a player's name, stat or note.
   `scouting_report_page_viewed` never reached PostHog, because it fired before
   analytics had started; `trackEvent` now starts it itself, so nothing was
   recorded earlier.)
+
+## On players' phones (`supabase/migrations/20261124100000_scouting_report_recipients.sql`)
+
+A live report whose playlist is in a club goes to teams and people of that
+club; the mobile app lists it, draws it and records reading; the coach sees who
+read how much. FastScout's "Mobile Access" and "Mobile Usage" are the model.
+
+**Database.** Two tables written only by the functions (RLS on, no policies,
+no grants):
+- `scouting_report_recipients`: a report's targets, a team or a person each
+  (`team_id` xor `user_id`, unique per report), `sent_by`, `sent_at`.
+- `scouting_report_reads`: per report and person, `opened_at`,
+  `last_opened_at` and `watched_clip_keys`. Watched clips are kept by clip
+  **key** (the file), not by the page's `c1, c2` ids, so Update link, which
+  renumbers the ids, keeps what was watched; counts always intersect with the
+  report's current `clip_keys`.
+
+Who a report **reaches** (`_scouting_report_audience`): its direct people plus
+the members of its teams, who are in the report's club now, without its
+owner. Someone who leaves the team or the club stops seeing it; a stopped or
+expired report reaches no one.
+
+Functions (`authenticated` only, house style):
+- `send_scouting_report(report, team_ids[], user_ids[])`: the owner's live
+  report in a club with an unlocked licence; teams of that club, members of it.
+  Sending again to a target changes nothing. Pushes only those the report
+  reaches for the first time. Returns `{reached, notified}`. Errors:
+  `not_owner`, `report_not_live`, `report_not_in_club`, `license_locked`,
+  `team_not_in_report_org`, `recipient_not_in_org`, `no_recipients`,
+  `too_many_recipients` (200 targets).
+- `unsend_scouting_report(report, team | user)`, whatever the licence.
+- `notify_scouting_report_update(report)`: one push to everyone reached
+  ("Coach L updated the report"), offered after Update link.
+- `get_scouting_report_delivery(report)` (owner): `{clips, targets, readers}`,
+  readers being everyone reached with `openedAt` and `watched`.
+- `get_my_scouting_report_reach()`: per sent live report, reached and opened
+  (the Reports page's "Seen by 9 of 12").
+- `get_my_scouting_reports()`: the caller's live reports with opponent,
+  `game`, players, clips, sender, the team it came through, `opened_at` and
+  `watched_keys`.
+- `record_scouting_report_read(report, clip_key?)`: recipients only
+  (`not_recipient` otherwise); the open, or one watched clip (a key the report
+  doesn't hold is ignored).
+
+The content itself is still read with `get_scouting_report(id)`. Push:
+"Scouting report: Fryshuset" / "Coach L sent you the report for Sat 28 Nov"
+(the day from `header.game`, Stockholm time), data
+`{type: 'scouting_report', reportId}`.
+
+**`header.game`** (`{at, home}`), from the draft's `game`, is new in the
+published report: the app dates and orders reports by it. It is part of the
+content key only when present, so older reports keep theirs; the web page
+ignores it.
+
+**Shared logic** (`packages/shared/lib/scouting-report-inbox.ts`, tested):
+Upcoming (game not three hours past tip-off, or no game and sent this week)
+and Earlier; `featuredReport` (the next game's, else the newest unread) for the
+card on top of My playlists; progress by clip key; a section's clips as queue
+items; Seen by's wording and order. Wrappers in `scouting-report-inbox-db.ts`.
+
+**The app** (`apps/mobile`):
+- `lib/reports-store.tsx` holds the list beside the playlists store (refreshed
+  on foreground and on a push) and each opened report's page; the open and each
+  watched clip show at once and are sent in the background.
+- The sidebar's **Scouting reports** (players always; staff once one has
+  reached them) with the unread count, which the app badge adds to the new
+  playlists. `(tabs)/reports` lists Upcoming and Earlier with the playlists'
+  status ring.
+- **My playlists** shows `featuredReport` as a card above the feed while no
+  search or filter is on.
+- **The reader** (`reports/[id]`): the team as a large title, sender, game and
+  clips watched, the intro, a sticky chip row once there are three sections
+  (`reportJumpItems`), then each section: a player's photo, number and name,
+  their numbers as tiles in a fixed grid (four across, three at large text),
+  the note, the blocks (keys numbered and large, How they play as rows, games
+  as a list), and the clips as a rail of posters with Play all. Its foot says
+  the coach sees what was opened and watched. No links out (App Store
+  3.1.3(c)).
+- **The clips** (`reports/[id]/play`): the watch screen's layout and player
+  (`useClipQueue`, now generic over `QueueItem`: drawings, slow motion, speed
+  and the 90% watched rule as in playlists) over one section's clips, starting
+  at the clip tapped or the first not watched. No scrubbing, as for players on
+  playlists.
+- A push with `reportId` opens the reader (`NotificationsBridge`); so does
+  `scoutable://reports/<id>`.
+
+**The desktop**: the share sheet's link view gets **Players' phones**
+(`components/report/report-delivery.tsx`). Before a send: one line and Send to
+players, which opens the playlists' picker (`ShareRecipients`: the club's
+teams, then its members, players first). After: the targets as removable
+chips, + Add, Seen by (furthest first: "7 of 16", "Opened", "Not yet") and,
+after Update link in the same sheet, Notify players. A personal space says
+reports go to phones from a club space. Events: `scouting_report_sent`,
+`scouting_report_update_notified`; the app's `scouting_report_read`.
+
+Not built: email for players without the app, offline download, an "I've
+read it" button, reports in the web app's player view, staff other than the
+owner sending.
 
 ## Taking a report down
 
