@@ -1,99 +1,78 @@
-import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
-import { periodLabel } from "@scoutable/shared/lib/events";
+import type * as React from "react";
+import type { PlayerGroup } from "@scoutable/shared/lib/clip-filters";
+import type { GameMoment } from "@scoutable/shared/lib/game-flow";
+import { EMPTY_PLAY_FILTERS, playFiltersCount, type PlayFilters } from "@scoutable/shared/lib/play-filters";
 import type { Label } from "@scoutable/shared/types/labels";
+import { PlaysFilterBar } from "@/components/plays/plays-filter-bar";
+import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 
-export interface QueueFilters {
-  players: Set<string>;
-  labelIds: Set<string>;
-  eventTypes: Set<string>;
-  periods: Set<string>;
-  matchIds: Set<string>;
+/** The playlist's filters (Johannes #4/#12): what every list of plays filters by, and which of its games. */
+export interface QueueFilters extends PlayFilters {
+  matchIds: ReadonlySet<string>;
 }
 
-export const EMPTY_QUEUE_FILTERS: QueueFilters = {
-  players: new Set(),
-  labelIds: new Set(),
-  eventTypes: new Set(),
-  periods: new Set(),
-  matchIds: new Set(),
-};
+export const EMPTY_QUEUE_FILTERS: QueueFilters = { ...EMPTY_PLAY_FILTERS, matchIds: new Set() };
 
 export function queueFiltersActive(f: QueueFilters): boolean {
-  return (
-    f.players.size > 0 ||
-    f.labelIds.size > 0 ||
-    f.eventTypes.size > 0 ||
-    f.periods.size > 0 ||
-    f.matchIds.size > 0
-  );
+  return queueFilterCount(f) > 0;
+}
+
+/** How many fields narrow the queue (the badge on the toolbar's Filter). */
+export function queueFilterCount(f: QueueFilters): number {
+  return playFiltersCount(f) + (f.matchIds.size > 0 ? 1 : 0);
 }
 
 /**
- * The in-playlist filter bar (Johannes #4/#12): narrow the queue by player,
- * label, event type, period or game. Every dropdown only offers what the
- * open playlist actually contains; an empty dimension isn't rendered. It
- * sits above the clip list, an inset group like the list itself.
+ * The in-playlist filter bar: the bar every list of plays has (PlaysFilterBar), its scope the playlist's games
+ * when it has more than one. Every section only offers what the open playlist contains.
  */
 export function PlaylistFilterBar({
   filters,
   onChange,
-  options,
+  games,
+  players,
+  labels,
+  periods,
+  moments,
+  open,
+  onOpenChange,
+  searchRef,
+  presets,
 }: {
   filters: QueueFilters;
   onChange: (next: QueueFilters) => void;
-  options: {
-    players: string[];
-    labels: Label[];
-    eventTypes: { value: string; label: string }[];
-    periods: string[];
-    games: { id: string; title: string }[];
-  };
+  games: readonly { id: string; title: string }[];
+  players: readonly PlayerGroup[];
+  labels: readonly Label[];
+  periods: readonly number[];
+  moments: { counts: Partial<Record<GameMoment, number>>; why?: Partial<Record<GameMoment, string>> };
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  searchRef?: React.Ref<HTMLInputElement>;
+  presets?: React.ReactNode;
 }) {
-  const set = <K extends keyof QueueFilters>(key: K, next: Set<string>) =>
-    onChange({ ...filters, [key]: next });
-
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      {options.players.length > 1 && (
-        <MultiSelectDropdown
-          placeholder="Player"
-          options={options.players.map((p) => ({ value: p, label: p }))}
-          selected={filters.players}
-          onChange={(s) => set("players", s)}
-        />
-      )}
-      {options.labels.length > 0 && (
-        <MultiSelectDropdown
-          placeholder="Label"
-          options={options.labels.map((l) => ({ value: l.id, label: l.name }))}
-          selected={filters.labelIds}
-          onChange={(s) => set("labelIds", s)}
-        />
-      )}
-      {options.eventTypes.length > 1 && (
-        <MultiSelectDropdown
-          placeholder="Event type"
-          options={options.eventTypes}
-          selected={filters.eventTypes}
-          onChange={(s) => set("eventTypes", s)}
-        />
-      )}
-      {options.periods.length > 1 && (
-        <MultiSelectDropdown
-          placeholder="Period"
-          options={options.periods.map((p) => ({ value: p, label: periodLabel(Number(p)) }))}
-          selected={filters.periods}
-          onChange={(s) => set("periods", s)}
-        />
-      )}
-      {options.games.length > 1 && (
-        <MultiSelectDropdown
-          placeholder="Game"
-          options={options.games.map((g) => ({ value: g.id, label: g.title }))}
-          selected={filters.matchIds}
-          onChange={(s) => set("matchIds", s)}
-        />
-      )}
-    </div>
+    <PlaysFilterBar
+      filters={filters}
+      onChange={(next) => onChange({ ...next, matchIds: filters.matchIds })}
+      scope={
+        games.length > 1 ? (
+          <MultiSelectDropdown
+            placeholder="Game"
+            options={games.map((g) => ({ value: g.id, label: g.title }))}
+            selected={filters.matchIds}
+            onChange={(s) => onChange({ ...filters, matchIds: s })}
+          />
+        ) : undefined
+      }
+      presets={presets}
+      players={players}
+      labels={labels}
+      periods={periods}
+      moments={moments}
+      open={open}
+      onOpenChange={onOpenChange}
+      searchRef={searchRef}
+    />
   );
 }

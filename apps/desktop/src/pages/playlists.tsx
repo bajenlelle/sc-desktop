@@ -125,7 +125,13 @@ import { PurchaseSheet } from "@/components/purchase-sheet";
 import { usePlayerAccess } from "@/lib/player-access";
 import { canExport } from "@scoutable/shared/lib/player-access";
 import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
-import { PlaylistFilterBar, EMPTY_QUEUE_FILTERS, queueFiltersActive, type QueueFilters } from "@/components/playlist-filter-bar";
+import { PlaylistFilterBar, EMPTY_QUEUE_FILTERS, queueFilterCount, queueFiltersActive, type QueueFilters } from "@/components/playlist-filter-bar";
+import { usePlayMoments } from "@/components/plays/use-play-moments";
+import { matchesPlay } from "@scoutable/shared/lib/play-filters";
+import { playersByTeam } from "@scoutable/shared/lib/clip-filters";
+import { applyPresetFilters as applyPreset, presetLabelsGone as presetLabelsMissing, type FilterPreset as SavedFilters } from "@scoutable/shared/lib/filter-presets";
+import { useFilterPresets } from "@/lib/use-filter-presets";
+import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import type { OrgTeam, UserProfile } from "@/types/org";
 import {
   ContextMenu,
@@ -579,6 +585,9 @@ export function PlaylistsPage() {
   // In-playlist filter lens (transient — reset on playlist switch).
   const [queueFilters, setQueueFilters] = useState<QueueFilters>({ ...EMPTY_QUEUE_FILTERS });
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // The Filter popover inside the bar, and its search (⌘F opens both).
+  const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
+  const filterSearchRef = useRef<HTMLInputElement | null>(null);
 
   // Clip drag: what the pointer engine (use-list-drag.ts) is hovering. The
   // list gap only shows for an empty list (rows open the gap themselves);
@@ -1753,10 +1762,18 @@ export function PlaylistsPage() {
   // dimension (AND across dimensions, OR within one).
   // -------------------------------------------------------------------------
   const filtersActive = queueFiltersActive(queueFilters);
-  const activeFilterDims = [
-    queueFilters.players, queueFilters.labelIds, queueFilters.eventTypes,
-    queueFilters.periods, queueFilters.matchIds,
-  ].filter((s) => s.size > 0).length;
+  const activeFilterDims = queueFilterCount(queueFilters);
+
+  // The playlist's games, each with every play it has: a moment (a run, Clutch) is read off the whole game.
+  const queueMomentGames = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of sortedEvents) if (!isTextCard(item)) ids.add((item as QueueItem).matchId);
+    return [...ids].map((id) => {
+      const m = matchLookup.get(id);
+      return { gameId: id, events: m?.events ?? [], gameMarks: m?.gameMarks ?? null };
+    });
+  }, [sortedEvents, matchLookup]);
+  const queueMoments = usePlayMoments(queueMomentGames);
 
   const filteredEvents = useMemo((): PlaybackItem[] => {
     if (!filtersActive) return sortedEvents;
@@ -1765,16 +1782,9 @@ export function PlaylistsPage() {
       const qi = item as QueueItem;
       const ev = qi.event;
       if (queueFilters.matchIds.size > 0 && !queueFilters.matchIds.has(qi.matchId)) return false;
-      if (queueFilters.periods.size > 0 && !queueFilters.periods.has(String(ev.period))) return false;
-      if (queueFilters.eventTypes.size > 0 && !queueFilters.eventTypes.has(eventLabel(ev))) return false;
-      if (queueFilters.players.size > 0 && !queueFilters.players.has(playerName(ev))) return false;
-      if (queueFilters.labelIds.size > 0) {
-        const assigned = clipAssignments.get(`${qi.matchId}:${ev.eventId}`);
-        if (!assigned || ![...queueFilters.labelIds].some((id) => assigned.has(id))) return false;
-      }
-      return true;
+      return matchesPlay(queueFilters, ev, clipAssignments.get(`${qi.matchId}:${ev.eventId}`), queueMoments.momentsOf(qi.matchId, ev.eventId));
     });
-  }, [sortedEvents, filtersActive, queueFilters, clipAssignments]);
+  }, [sortedEvents, filtersActive, queueFilters, clipAssignments, queueMoments]);
 
   /** What the queue, playback, selection and export actually operate on. */
   const queueItems = filtersActive ? filteredEvents : sortedEvents;
@@ -1795,30 +1805,31 @@ export function PlaylistsPage() {
 
   // Only offer filter options the open playlist actually contains.
   const queueFilterOptions = useMemo(() => {
-    const players = new Set<string>();
-    const types = new Set<string>();
-    const periods = new Set<string>();
+    const events: PlayByPlayEvent[] = [];
+    const periods = new Set<number>();
     const gameIds = new Set<string>();
     for (const item of sortedEvents) {
       if (isTextCard(item)) continue;
       const qi = item as QueueItem;
-      const name = playerName(qi.event);
-      if (name) players.add(name);
-      types.add(eventLabel(qi.event));
-      if (qi.event.period) periods.add(String(qi.event.period));
+      events.push(qi.event);
+      if (qi.event.period) periods.add(qi.event.period);
       gameIds.add(qi.matchId);
     }
-    // Labels are one vocabulary (scope lives on the assignment) — the filter
-    // matches either scope, so a plain alphabetical list is right.
-    const sortedLabels = [...labels].sort((a, b) => a.name.localeCompare(b.name, "sv"));
     return {
-      players: [...players].sort((a, b) => a.localeCompare(b, "sv")),
-      labels: sortedLabels,
-      eventTypes: [...types].sort().map((t) => ({ value: t, label: t })),
-      periods: [...periods].sort(),
+      players: playersByTeam(events),
+      periods: [...periods].sort((a, b) => a - b),
       games: [...gameIds].map((id) => ({ id, title: matchLookup.get(id)?.title ?? "Game" })),
     };
-  }, [sortedEvents, labels, selected?.id, matchLookup]);
+  }, [sortedEvents, matchLookup]);
+
+  // Presets, as in the game view, Teams' Plays and Add clips (one set per space).
+  const queuePresets = useFilterPresets(activeOrgId, "playlist");
+  const applyQueuePreset = (p: SavedFilters) => {
+    const labelIds = labels.map((l) => l.id);
+    setQueueFilters((f) => applyPreset(f, p.filters, labelIds));
+    queuePresets.applied(p);
+    if (presetLabelsMissing(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
+  };
 
   // ---------------------------------------------------------------------------
   // Playback
@@ -3004,6 +3015,14 @@ export function PlaylistsPage() {
   // over the latest render, so no refs are needed for state.
   useKeyScope("editor", !reportView);
   useHotkeys("editor", (e) => {
+    // ⌘F: the filters, with their search, as in every list of plays.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyF") {
+      e.preventDefault();
+      setFiltersOpen(true);
+      setFilterPopoverOpen(true);
+      window.setTimeout(() => filterSearchRef.current?.focus(), 80);
+      return;
+    }
     const labelKey = labelKeySlot(e);
     if (labelKey !== null) {
       e.preventDefault();
@@ -6196,7 +6215,26 @@ export function PlaylistsPage() {
                   if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
                   setQueueFilters(next);
                 }}
-                options={queueFilterOptions}
+                games={queueFilterOptions.games}
+                players={queueFilterOptions.players}
+                labels={labels}
+                periods={queueFilterOptions.periods}
+                moments={queueMoments}
+                open={filterPopoverOpen}
+                onOpenChange={setFilterPopoverOpen}
+                searchRef={filterSearchRef}
+                presets={
+                  activeOrgId ? (
+                    <FilterPresetsMenu
+                      presets={queuePresets.presets}
+                      current={queueFilters}
+                      onApply={applyQueuePreset}
+                      onSave={(name) => queuePresets.save(name, queueFilters)}
+                      onRename={queuePresets.rename}
+                      onDelete={queuePresets.remove}
+                    />
+                  ) : undefined
+                }
               />
               <PlaysCountLine
                 count={shownClipCount}

@@ -4,6 +4,8 @@ import { Play, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, afterTimeoutPlays, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
+import { playersByTeam } from "@scoutable/shared/lib/clip-filters";
+import { activeGroups } from "@scoutable/shared/lib/play-filters";
 import { buildGameTimeline, momentAt, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
@@ -179,6 +181,9 @@ export function GameWatchView({
     return [...byId.values()].sort((a, b) => a.side - b.side || (Number(a.number) || 999) - (Number(b.number) || 999));
   }, [match.events]);
 
+  // The Filter popover's players: by team, keyed as every list keys them (playerKey).
+  const playerGroups = useMemo(() => playersByTeam(match.events), [match.events]);
+
   const momentCounts = useMemo(() => {
     const counts = Object.fromEntries(GAME_MOMENTS.map((m) => [m, 0])) as Record<GameMoment, number>;
     for (const set of moments.values()) for (const m of set) counts[m]++;
@@ -194,7 +199,7 @@ export function GameWatchView({
   const presets = useFilterPresets(activeOrgId, "game_view");
   const labelIds = useMemo(() => labels.labels.map((l) => l.id), [labels.labels]);
   const applyPreset = (p: FilterPreset) => {
-    setFilters((f) => ({ ...f, clip: applyPresetFilters(f.clip, p.filters, labelIds) }));
+    setFilters((f) => ({ ...f, play: applyPresetFilters(f.play, p.filters, labelIds) }));
     presets.applied(p);
     if (presetLabelsGone(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
   };
@@ -205,7 +210,7 @@ export function GameWatchView({
   const collect = useCollect({ scope: collectScope, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
 
   // One player chosen: their stints on the floor, for the strip and the "while on the floor" switch.
-  const chosenPlayer = filters.clip.players.size === 1 ? (people.find((p) => p.name === [...filters.clip.players][0]) ?? null) : null;
+  const chosenPlayer = filters.play.players.size === 1 ? (people.find((p) => `id:${p.id}` === [...filters.play.players][0]) ?? null) : null;
   const stints = useMemo(() => (chosenPlayer ? onCourtStints(flow, chosenPlayer.id) : null), [flow, chosenPlayer]);
   const onCourtIds = useMemo(() => {
     if (!filters.onCourt || !stints || stints.length === 0) return null;
@@ -443,16 +448,8 @@ export function GameWatchView({
     const timer = window.setTimeout(() => {
       trackEvent("game_view_filtered", {
         team: filters.team,
-        moment: filters.moment,
-        groups: [
-          filters.clip.types.size > 0 && "types",
-          filters.clip.shotTypes.size > 0 && "shots",
-          filters.clip.situations.size > 0 && "situations",
-          filters.clip.players.size > 0 && "players",
-          (filters.clip.labels?.size ?? 0) > 0 && "labels",
-          filters.periods.size > 0 && "quarters",
-        ].filter(Boolean),
-        search: filters.search.trim() !== "",
+        moment: filters.play.moment,
+        groups: activeGroups(filters.play),
         on_court: filters.onCourt,
         picked: filters.picked !== null,
         visible: order.length,
@@ -596,16 +593,16 @@ export function GameWatchView({
   // A picker that has to open (no playlist chosen yet) grows from the control that asked: the Now bar's Add
   // (for the A key too), the "Add all" button, a row's plus.
   const addCurrent = useCallback(() => {
-    if (current && collect.statusOf(current.key) === "none") collect.add([current], "now_bar", filters.moment, addButtonRef.current);
-  }, [current, collect, filters.moment]);
+    if (current && collect.statusOf(current.key) === "none") collect.add([current], "now_bar", filters.play.moment, addButtonRef.current);
+  }, [current, collect, filters.play.moment]);
   const addAll = useCallback(
     (anchor: HTMLElement) => {
       const plays = order.map((i) => timeline.plays[i]).filter((p) => collect.statusOf(p.key) === "none");
-      collect.add(plays, "bulk", filters.moment, anchor);
+      collect.add(plays, "bulk", filters.play.moment, anchor);
     },
-    [order, timeline, collect, filters.moment],
+    [order, timeline, collect, filters.play.moment],
   );
-  const addOne = useCallback((play: TimedPlay, anchor: HTMLElement) => collect.add([play], "row", filters.moment, anchor), [collect, filters.moment]);
+  const addOne = useCallback((play: TimedPlay, anchor: HTMLElement) => collect.add([play], "row", filters.play.moment, anchor), [collect, filters.play.moment]);
   const openRowLabels = useCallback((play: TimedPlay) => setLabelPickerFor(play.key), []);
 
   // The label keys (⌥1–⌥9, ⇧G, Option held) act on the play on screen, as on Teams' Plays.
@@ -1092,7 +1089,7 @@ export function GameWatchView({
               momentCounts={momentCounts}
               timeouts={marks && marks.timeouts.length > 0 ? "ready" : readingMarks ? "reading" : "none"}
               periods={timeline.bands.map((b) => b.period)}
-              people={people}
+              players={playerGroups}
               labels={labels.labels}
               visible={order.length}
               total={timeline.byTime.length}
@@ -1106,9 +1103,9 @@ export function GameWatchView({
               presetsMenu={activeOrgId ? (
                 <FilterPresetsMenu
                   presets={presets.presets}
-                  current={filters.clip}
+                  current={filters.play}
                   onApply={applyPreset}
-                  onSave={(name) => presets.save(name, filters.clip)}
+                  onSave={(name) => presets.save(name, filters.play)}
                   onRename={presets.rename}
                   onDelete={presets.remove}
                 />
@@ -1144,14 +1141,14 @@ export function GameWatchView({
                 <GamePlayMenuContent
                   plays={selected.has(play.key) ? selectedPlays : [play]}
                   collect={collect}
-                  moment={filters.moment}
+                  moment={filters.play.moment}
                   anchor={anchor}
                   onDone={selected.has(play.key) ? clearSelection : undefined}
                 />
               )}
               selecting={selected.size > 0}
               selectionBar={
-                <PlaysSelectionBar count={selected.size} collect={collect} plays={() => selectedPlays} moment={filters.moment} onClear={clearSelection} />
+                <PlaysSelectionBar count={selected.size} collect={collect} plays={() => selectedPlays} moment={filters.play.moment} onClear={clearSelection} />
               }
             />
           </div>

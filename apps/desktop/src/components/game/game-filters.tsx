@@ -1,46 +1,14 @@
 import * as React from "react";
-import { Check, ListFilter, Plus, X } from "lucide-react";
-import {
-  EVENT_TYPE_OPTIONS,
-  SHOT_TYPE_OPTIONS,
-  SITUATION_OPTIONS,
-  toggleFilter,
-  type ClipFilters,
-} from "@scoutable/shared/lib/clip-filters";
-import { periodLabel } from "@scoutable/shared/lib/events";
+import { Check, Plus } from "lucide-react";
+import type { PlayerGroup } from "@scoutable/shared/lib/clip-filters";
 import type { GameMoment } from "@scoutable/shared/lib/game-flow";
-import { EMPTY_GAME_FILTERS, gameFilterCount, type GameFilters } from "@scoutable/shared/lib/game-list";
+import { EMPTY_GAME_FILTERS, type GameFilters } from "@scoutable/shared/lib/game-list";
 import type { Label } from "@scoutable/shared/types/labels";
 import { Button } from "@/components/ui/button";
-import { quietControl, quietState } from "@/components/ui/filter-button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ScrollRow } from "@/components/ui/scroll-row";
-import { SearchField } from "@/components/ui/search-field";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { FilterToken, PlaysFilterBar } from "@/components/plays/plays-filter-bar";
 import { PlaysCountLine } from "@/components/plays/plays-count-line";
-
-/** The moments, in the order a coach asks for them. */
-const MOMENTS: readonly { value: GameMoment; label: string }[] = [
-  { value: "after_timeout", label: "After timeouts" },
-  { value: "quarter_start", label: "Quarter starts" },
-  { value: "quarter_end", label: "Quarter ends" },
-  { value: "clutch", label: "Clutch" },
-  { value: "run", label: "Runs" },
-  { value: "fast_break", label: "Fast breaks" },
-];
-
-/** What a moment is, for its chip's tooltip. */
-const MOMENT_HELP: Record<GameMoment, string> = {
-  after_timeout: "The play each team timeout led to",
-  quarter_start: "The first two minutes of every quarter",
-  quarter_end: "The last two minutes of every quarter",
-  clutch: "The last five minutes of the fourth quarter or overtime, within five points",
-  run: "Every play inside a run of eight unanswered points or more",
-  fast_break: "Plays the league marked as fast breaks",
-};
 
 export interface GamePerson {
   id: number;
@@ -49,52 +17,11 @@ export interface GamePerson {
   side: 1 | 2;
 }
 
-function Chip({
-  pressed,
-  disabled,
-  onClick,
-  children,
-  className,
-}: {
-  pressed: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium whitespace-nowrap outline-none transition-[background-color,color,transform] duration-100 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:opacity-40 disabled:active:scale-100",
-        pressed ? "bg-fill-3 text-foreground hover:bg-fill-4" : "bg-fill-1 text-foreground hover:bg-fill-2 active:bg-fill-3",
-        className,
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="text-subheadline font-medium text-muted-foreground">{title}</h3>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
-    </section>
-  );
-}
-
 /**
- * What the game's list shows, in three steps of depth. Always there: whose
- * plays (both teams or one) and the moments a coach asks a game about, one
- * at a time. One level down, in the filter sheet: a player search and the
- * Add clips vocabulary (event types, shot types, situations, quarters,
- * players, labels). Under them the count line (PlaysCountLine): how many plays
- * are listed, and once anything narrows the list, Clear and Add all.
+ * What the game's list shows, in the bar every list of plays has (PlaysFilterBar): whose plays (both teams or
+ * one), Filter (players, shot types, situations, quarters and moments, labels; ⌘F) and Presets; the event
+ * chips; a token for each filter that is on. Under them the count line (PlaysCountLine): how many plays are
+ * listed, and once anything narrows the list, Clear filters and Add all.
  */
 export function GameFilterBar({
   filters,
@@ -103,7 +30,7 @@ export function GameFilterBar({
   momentCounts,
   timeouts,
   periods,
-  people,
+  players,
   labels,
   visible,
   total,
@@ -124,7 +51,8 @@ export function GameFilterBar({
   /** Whether the game's timeouts are known: "ready", still being "read", or "none" on record. */
   timeouts: "ready" | "reading" | "none";
   periods: readonly number[];
-  people: readonly GamePerson[];
+  /** The game's players by team, keyed by playerKey. */
+  players: readonly PlayerGroup[];
   labels: readonly Label[];
   /** Plays listed now. */
   visible: number;
@@ -138,187 +66,72 @@ export function GameFilterBar({
   searchRef: React.Ref<HTMLInputElement>;
   sheetOpen: boolean;
   onSheetOpenChange: (open: boolean) => void;
-  /** The saved filters (FilterPresetsMenu), first in the sheet. */
+  /** The saved filters (FilterPresetsMenu). */
   presetsMenu?: React.ReactNode;
 }) {
-  const sheetCount = gameFilterCount(filters) + (filters.search.trim() ? 1 : 0);
-  const setClip = (clip: ClipFilters) => onChange({ ...filters, clip });
-  const togglePeriod = (period: number) => {
-    const next = new Set(filters.periods);
-    if (next.has(period)) next.delete(period);
-    else next.add(period);
-    onChange({ ...filters, periods: next });
-  };
-  const onePlayer = filters.clip.players.size === 1;
+  const play = filters.play;
+  const onePlayer = play.players.size === 1 ? [...play.players][0] : null;
+  const onePlayerName = onePlayer ? (players.flatMap((g) => g.players).find((p) => p.key === onePlayer)?.name ?? null) : null;
+  const why: Partial<Record<GameMoment, string>> = {};
+  if (timeouts !== "ready") why.after_timeout = timeouts === "reading" ? "Reading the game's timeouts…" : "This game has no timeouts on record.";
 
   return (
-    <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-3 pt-3 pb-2">
-      <div className="flex items-center gap-2">
-        <SegmentedControl
-          aria-label="Team"
-          className="min-w-0 flex-1 [&>button]:min-w-0 [&>button]:flex-1 [&>button>span]:min-w-0"
-          value={String(filters.team) as "0" | "1" | "2"}
-          onValueChange={(v) => onChange({ ...filters, team: Number(v) as 0 | 1 | 2 })}
-          options={[
-            { value: "0", label: "Both" },
-            { value: "1", label: <span className="truncate">{teams.home}</span>, title: teams.home },
-            { value: "2", label: <span className="truncate">{teams.away}</span>, title: teams.away },
-          ]}
-        />
-        <Popover open={sheetOpen} onOpenChange={onSheetOpenChange}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label={sheetCount > 0 ? `Filters, ${sheetCount} on` : "Filters"}
-              className={cn(quietControl, quietState(sheetCount > 0), "text-xs font-medium [&_svg]:size-3.5")}
-            >
-              <ListFilter className="size-3.5" />
-              Filter
-              {sheetCount > 0 && <span className="nums">{sheetCount}</span>}
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="flex max-h-[min(70vh,34rem)] w-80 flex-col gap-3 overflow-y-auto p-3">
-            {presetsMenu}
-            <SearchField
-              ref={searchRef}
-              placeholder="Player name or number"
-              value={filters.search}
-              onChange={(e) => onChange({ ...filters, search: e.target.value })}
+    <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-3 pt-3 pb-1">
+      <PlaysFilterBar
+        filters={play}
+        onChange={(next) => onChange({ ...filters, play: next, onCourt: next.players.size === 1 ? filters.onCourt : false })}
+        scope={
+          <SegmentedControl
+            aria-label="Team"
+            className="min-w-0 flex-1 [&>button]:min-w-0 [&>button]:flex-1 [&>button>span]:min-w-0"
+            value={String(filters.team) as "0" | "1" | "2"}
+            onValueChange={(v) => onChange({ ...filters, team: Number(v) as 0 | 1 | 2 })}
+            options={[
+              { value: "0", label: "Both" },
+              { value: "1", label: <span className="truncate">{teams.home}</span>, title: teams.home },
+              { value: "2", label: <span className="truncate">{teams.away}</span>, title: teams.away },
+            ]}
+          />
+        }
+        presets={presetsMenu}
+        players={players}
+        labels={labels}
+        periods={periods}
+        moments={{ counts: momentCounts, why }}
+        playerExtra={
+          onePlayerName && (
+            <label className="flex items-center justify-between gap-3 rounded-md bg-fill-1 px-2.5 py-2 text-callout">
+              <span>
+                While on the floor
+                <span className="block text-subheadline text-muted-foreground">Every play while {onePlayerName} is in the game.</span>
+              </span>
+              <Switch checked={filters.onCourt} onCheckedChange={(on) => onChange({ ...filters, onCourt: on })} />
+            </label>
+          )
+        }
+        open={sheetOpen}
+        onOpenChange={onSheetOpenChange}
+        searchRef={searchRef}
+        picks={
+          filters.picked && (
+            // The plays behind a number in Stats: a token of their own, cleared on its own; the rest of the filters stay.
+            <FilterToken
+              name="Stats"
+              values={filters.picked.name}
+              removeLabel={`Clear ${filters.picked.name}`}
+              onRemove={() => onChange({ ...filters, picked: null })}
             />
-            <Group title="Plays">
-              {EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeout").map((o) => (
-                <Chip key={o.value} pressed={filters.clip.types.has(o.value)} onClick={() => setClip(toggleFilter(filters.clip, "types", o.value))}>
-                  {o.label}
-                </Chip>
-              ))}
-            </Group>
-            <Group title="Shot">
-              {SHOT_TYPE_OPTIONS.map((o) => (
-                <Chip key={o.value} pressed={filters.clip.shotTypes.has(o.value)} onClick={() => setClip(toggleFilter(filters.clip, "shotTypes", o.value))}>
-                  {o.label}
-                </Chip>
-              ))}
-            </Group>
-            <Group title="Situation">
-              {SITUATION_OPTIONS.map((o) => (
-                <Chip key={o.value} pressed={filters.clip.situations.has(o.value)} onClick={() => setClip(toggleFilter(filters.clip, "situations", o.value))}>
-                  {o.label}
-                </Chip>
-              ))}
-            </Group>
-            {periods.length > 1 && (
-              <Group title="Quarter">
-                {periods.map((p) => (
-                  <Chip key={p} pressed={filters.periods.has(p)} onClick={() => togglePeriod(p)}>
-                    {periodLabel(p)}
-                  </Chip>
-                ))}
-              </Group>
-            )}
-            {([1, 2] as const).map((side) => {
-              const squad = people.filter((p) => p.side === side);
-              if (squad.length === 0) return null;
-              return (
-                <Group key={side} title={side === 1 ? teams.home : teams.away}>
-                  {squad.map((p) => (
-                    <Chip key={p.id} pressed={filters.clip.players.has(p.name)} onClick={() => setClip(toggleFilter(filters.clip, "players", p.name))}>
-                      {p.number ? <span className="nums opacity-70">#{p.number}</span> : null}
-                      {p.name}
-                    </Chip>
-                  ))}
-                </Group>
-              );
-            })}
-            {onePlayer && (
-              <label className="flex items-center justify-between gap-3 rounded-md bg-fill-1 px-2.5 py-2 text-callout">
-                <span>
-                  While on the floor
-                  <span className="block text-subheadline text-muted-foreground">Every play while {[...filters.clip.players][0]} is in the game.</span>
-                </span>
-                <Switch checked={filters.onCourt} onCheckedChange={(on) => onChange({ ...filters, onCourt: on })} />
-              </label>
-            )}
-            {labels.length > 0 && (
-              <Group title="Labels">
-                {labels.map((l) => (
-                  <Chip key={l.id} pressed={!!filters.clip.labels?.has(l.id)} onClick={() => setClip(toggleFilter(filters.clip, "labels", l.id))}>
-                    {l.name}
-                  </Chip>
-                ))}
-              </Group>
-            )}
-            {sheetCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="self-start text-muted-foreground"
-                onClick={() => onChange({ ...EMPTY_GAME_FILTERS, team: filters.team, moment: filters.moment })}
-              >
-                Clear these filters
-              </Button>
-            )}
-          </PopoverContent>
-        </Popover>
-      </div>
-
-      {/* Seven chips seldom fit the column: the row scrolls, and fades where more of them wait. */}
-      <ScrollRow role="group" aria-label="Moment" className="-mx-3 gap-1.5 px-3 py-0.5">
-        <Chip pressed={filters.moment === null} onClick={() => onChange({ ...filters, moment: null })}>
-          All plays
-        </Chip>
-        {MOMENTS.map((m) => {
-          const pending = m.value === "after_timeout" && timeouts !== "ready";
-          const none = momentCounts[m.value] === 0;
-          const why = pending
-            ? timeouts === "reading"
-              ? "Reading the game's timeouts…"
-              : "This game has no timeouts on record."
-            : none
-              ? "No plays like this in the game."
-              : MOMENT_HELP[m.value];
-          return (
-            <Tooltip key={m.value}>
-              <TooltipTrigger asChild>
-                {/* The wrapper takes the hover, so a disabled chip still says why. */}
-                <span className="shrink-0">
-                  <Chip
-                    pressed={filters.moment === m.value}
-                    disabled={(pending || none) && filters.moment !== m.value}
-                    onClick={() => onChange({ ...filters, moment: filters.moment === m.value ? null : m.value })}
-                  >
-                    {m.label}
-                  </Chip>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{why}</TooltipContent>
-            </Tooltip>
-          );
-        })}
-      </ScrollRow>
-
-      {/* How many plays are listed, always; Clear and Add all while filters narrow them (PlaysCountLine). */}
+          )
+        }
+        onClearAll={() => onChange({ ...EMPTY_GAME_FILTERS, team: filters.team, play: { ...EMPTY_GAME_FILTERS.play, types: play.types } })}
+      />
+      {/* How many plays are listed, always; Clear filters and Add all while filters narrow them (PlaysCountLine). */}
       <PlaysCountLine
         className="h-7"
         count={visible}
         total={total}
         filtered={filtered}
         onClear={() => onChange(EMPTY_GAME_FILTERS)}
-        lead={
-          filters.picked && (
-            // The plays behind a number in Stats: one pill, cleared on its own; the rest of the filters stay.
-            <span className="flex h-6 min-w-0 items-center gap-0.5 rounded-full bg-fill-2 pr-0.5 pl-2.5 text-foreground" title={filters.picked.name}>
-              <span className="truncate">{filters.picked.name}</span>
-              <button
-                type="button"
-                aria-label={`Clear ${filters.picked.name}`}
-                className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-3 hover:text-foreground active:bg-fill-4 focus-visible:ring-2 focus-visible:ring-selection"
-                onClick={() => onChange({ ...filters, picked: null })}
-              >
-                <X className="size-3.5" />
-              </button>
-            </span>
-          )
-        }
         trail={
           filtered &&
           visible > 0 && (
@@ -338,3 +151,4 @@ export function GameFilterBar({
     </div>
   );
 }
+

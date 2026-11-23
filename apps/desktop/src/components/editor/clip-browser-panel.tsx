@@ -17,17 +17,10 @@ import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@sco
 import { orderForAdd, playerTeam, startGames } from "@scoutable/shared/lib/add-clips-games";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import {
-  EMPTY_CLIP_FILTERS,
-  EVENT_TYPE_OPTIONS,
-  SHOT_TYPE_OPTIONS,
-  SITUATION_OPTIONS,
-  applyClipFiltersByKey,
-  hasActiveFilters,
   keepKnownChoices,
   playerKey,
   playersByTeam,
   teamsOf,
-  type ClipFilters,
 } from "@scoutable/shared/lib/clip-filters";
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
 import { isClipItem } from "@/types/match";
@@ -51,13 +44,14 @@ import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import { LeadersPopover } from "@/components/leaders-popover";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
-import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { EventTypeChips } from "./event-type-chips";
+import { PlaysFilterBar } from "@/components/plays/plays-filter-bar";
+import { usePlayMoments } from "@/components/plays/use-play-moments";
+import { EMPTY_PLAY_FILTERS, activeGroups, applyPlayFilters, playFiltersActive, type PlayFilters } from "@scoutable/shared/lib/play-filters";
 import { PlaysCountLine } from "@/components/plays/plays-count-line";
 import { GamePicker, type GamePickVia } from "./game-picker";
 import { PlayerStage } from "./player-stage";
@@ -68,7 +62,6 @@ import { usePersistentVideo } from "./use-persistent-video";
 // ---------------------------------------------------------------------------
 
 // No Timeout chip: timeouts live in game marks, not in the play-by-play, so it would match nothing.
-const BROWSER_TYPE_OPTIONS = EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeout");
 
 // ---------------------------------------------------------------------------
 // A row in the browser
@@ -275,11 +268,9 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     if (start.ids.length > 0 && start.source !== "remembered") setAddClipsScope(playlist.id, { gameIds: start.ids, teams: [] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [filters, setFilters] = useState<ClipFilters>(EMPTY_CLIP_FILTERS);
-  // One group's setter, for the dropdowns and chips.
-  const setGroup = (group: keyof ClipFilters) => (next: ReadonlySet<string>) => {
-    setFilters((f) => ({ ...f, [group]: next }));
-  };
+  const [filters, setFilters] = useState<PlayFilters>(EMPTY_PLAY_FILTERS);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterSearchRef = useRef<HTMLInputElement | null>(null);
 
   // The plays of every game the sheet has read, by game (kept when a game is unticked: ticking it again
   // reads nothing), and the games whose read failed, until they are read again.
@@ -435,12 +426,36 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     });
   }, [keyNames]);
 
+  // The When section: the quarters the chosen games have, and each game's moments.
+  const momentGames = useMemo(() => chosenGames.map((m) => ({ gameId: m.id, events: m.events, gameMarks: m.gameMarks ?? null })), [chosenGames]);
+  const moments = usePlayMoments(momentGames);
+  const periods = useMemo(() => [...new Set(allEvents.map((x) => x.event.period))].sort((a, b) => a - b), [allEvents]);
+
   /** Whether any filter narrows the list: the count line offers Clear filters. */
-  const anyFilter = hasActiveFilters(filters);
+  const anyFilter = playFiltersActive(filters);
   const filtered = useMemo(
-    () => applyClipFiltersByKey(allEvents, filters, (x) => labelAssignments.get(`${x.matchId}:${x.event.eventId}`)),
-    [allEvents, filters, labelAssignments],
+    () =>
+      applyPlayFilters(
+        allEvents,
+        filters,
+        (x) => labelAssignments.get(`${x.matchId}:${x.event.eventId}`),
+        (x) => moments.momentsOf(x.matchId, x.event.eventId),
+      ),
+    [allEvents, filters, labelAssignments, moments],
   );
+
+  // A filter change is one event once the coach has stopped changing it (the game view's game_view_filtered).
+  const firstFilter = useRef(true);
+  useEffect(() => {
+    if (firstFilter.current) {
+      firstFilter.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => trackEvent("plays_filtered", { surface: "add_clips", groups: activeGroups(filters), visible: filtered.length }), 800);
+    return () => window.clearTimeout(timer);
+    // The count rides along; it isn't what changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   // Each clip's labels, in the vocabulary's order: one array per clip, rebuilt only when the labels
   // or what is put on the clips change (a row is memoised on it).
@@ -517,14 +532,15 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     readPlays(ids, chosen);
   }
 
-  function handleTeamChange(newTeams: Set<string>) {
+  /** A change of team, from the Filter popover: remembered with the games, and the players narrowed to it. */
+  function handleTeamChange(newTeams: Set<string>, rest: PlayFilters = filters) {
     pendingTeamsRef.current = null;
     if (gameIds.length > 0) setAddClipsScope(playlist.id, { gameIds, teams: [...newTeams] });
     const source = newTeams.size > 0
       ? allEvents.filter(({ event }) => newTeams.has(event.eventTeam?.teamName ?? ""))
       : allEvents;
     const validPlayers = new Set(source.map((x) => playerKey(x.event)).filter((k): k is string => k !== null));
-    setFilters((f) => ({ ...f, teams: newTeams, players: new Set([...f.players].filter((p) => validPlayers.has(p))) }));
+    setFilters({ ...rest, teams: newTeams, players: new Set([...rest.players].filter((p) => validPlayers.has(p))) });
   }
 
   // A preset holds plays, shot types, situations and labels, never games, teams or players: applying
@@ -945,6 +961,13 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   // playing clip, ⌘A ticks every shown clip, ⌘↩ adds.
   useKeyScope("clip-browser", true, panelRef);
   useHotkeys("clip-browser", (e) => {
+    // ⌘F: the Filter popover with its search, as in the game view and Teams' Plays.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyF") {
+      e.preventDefault();
+      setFilterOpen(true);
+      window.setTimeout(() => filterSearchRef.current?.focus(), 50);
+      return;
+    }
     const labelKey = labelKeySlot(e);
     if (labelKey !== null) {
       e.preventDefault();
@@ -1149,48 +1172,31 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-5 pb-3">
-        <div className="-ml-2 flex flex-wrap items-center gap-1">
-          <GamePicker matches={matches} items={playlist.items} value={gameIds} onChange={handleGameChange} quickTeam={quickTeam} />
-          <MultiSelectDropdown options={SHOT_TYPE_OPTIONS} selected={filters.shotTypes} onChange={setGroup("shotTypes")} placeholder="Shot type" />
-          <MultiSelectDropdown options={SITUATION_OPTIONS} selected={filters.situations} onChange={setGroup("situations")} placeholder="Situation" />
-          <MultiSelectDropdown
-            options={teams.map((t) => ({ value: t, label: t }))}
-            selected={filters.teams}
-            onChange={handleTeamChange}
-            placeholder="Team"
-          />
-          <MultiSelectDropdown
-            groups={playerGroups.map((g) => ({
-              label: g.teamName || "Other players",
-              options: g.players.map((pl) => ({ value: pl.key, label: pl.number ? `#${pl.number} ${pl.name}` : pl.name, textValue: pl.name })),
-            }))}
-            selected={filters.players}
-            onChange={setGroup("players")}
-            placeholder="Player"
-          />
-          <LeadersPopover events={leaderEvents} selectedPlayers={leaderSelected} onTogglePlayer={handleLeaderToggle} />
-          {labels.length > 0 && (
-            <MultiSelectDropdown
-              options={labels.map((l) => ({ value: l.id, label: l.name }))}
-              selected={filters.labels ?? EMPTY_CLIP_FILTERS.labels!}
-              onChange={setGroup("labels")}
-              placeholder="Labels"
-            />
-          )}
-          {activeOrgId && (
-            <FilterPresetsMenu
-              modal
-              presets={presets.presets}
-              current={filters}
-              onApply={applyPreset}
-              onSave={(name) => presets.save(name, filters)}
-              onRename={presets.rename}
-              onDelete={presets.remove}
-            />
-          )}
-          <div className="ml-auto">
+      {/* Filters: the bar every list of plays has (PlaysFilterBar), its scope the games and the Leaders. */}
+      <PlaysFilterBar
+        className="border-b border-separator px-5 pb-3"
+        modal
+        filters={filters}
+        onChange={(next) => (next.teams !== filters.teams ? handleTeamChange(new Set(next.teams), next) : setFilters(next))}
+        scope={
+          <div className="-ml-2 flex min-w-0 flex-wrap items-center gap-1">
+            <GamePicker matches={matches} items={playlist.items} value={gameIds} onChange={handleGameChange} quickTeam={quickTeam} />
+            <LeadersPopover events={leaderEvents} selectedPlayers={leaderSelected} onTogglePlayer={handleLeaderToggle} />
+          </div>
+        }
+        presets={
+          <>
+            {activeOrgId && (
+              <FilterPresetsMenu
+                modal
+                presets={presets.presets}
+                current={filters}
+                onApply={applyPreset}
+                onSave={(name) => presets.save(name, filters)}
+                onRename={presets.rename}
+                onDelete={presets.remove}
+              />
+            )}
             <Popover>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1219,10 +1225,17 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                 </div>
               </PopoverContent>
             </Popover>
-          </div>
-        </div>
-        <EventTypeChips options={BROWSER_TYPE_OPTIONS} selected={filters.types} onChange={setGroup("types")} />
-      </div>
+          </>
+        }
+        players={playerGroups}
+        labels={labels}
+        periods={periods}
+        moments={moments}
+        teams={teams}
+        open={filterOpen}
+        onOpenChange={setFilterOpen}
+        searchRef={filterSearchRef}
+      />
 
       {/* Content: events | preview */}
       <ResizablePanelGroup direction="horizontal" autoSaveId="add-clips" className="min-h-0 flex-1">
@@ -1246,7 +1259,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
             count={filtered.length}
             total={allEvents.length}
             filtered={anyFilter}
-            onClear={() => setFilters(EMPTY_CLIP_FILTERS)}
+            onClear={() => setFilters(EMPTY_PLAY_FILTERS)}
             lead={
               <label className="flex cursor-default items-center gap-1.5 select-none">
                 <span aria-hidden className="w-[3px]" />
@@ -1278,7 +1291,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                       : "No plays match these filters."}
                   </p>
                   {matches.length > 0 && anyFilter && (
-                    <Button size="sm" variant="outline" onClick={() => setFilters(EMPTY_CLIP_FILTERS)}>
+                    <Button size="sm" variant="outline" onClick={() => setFilters(EMPTY_PLAY_FILTERS)}>
                       Clear filters
                     </Button>
                   )}

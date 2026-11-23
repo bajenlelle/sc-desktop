@@ -108,9 +108,10 @@ export function presetFilters(f: ClipFilters): ClipFilters {
 /**
  * The filters on screen with the preset applied: its plays, shot types,
  * situations and the labels of its that `labels` (the space's label ids) still
- * has; the team and players stay as they are.
+ * has; the team and players stay as they are, and so does anything else the
+ * filters hold (the quarters and the moment of play-filters.ts).
  */
-export function applyPresetFilters(current: ClipFilters, preset: ClipFilters, labels: readonly string[]): ClipFilters {
+export function applyPresetFilters<T extends ClipFilters>(current: T, preset: ClipFilters, labels: readonly string[]): T {
   const there = new Set(labels);
   return {
     ...current,

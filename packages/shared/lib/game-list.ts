@@ -5,22 +5,15 @@
  */
 import type { GameMarks, GameTimeout } from "../types/game-marks";
 import type { PlayByPlayEvent } from "../types/match";
-import { EMPTY_CLIP_FILTERS, matchesClipFilters, matchesLabelFilter, type ClipFilters } from "./clip-filters";
-import { playerName } from "./events";
 import type { GameFlow, GameMoment, PeriodScore, Score, ScoringRun } from "./game-flow";
+import { EMPTY_PLAY_FILTERS, matchesPlay, playFiltersCount, type PlayFilters } from "./play-filters";
 import type { GameTimeline, TimedPlay } from "./game-timeline";
 
 export interface GameFilters {
   /** 0 = both teams, 1 = home, 2 = away. */
   team: 0 | 1 | 2;
-  /** Typed into the search field: a player's name or shirt number. */
-  search: string;
-  /** One moment at a time. */
-  moment: GameMoment | null;
-  /** Global periods; empty = every period. */
-  periods: ReadonlySet<number>;
-  /** Event types, shot types, situations, players and labels: the Add clips vocabulary. */
-  clip: ClipFilters;
+  /** What every list of plays filters by (play-filters.ts): event types, players (by key), shot types, situations, quarters, the moment, labels. */
+  play: PlayFilters;
   /** With a player chosen: every play while that player is on the floor, not only their own. */
   onCourt: boolean;
   /** The plays behind a number in the Stats view, by name ("Lind: three-point attempts"); combines with the rest. */
@@ -35,41 +28,25 @@ export interface PickedPlays {
 
 export const EMPTY_GAME_FILTERS: GameFilters = {
   team: 0,
-  search: "",
-  moment: null,
-  periods: new Set(),
-  clip: EMPTY_CLIP_FILTERS,
+  play: EMPTY_PLAY_FILTERS,
   onCourt: false,
   picked: null,
 };
 
-/** How many of the filter sheet's groups are narrowing the list (the count on its button). */
+/** How many of the filter popover's fields are narrowing the list (the count on its button). The moment counts too. */
 export function gameFilterCount(f: GameFilters): number {
-  return (
-    (f.clip.types.size > 0 ? 1 : 0) +
-    (f.clip.shotTypes.size > 0 ? 1 : 0) +
-    (f.clip.situations.size > 0 ? 1 : 0) +
-    (f.clip.players.size > 0 ? 1 : 0) +
-    ((f.clip.labels?.size ?? 0) > 0 ? 1 : 0) +
-    (f.periods.size > 0 ? 1 : 0)
-  );
+  return playFiltersCount(f.play);
 }
 
 /** Whether anything narrows the list: a filtered list offers "Add all", and heads a run only when it is filtered to runs. */
 export function gameFiltersActive(f: GameFilters): boolean {
-  return f.team !== 0 || f.search.trim() !== "" || f.moment !== null || f.picked !== null || gameFilterCount(f) > 0;
+  return f.team !== 0 || f.picked !== null || gameFilterCount(f) > 0;
 }
 
 function teamOf(e: PlayByPlayEvent): number | null {
   return e.eventTeam?.teamNumber ?? e.player?.teamNumber ?? null;
 }
 
-function matchesSearch(e: PlayByPlayEvent, query: string): boolean {
-  if (!e.player) return false;
-  const number = query.replace(/^#/, "");
-  if (/^\d+$/.test(number)) return String(e.player.pno) === number;
-  return playerName(e).toLowerCase().includes(query);
-}
 
 export interface GameFilterContext {
   /** gameMoments' answer. */
@@ -87,19 +64,14 @@ export interface GameFilterContext {
  * floor" instead of "their own plays".
  */
 export function keepPlay(filters: GameFilters, ctx: GameFilterContext): (play: TimedPlay) => boolean {
-  const query = filters.search.trim().toLowerCase();
-  const whileOnCourt = filters.onCourt && filters.clip.players.size > 0 && !!ctx.onCourtIds;
-  const clip: ClipFilters = whileOnCourt ? { ...filters.clip, players: new Set() } : filters.clip;
-  return (play) => {
-    const e = play.event;
+  const whileOnCourt = filters.onCourt && filters.play.players.size > 0 && !!ctx.onCourtIds;
+  const play: PlayFilters = whileOnCourt ? { ...filters.play, players: new Set() } : filters.play;
+  return (p) => {
+    const e = p.event;
     if (filters.picked && !filters.picked.eventIds.has(e.eventId)) return false;
     if (filters.team !== 0 && teamOf(e) !== filters.team) return false;
-    if (filters.periods.size > 0 && !filters.periods.has(e.period)) return false;
-    if (filters.moment && !ctx.moments.get(e.eventId)?.has(filters.moment)) return false;
-    if (query && !matchesSearch(e, query)) return false;
     if (whileOnCourt && !ctx.onCourtIds!.has(e.eventId)) return false;
-    if (!matchesClipFilters(e, clip)) return false;
-    return matchesLabelFilter(ctx.labelsOf?.(play.key), filters.clip.labels);
+    return matchesPlay(play, e, ctx.labelsOf?.(p.key), ctx.moments.get(e.eventId));
   };
 }
 
@@ -148,10 +120,10 @@ export function gameRows(input: {
     byPeriod.set(play.event.period, list);
   }
   if (byPeriod.size === 0) return rows;
-  const periods = [...played].filter((p) => filters.periods.size === 0 || filters.periods.has(p)).sort((a, b) => a - b);
+  const periods = [...played].filter((p) => filters.play.periods.size === 0 || filters.play.periods.has(p)).sort((a, b) => a - b);
   const lastPeriod = flow.order.length > 0 ? Math.max(...flow.order.map((e) => e.period)) : 0;
 
-  const showRuns = !filtered || filters.moment === "run";
+  const showRuns = !filtered || filters.play.moment === "run";
   const runStarts = new Map<number, ScoringRun>();
   if (showRuns) for (const run of flow.runs) runStarts.set(run.fromEventId, run);
 
