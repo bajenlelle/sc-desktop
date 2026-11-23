@@ -288,8 +288,9 @@ export function PlaysFilterBar({
 
   return (
     <div className={cn("flex shrink-0 flex-col gap-2", className)}>
-      {/* In a narrow list column the scope and Filter wrap onto two lines rather than squeeze. */}
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
+      {/* In a narrow list column the scope wraps onto a second line rather than squeeze; Filter and Presets stay
+          on the first, beside its first control (top-aligned, not centred between the two lines). */}
+      <div className="flex min-w-0 flex-wrap items-start gap-2">
         {scope && <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{scope}</div>}
         <div className={cn("flex shrink-0 items-center gap-1", !scope && "flex-1")}>
           <Popover
