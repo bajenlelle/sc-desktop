@@ -6,7 +6,7 @@
  * scrim, and a press on it never dismisses a sheet. Real window drag and resize
  * stay manual. Creates "headless-<port> sheet" with one clip and deletes it.
  */
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, PORT, sheetScrimPoint, shot, test } from "../helpers";
 
 const NAME = `headless-${PORT} sheet`;
@@ -125,4 +125,36 @@ test("Add clips closes on the scrim, Esc and Close, and stays open on the strip;
   await expect(fixSync, "a scrim click closes Fix sync").toBeHidden();
   await expect(page.locator("body > [data-tauri-drag-region][aria-hidden]")).toHaveCount(0);
   await shot(page, name("fix-sync-closed"));
+});
+
+/** Drags a panel divider `dx` px sideways and returns where it then stands. */
+async function dragSeparator(page: Page, sep: Locator, dx: number): Promise<number> {
+  await expect(sep).toHaveCount(1);
+  const at = (await sep.boundingBox())!;
+  const x = at.x + at.width / 2;
+  const y = at.y + at.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => Math.abs((await sep.boundingBox())!.x - at.x)).toBeGreaterThan(Math.abs(dx) / 2);
+  return (await sep.boundingBox())!.x;
+}
+
+test("the editor's split and Add clips' split are kept after a reload", async ({ page }) => {
+  await newPlaylistWithClips(page, NAME, { count: 1 });
+  // The panel dividers (not the sidebar's): the editor's, and the one inside the sheet.
+  const editorSep = page.locator("[data-separator]").first();
+  const sheetSep = page.getByRole("dialog").locator("[data-separator]");
+  const editorAt = await dragSeparator(page, editorSep, 120);
+  const addClips = page.getByRole("button", { name: "Add clips", exact: true }).first();
+  await addClips.click();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "Add clips" })).toBeVisible();
+  const sheetAt = await dragSeparator(page, sheetSep, -120);
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await expect.poll(async () => Math.abs(((await editorSep.boundingBox())?.x ?? 0) - editorAt), { timeout: 30_000 }).toBeLessThan(4);
+  await addClips.click();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "Add clips" })).toBeVisible();
+  await expect.poll(async () => Math.abs(((await sheetSep.boundingBox())?.x ?? 0) - sheetAt)).toBeLessThan(4);
 });

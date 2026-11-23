@@ -1221,8 +1221,8 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
       </div>
 
       {/* Content: events | preview */}
-      <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
-        <ResizablePanel defaultSize="55" minSize="30">
+      <ResizablePanelGroup direction="horizontal" autoSaveId="add-clips" className="min-h-0 flex-1">
+        <ResizablePanel id="plays" defaultSize="55" minSize="30">
           <div className="flex h-full flex-col">
           {failedChosen.length > 0 && (
             <div className="flex shrink-0 items-center gap-3 border-b border-separator py-2 pr-3 pl-4">
@@ -1315,7 +1315,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
 
         <ResizableHandle />
 
-        <ResizablePanel defaultSize="45" minSize="25">
+        <ResizablePanel id="player" defaultSize="45" minSize="25">
           <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
             {localVideoUrl ? (
               <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
