@@ -18,7 +18,9 @@ playlists, and share them with teams; players watch on web/mobile.
   fingerprint runtime policy). After every OTA publish, verify the published
   runtime version equals the latest store build's (`eas build:list`) — a
   drifted fingerprint publishes an update no installed app receives (see
-  `apps/mobile/fingerprint.config.js`).
+  `apps/mobile/fingerprint.config.js`). Players also get scouting reports
+  their coach sends (`reports/`, drawn natively; docs/scouting-reports.md,
+  "On players' phones").
 - `packages/shared` — isomorphic raw TypeScript consumed by all three apps
   via the exports map (no build step). All DB helpers take a `SupabaseClient`
   as the first argument. Never import app-specific or platform code here;

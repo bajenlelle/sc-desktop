@@ -14,20 +14,30 @@ import { useVideoPlayer } from "expo-video";
 import { useEventListener } from "expo";
 import { isWatchedPosition } from "@scoutable/shared/lib/clip-timing";
 import { drawingToShow, firedOnPlay, holdDue, rearm, slowRateAt } from "@scoutable/shared/lib/clip-timeline";
-import type { WatchDrawing, WatchItem } from "@scoutable/shared/lib/watch-queue";
+import type { WatchDrawing, WatchSlow } from "@scoutable/shared/lib/watch-queue";
 
 export const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+
+/**
+ * What the queue plays: a clip's own file with the coach's effects, or a
+ * timed text card. A playlist's WatchItem is one, and so is a scouting
+ * report's clip (ReportQueueClip); the queue reads only these fields and hands
+ * the clip itself back when it counts as watched.
+ */
+export type QueueItem =
+  | { kind: "clip"; key: string; r2Url: string; drawings?: WatchDrawing[]; slowMotion?: WatchSlow[] }
+  | { kind: "text"; key: string; card: { durationSeconds: number } };
 
 /** The speed a player last chose, kept across playlists and launches (the web keeps it too). */
 const SPEED_KEY = "scoutable_watch_speed";
 
-export function useClipQueue({
+export function useClipQueue<T extends QueueItem>({
   items,
   onWatched,
 }: {
-  items: WatchItem[];
+  items: T[];
   /** Called once per play of a clip when it counts as watched. */
-  onWatched: (matchId: string, eventId: number) => void;
+  onWatched: (item: Extract<T, { kind: "clip" }>) => void;
 }) {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [isQueueActive, setQueueActive] = useState(false);
@@ -267,7 +277,7 @@ export function useClipQueue({
     const item = itemsRef.current[indexRef.current];
     if (!item || item.kind !== "clip") return;
     watchedRef.current = true;
-    onWatchedRef.current(item.matchId, item.event.eventId);
+    onWatchedRef.current(item as Extract<T, { kind: "clip" }>);
   }, []);
 
   useEventListener(player, "timeUpdate", ({ currentTime }) => {

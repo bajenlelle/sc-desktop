@@ -2,6 +2,7 @@ import { Redirect, Stack } from "expo-router";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { useAuth } from "@/lib/auth-context";
 import { PlaylistsProvider } from "@/lib/playlists-store";
+import { ReportsProvider } from "@/lib/reports-store";
 import { MyTeamProvider } from "@/lib/my-team";
 import { DeviceGateScreen } from "@/components/DeviceGateScreen";
 import { NotificationsBridge } from "@/components/NotificationsBridge";
@@ -34,10 +35,12 @@ export default function AppLayout() {
   return (
     <MyTeamProvider>
       <PlaylistsProvider>
-        <NotificationsBridge />
-        <Stack screenOptions={{ headerShown: false, headerBackButtonDisplayMode: "minimal" }}>
-          <Stack.Screen name="profile" options={settingsOptions} />
-        </Stack>
+        <ReportsProvider>
+          <NotificationsBridge />
+          <Stack screenOptions={{ headerShown: false, headerBackButtonDisplayMode: "minimal" }}>
+            <Stack.Screen name="profile" options={settingsOptions} />
+          </Stack>
+        </ReportsProvider>
       </PlaylistsProvider>
     </MyTeamProvider>
   );

@@ -11,17 +11,19 @@ import { useEffect, useRef } from "react";
 import { router, usePathname } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { usePlaylists } from "@/lib/playlists-store";
+import { useReports } from "@/lib/reports-store";
 import { trackEvent } from "@/lib/analytics";
 import { configureNotificationHandler } from "@/lib/notifications";
 
 const handledResponses = new Set<string>();
 
 export function NotificationsBridge() {
-  const { refresh } = usePlaylists();
-  const refreshRef = useRef(refresh);
+  const { refresh: refreshPlaylists } = usePlaylists();
+  const { refresh: refreshReports } = useReports();
+  const refreshRef = useRef(() => Promise.all([refreshPlaylists(), refreshReports()]));
   useEffect(() => {
-    refreshRef.current = refresh;
-  }, [refresh]);
+    refreshRef.current = () => Promise.all([refreshPlaylists(), refreshReports()]);
+  }, [refreshPlaylists, refreshReports]);
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
   useEffect(() => {
@@ -36,7 +38,7 @@ export function NotificationsBridge() {
       if (handledResponses.has(id)) return;
       handledResponses.add(id);
       const data = response.notification.request.content.data as
-        | { type?: string; playlistId?: string }
+        | { type?: string; playlistId?: string; reportId?: string }
         | undefined;
       trackEvent("notification_opened", { type: data?.type ?? "unknown" });
       // The tapped content may be newer than the mounted store snapshot.
@@ -44,7 +46,9 @@ export function NotificationsBridge() {
       // The settings sheet goes first: on iOS anything pushed over it would
       // open as a second sheet, the player confined inside it.
       if (pathnameRef.current.startsWith("/profile")) router.dismissTo("/playlists");
-      if (typeof data?.playlistId === "string") {
+      if (typeof data?.reportId === "string") {
+        router.push(`/reports/${data.reportId}`);
+      } else if (typeof data?.playlistId === "string") {
         router.push(`/playlists/${data.playlistId}`);
       } else {
         router.navigate("/playlists");

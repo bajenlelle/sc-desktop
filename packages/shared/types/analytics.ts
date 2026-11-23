@@ -91,6 +91,9 @@ export type AnalyticsEvent =
   | "scouting_report_section_added" // section
   | "scouting_report_previewed" // players, clips (the share sheet opened)
   | "scouting_report_generated" // players, clips, shipped (clips cut for it), posters, regenerated, seconds, plan (the space's tier), limited (free tier: one live report)
+  | "scouting_report_sent" // teams, people (picked), reached (people the report reaches after): sent to players' phones
+  | "scouting_report_update_notified" // people: the coach told players about an update
+  | "scouting_report_read" // a player opened a report sent to them, in the app (first open this session)
   | "scouting_report_failed" // stage (ship | posters | publish), error
   | "scouting_report_cancelled" // stage
   | "scouting_report_link_copied" // method (button | qr)

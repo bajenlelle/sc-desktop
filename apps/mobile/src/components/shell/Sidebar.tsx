@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { feedCounts, recentPlaylists } from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
+import { useReports } from "@/lib/reports-store";
+import { unreadReportCount } from "@scoutable/shared/lib/scouting-report-inbox";
 import { usePlaylistOpener } from "@/lib/use-playlist-opener";
 import { useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
@@ -30,15 +32,16 @@ interface Destination {
   label: string;
   icon: IconName;
   /** Where it goes: a route, or the coach's view of /playlists. */
-  pathname: "/playlists" | "/highlights";
+  pathname: "/playlists" | "/reports" | "/highlights";
   view?: CoachView;
   count?: number;
 }
 
 /**
  * The sidebar, as Claude's: the wordmark, the club (switchable when there
- * are several), the destinations (players: My playlists and My highlights;
- * coaches: Shared by me and Shared with me, two views of one route), the
+ * are several), the destinations (players: My playlists, Scouting reports and
+ * My highlights; coaches: Shared by me and Shared with me, two views of one
+ * route, and Scouting reports once one has reached them), the
  * playlists watched most recently, and the account at the foot, which opens
  * the settings sheet. Replaces the tab bar. The drawer navigator draws it beside the
  * current screen and closes it on Android back.
@@ -49,6 +52,15 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
   const { profile, myOrgs, activeOrg, activeOrgId, activeOrgRole, isPlayerOnly, setActiveOrg, reloadProfile } =
     useAuth();
   const { feedItems } = usePlaylists();
+  const { reports } = useReports();
+  const unreadReports = useMemo(() => unreadReportCount(reports), [reports]);
+  const reportsDestination: Destination = {
+    key: "reports",
+    label: "Scouting reports",
+    icon: "basketball",
+    pathname: "/reports",
+    count: unreadReports,
+  };
   const { resumePlaylist } = usePlaylistOpener();
   const pathname = usePathname();
   const { view } = useGlobalSearchParams<{ view?: string }>();
@@ -84,6 +96,7 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
           view: "with-me",
           count: newCount,
         },
+        ...(reports.length > 0 ? [reportsDestination] : []),
       ]
     : [
         {
@@ -93,6 +106,7 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
           pathname: "/playlists",
           count: newCount,
         },
+        reportsDestination,
         ...(playerOnly
           ? [
               {
