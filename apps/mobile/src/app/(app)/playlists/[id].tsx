@@ -26,6 +26,7 @@ import { ClipCaption } from "@/components/player/ClipCaption";
 import { DrawingLayer } from "@/components/player/DrawingLayer";
 import { PlayerStage } from "@/components/player/PlayerStage";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
+import { CardStage } from "@/components/player/CardStage";
 import { ActivePill, WatchClipRow, WatchTextCardRow, useActivePill } from "@/components/WatchClipRow";
 import { Button } from "@/components/ui/Button";
 import { StatusScreen } from "@/components/ui/EmptyState";
@@ -230,16 +231,7 @@ export default function WatchScreen() {
           drawings={activeClip?.drawings}
           slows={activeClip?.slowMotion}
         >
-          {activeCard && (
-            <View className="absolute inset-0 items-center justify-center bg-black px-8">
-              <Text
-                className="text-center font-semibold text-white"
-                style={fullscreen.active ? { fontSize: 34, lineHeight: 41 } : { fontSize: 24, lineHeight: 32 }}
-              >
-                {activeCard.text}
-              </Text>
-            </View>
-          )}
+          {activeCard && <CardStage key={queue.activeKey} card={activeCard} fullscreen={fullscreen.active} />}
           {queue.shownDrawing && !activeCard && <DrawingLayer key={queue.shownDrawing.id} shapes={queue.shownDrawing.shapes} />}
           {activeClip?.note && !activeCard && <ClipCaption key={activeClip.key} text={activeClip.note} />}
         </PlayerStage>

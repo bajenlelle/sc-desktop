@@ -334,6 +334,46 @@ export function fallbackText(card: StatsCardSpec): string {
   return [content.heading, ...stats, where, ...(note ? [note] : [])].join(" · ");
 }
 
+/** A playlist card's row in a watch list, built like a clip's: a title, then one meta line. */
+export interface CardRowSummary {
+  kind: "stats" | "text";
+  /** A stats card's heading, or a text card's words on one line. */
+  title: string;
+  /** "13.3 PTS · 4.7 REB · Season averages" or "24 PTS · vs AIK", and "Text card · 5 s". */
+  meta: string;
+  /** The stats card carries the coach's note. */
+  hasNote: boolean;
+  /** What a screen reader says for the row. */
+  label: string;
+}
+
+/** The row for a text item: drawn from its stats spec when it has one, else from its words. */
+export function cardRowSummary(item: { text: string; durationSeconds: number; card?: StatsCardSpec | null }): CardRowSummary {
+  if (item.card) {
+    const content = cardContent(item.card);
+    const where = item.card.scope === "game" ? opponentLabel(item.card.game) : "Season averages";
+    const stats = content.cells.map((c) => `${c.value} ${c.label}`);
+    // The numbers first: in a narrow row the end is what gets cut.
+    const meta = [...stats, where].join(" · ");
+    return {
+      kind: "stats",
+      title: content.heading,
+      meta,
+      hasNote: !!content.note,
+      label: ["Stats card", content.heading, meta, content.note ? `note from your coach: ${content.note}` : null].filter(Boolean).join(", "),
+    };
+  }
+  const words = item.text.replace(/\s+/g, " ").trim();
+  const seconds = Math.max(1, Math.round(item.durationSeconds));
+  return {
+    kind: "text",
+    title: words || "Text card",
+    meta: `Text card · ${seconds} s`,
+    hasNote: false,
+    label: words ? `Text card: ${words}` : "Text card",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Parsing a stored spec
 // ---------------------------------------------------------------------------

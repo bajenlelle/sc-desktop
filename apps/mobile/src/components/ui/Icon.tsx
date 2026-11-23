@@ -1,6 +1,7 @@
 import type { ColorValue, StyleProp, ViewStyle } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import {
+  ChartNoAxesColumn,
   Bell,
   BookOpen,
   Building2,
@@ -102,6 +103,7 @@ export const ICONS = {
   club: Building2,
   film: Film,
   textCard: Type,
+  stats: ChartNoAxesColumn,
   note: MessageCircle,
   draw: PenLine,
   send: Send,

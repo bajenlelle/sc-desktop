@@ -7,10 +7,11 @@
  * list scannable without painting every row. The playing row's highlight is
  * one pill that springs from row to row (ActivePill).
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { eventHue, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
+import { cardRowSummary } from "@scoutable/shared/lib/stats-card";
 import { rgba } from "@scoutable/shared/lib/theme-derived";
 import type { PlayByPlayEvent, PlaylistTextCard } from "@scoutable/shared/types/match";
 import { Icon } from "@/components/ui/Icon";
@@ -42,6 +43,54 @@ function RowMark({ active, watched }: { active: boolean; watched?: boolean }) {
   );
 }
 
+/**
+ * One row's body, shared by clips and cards: a title, then a meta line led
+ * by a small glyph (a clip's event dot, a card's kind), trailing marks for a
+ * note or drawings, and the playing or watched mark.
+ */
+function RowBody({
+  title,
+  titleLines = 1,
+  glyph,
+  meta,
+  note,
+  drawings = 0,
+  active,
+  watched,
+}: {
+  title: string;
+  titleLines?: number;
+  glyph: ReactNode;
+  meta: string;
+  note?: boolean;
+  drawings?: number;
+  active: boolean;
+  watched?: boolean;
+}) {
+  const colors = useThemeColors();
+  return (
+    <>
+      <View className="min-w-0 flex-1">
+        <Text numberOfLines={titleLines} className={active ? "font-semibold" : undefined}>
+          {title}
+        </Text>
+        <View className="min-w-0 flex-row items-center gap-1.5">
+          {glyph}
+          <Text variant="subheadline" nums numberOfLines={1} className="shrink text-muted-foreground">
+            {meta}
+          </Text>
+          {note ? <Icon name="note" size={13} color={colors.mutedForeground} /> : null}
+          {drawings > 0 ? <Icon name="draw" size={13} color={colors.mutedForeground} /> : null}
+        </View>
+      </View>
+      <RowMark active={active} watched={watched} />
+    </>
+  );
+}
+
+const rowClass = (active: boolean) => ({ pressed }: { pressed: boolean }) =>
+  cn("min-h-14 flex-row items-start gap-3 px-4 py-2", pressed && !active && "bg-fill-1");
+
 export function WatchClipRow({
   event,
   matchTitle,
@@ -67,7 +116,6 @@ export function WatchClipRow({
   const player = event.player ? playerName(event) : "";
   // A play without a player (a shot clock violation) is named by the event.
   const title = player || eventLabel(event);
-  const meta = clipMeta(event, !!player, matchTitle);
   return (
     <Tappable
       scaleTo={1}
@@ -78,26 +126,26 @@ export function WatchClipRow({
         .join(", ")}
       onPress={onPlay}
       onLayout={onLayout}
-      className={({ pressed }) => cn("min-h-14 flex-row items-start gap-3 px-4 py-2", pressed && !active && "bg-fill-1")}
+      className={rowClass(active)}
     >
-      <View className="min-w-0 flex-1">
-        <Text numberOfLines={1} className={active ? "font-semibold" : undefined}>
-          {title}
-        </Text>
-        <View className="min-w-0 flex-row items-center gap-1.5">
-          <Dot size={6} color={colors.eventDot[eventHue(event)]} />
-          <Text variant="subheadline" nums numberOfLines={1} className="shrink text-muted-foreground">
-            {meta}
-          </Text>
-          {note ? <Icon name="note" size={13} color={colors.mutedForeground} /> : null}
-          {drawings > 0 ? <Icon name="draw" size={13} color={colors.mutedForeground} /> : null}
-        </View>
-      </View>
-      <RowMark active={active} watched={watched} />
+      <RowBody
+        title={title}
+        glyph={<Dot size={6} color={colors.eventDot[eventHue(event)]} />}
+        meta={clipMeta(event, !!player, matchTitle)}
+        note={!!note}
+        drawings={drawings}
+        active={active}
+        watched={watched}
+      />
     </Tappable>
   );
 }
 
+/**
+ * A text card's row, built like a clip's so the list reads as one: a stats
+ * card names its player, then the numbers and where ("13.3 PTS · 4.7 REB ·
+ * Season averages"); a plain card shows its words, then how long it shows.
+ */
 export function WatchTextCardRow({
   card,
   active,
@@ -110,23 +158,25 @@ export function WatchTextCardRow({
   onLayout?: (e: LayoutChangeEvent) => void;
 }) {
   const colors = useThemeColors();
+  const row = cardRowSummary(card);
   return (
     <Tappable
       scaleTo={1}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={`Text card: ${card.text || "Text card"}`}
+      accessibilityLabel={row.label}
       onPress={onPlay}
       onLayout={onLayout}
-      className={({ pressed }) => cn("min-h-11 flex-row items-center gap-3 px-4 py-2", pressed && !active && "bg-fill-1")}
+      className={rowClass(active)}
     >
-      <View className="min-w-0 flex-1 flex-row items-center gap-2">
-        <Icon name="textCard" size={15} color={colors.mutedForeground} />
-        <Text variant="subheadline" numberOfLines={2} className="shrink italic text-muted-foreground">
-          {card.text || "Text card"}
-        </Text>
-      </View>
-      <RowMark active={active} />
+      <RowBody
+        title={row.title}
+        titleLines={row.kind === "text" ? 2 : 1}
+        glyph={<Icon name={row.kind === "stats" ? "stats" : "textCard"} size={12} strokeWidth={2.25} color={colors.mutedForeground} />}
+        meta={row.meta}
+        note={row.hasNote}
+        active={active}
+      />
     </Tappable>
   );
 }
