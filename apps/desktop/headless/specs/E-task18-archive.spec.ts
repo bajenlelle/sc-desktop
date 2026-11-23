@@ -17,6 +17,7 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import {
+  addSheetRows,
   PORT,
   archiveCreatePlaylist,
   archiveDeletePlaylistsNamed,
@@ -235,8 +236,8 @@ test("archived: Add clips and playlists leave it out or keep it as they should",
     await expect(sheet.getByRole("button", { name: "Game", exact: true })).toHaveText(game.title);
     const gameRows = sheet.getByRole("grid", { name: "Events" }).locator(`[role=row][data-row-key^="${game.id}:"]`);
     await expect(gameRows.first(), "the game's plays are listed").toBeVisible({ timeout: 30_000 });
-    for (const i of [0, 1]) await gameRows.nth(i).getByRole("checkbox", { name: "Select" }).click();
-    await sheet.getByRole("button", { name: "Add 2 clips" }).click();
+    const twoKeys = [await gameRows.nth(0).getAttribute("data-row-key"), await gameRows.nth(1).getAttribute("data-row-key")] as string[];
+    await addSheetRows(sheet, twoKeys);
     await closeSheet(page, sheet);
     const editorRows = page.locator("[role=row][data-row-key]");
     await expect(editorRows, "the playlist has the game's two clips").toHaveCount(2);

@@ -2,7 +2,7 @@
  * Add clips draws only the plays near the view: on the test account's five
  * games (about 1,790 plays) the list holds a few dozen rows, the grid says how
  * many there are, scrolling and Home/End reach both ends, a filter switched on
- * at the bottom still shows its plays, and Select all counts every play, drawn
+ * at the bottom still shows its plays, and ⌘A selects every play, drawn
  * or not. The rows hold one label picker between them, on the row being
  * labelled, and it closes when that row leaves the list.
  *
@@ -12,6 +12,7 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import {
+  selectionPill,
   PORT,
   createPlaylist,
   deleteOwnRowsNamed,
@@ -191,13 +192,18 @@ test("a filter switched on at the bottom of the list still shows its plays", asy
   await expect.poll(() => rowsInView(grid), { message: "the list shows them, not an empty stretch" }).toBeGreaterThan(0);
 });
 
-test("Select all counts every play", async ({ page }) => {
-  const { sheet, count } = await openOnFiveGames(page);
-  const selectAll = sheet.getByRole("checkbox", { name: /^Select all/ });
-  await selectAll.click();
-  await expect(sheet.getByRole("button", { name: `Add ${count} clips`, exact: true })).toBeVisible();
-  await selectAll.click();
-  await expect(sheet.getByRole("button", { name: "Add clips", exact: true })).toBeVisible();
+test("⌘A selects every play, and Esc lets go before it closes the sheet", async ({ page }) => {
+  const { sheet, grid, count } = await openOnFiveGames(page);
+  // After a press on a row (it plays), the keys still belong to the sheet.
+  await grid.locator("[role=row]").first().locator("span.nums").first().click();
+  await page.keyboard.press("Meta+a");
+  await expect(selectionPill(sheet)).toContainText(String(count));
+  await page.keyboard.press("Escape");
+  await expect(selectionPill(sheet)).toBeHidden();
+  await expect(sheet, "the first Esc only let go of the selection").toBeVisible();
+  // A adds the play on screen, as in the game view.
+  await page.keyboard.press("a");
+  await expect(grid.locator("[role=row]").first().getByLabel("Already in this playlist")).toBeVisible();
 });
 
 test("a row's Tag button opens the one label picker", async ({ page }) => {
@@ -229,15 +235,15 @@ test("the picker closes when its row leaves the list", async ({ page }) => {
   await closePicker(page);
 
   // Only the plays with that label: the row is one of them.
-  // The filter's trigger says "Labels", or the label chosen in it.
-  const labelsFilter = (said: string) => sheet.getByRole("button", { name: said, exact: true }).and(sheet.locator('[aria-haspopup="menu"]'));
-  const filterByLabel = async (said: string) => {
-    await labelsFilter(said).click();
-    await page.getByRole("menuitemcheckbox", { name, exact: true }).click();
+  // The label is a chip in the Filter popover's Labels section; a second press takes it off.
+  const filterByLabel = async () => {
+    await sheet.getByRole("button", { name: /^Filters/ }).click();
+    const popover = page.locator('[data-slot="popover-content"]').filter({ has: page.getByRole("searchbox", { name: "Search filters" }) });
+    await popover.getByRole("region", { name: "Labels" }).getByRole("button", { name, exact: true }).click();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("menu")).toBeHidden();
+    await expect(popover).toBeHidden();
   };
-  await filterByLabel("Labels");
+  await filterByLabel();
   await expect.poll(() => eventCount(sheet), { message: "the label filter narrows the list" }).toBeLessThan(count);
   const labelled = await eventCount(sheet);
 
@@ -259,10 +265,10 @@ test("the picker closes when its row leaves the list", async ({ page }) => {
   await page.keyboard.press("Meta+a");
 
   // Clear the filter: ⌘A ticks every play, so the keys still belong to the sheet.
-  await filterByLabel(name);
+  await filterByLabel();
   await expect.poll(() => eventCount(sheet), { message: "the filter is off" }).toBe(count);
   await page.keyboard.press("Meta+a");
-  await expect(sheet.getByRole("button", { name: `Add ${count} clips`, exact: true }), "⌘A ticks every play").toBeVisible();
+  await expect(selectionPill(sheet), "⌘A selects every play").toContainText(String(count));
 });
 
 test("closing a row's label picker leaves the list where it was", async ({ page }) => {

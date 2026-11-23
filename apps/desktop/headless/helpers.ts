@@ -295,13 +295,32 @@ export async function newPlaylistWithClips(
   const all = [...(await readSheetRows(sheet)).keys()];
   const keys = options.pick ? await options.pick(all) : all.slice(0, options.count ?? 2);
   expect(keys.length, "Add clips lists the rows the spec wants").toBeGreaterThan(0);
-  for (const key of keys) await (await sheetRow(sheet, key)).getByRole("checkbox", { name: "Select" }).click();
-  await sheet.getByRole("button", { name: `Add ${keys.length} clip${keys.length === 1 ? "" : "s"}` }).click();
+  await addSheetRows(sheet, keys);
   await sheet.getByRole("button", { name: "Close" }).click();
   await expect(sheet).toBeHidden();
   const editorRows = page.locator("[role=row][data-row-key]");
   await expect(editorRows).toHaveCount(keys.length);
   return keys;
+}
+
+/** The selection's pill over a list of plays (the game view, Teams' Plays, Add clips). */
+export const selectionPill = (scope: Page | Locator) => scope.getByRole("toolbar", { name: "Selection" });
+
+/**
+ * In Add clips: selects these rows (⌘-click, as a coach does) and adds them with the selection pill's Add, which
+ * lets go of the selection. Each row is reached by scrolling the windowed list (sheetRow).
+ */
+export async function addSheetRows(sheet: Locator, keys: readonly string[]): Promise<void> {
+  for (const key of keys) {
+    const row = await sheetRow(sheet, key);
+    // The clock, left of everything a press on the row could hit instead (labels, +).
+    await row.locator("span.nums").first().click({ modifiers: ["Meta"] });
+    await expect(row).toHaveAttribute("aria-selected", "true");
+  }
+  const pill = selectionPill(sheet);
+  await expect(pill).toContainText(String(keys.length));
+  await pill.getByRole("button", { name: /^Add to playlist/ }).click();
+  await expect(pill).toBeHidden();
 }
 
 /** This worktree's test video: what the dialog mock picks for Locate file…. */

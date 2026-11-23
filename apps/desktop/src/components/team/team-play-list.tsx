@@ -190,7 +190,7 @@ export function TeamPlayList({
   }
 
   return (
-    <div className="relative min-h-0 flex-1 @container">
+    <div className="relative min-h-0 flex-1">
       {pinned && <GameHeader game={pinned.game} plays={pinned.plays} pinned />}
       <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
         <ContextMenuTrigger asChild>
@@ -248,7 +248,9 @@ export function TeamPlayList({
         </ContextMenuTrigger>
         {menuFor && rowMenu(menuFor.key, menuFor.anchor)}
       </ContextMenu>
-      {selectionBar}
+      {/* The pill's own container (SelectionBar sizes its labels by it): on the list's parent, a container query
+          makes WebKit throw a windowed list's scroll back when its rows are redrawn. */}
+      {selectionBar && <div className="pointer-events-none absolute inset-x-0 bottom-0 @container">{selectionBar}</div>}
     </div>
   );
 }
