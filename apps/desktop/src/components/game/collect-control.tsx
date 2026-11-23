@@ -1,9 +1,10 @@
 import * as React from "react";
-import { AlertTriangle, Check, ChevronsUpDown, ListPlus, Loader2, Plus } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, ListPlus, Loader2, Plus, SquareArrowOutUpRight } from "lucide-react";
 import { toast } from "sonner";
 import { playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import { shipIndicator } from "@scoutable/shared/lib/ship-pill";
 import { Button } from "@/components/ui/button";
+import { ToolbarAction, useToolbarTight } from "@/components/shell/toolbar";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchField } from "@/components/ui/search-field";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -23,10 +24,12 @@ import type { Collect } from "./use-collect";
  * (`shipIndicator`): nothing while they wait, a small ring on the count while
  * the target's are sent (beside the control for another playlist), and only
  * clips that didn't go ask for the coach: "n not sent", whose popover sends
- * them again.
+ * them again. In a compact toolbar "Open playlist" is its icon; in a tight one "Adding to" goes, and the
+ * playlist's name and count stay (the control's name still says it).
  */
 export function CollectControl({ collect, highlight }: { collect: Collect; highlight?: boolean }) {
   const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, held, shipStatuses } = collect;
+  const tight = useToolbarTight();
   // Asked for by a row's plus or the Now bar's Add, the picker grows from that control, not from here.
   const anchorRef = React.useMemo(() => ({ current: pickerAnchor }), [pickerAnchor]);
   const [search, setSearch] = React.useState("");
@@ -79,7 +82,8 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
                 : "Choose the playlist to add plays to"
             }
             className={cn(
-              "inline-flex h-8 max-w-64 min-w-0 items-center gap-1.5 rounded-md bg-fill-1 pr-1.5 pl-2.5 text-sm outline-none",
+              "inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md bg-fill-1 pr-1.5 pl-2.5 text-sm outline-none",
+              tight ? "max-w-44" : "max-w-64",
               "transition-[background-color,transform,box-shadow] duration-100 hover:bg-fill-2 active:scale-[0.98] active:bg-fill-3 data-[state=open]:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
               // A first visit's nudge is a tint: a ring here is how keyboard focus is drawn.
               highlight && !target && "bg-primary/10 text-primary hover:bg-primary/15 active:bg-primary/20 data-[state=open]:bg-primary/20",
@@ -87,7 +91,7 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
           >
             {target ? (
               <>
-                <span className="shrink-0 text-muted-foreground">Adding to</span>
+                {!tight && <span className="shrink-0 text-muted-foreground">Adding to</span>}
                 <span className="min-w-0 truncate font-medium">{target.name}</span>
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-fill-2 px-1.5 text-xs nums text-muted-foreground">
                   {sendingHere && (
@@ -169,14 +173,18 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
         </PopoverContent>
       </Popover>
       {target && (
-        <Button size="sm" variant="outline" onClick={collect.openTarget}>
-          Open playlist
-        </Button>
+        <ToolbarAction label="Open playlist">
+          {(compact) => (
+            <Button size={compact ? "icon-sm" : "sm"} variant="outline" onClick={collect.openTarget} aria-label={compact ? "Open playlist" : undefined}>
+              {compact ? <SquareArrowOutUpRight /> : "Open playlist"}
+            </Button>
+          )}
+        </ToolbarAction>
       )}
       {sendingElsewhere && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span role="status" aria-label={sendingElsewhere.label} className="inline-flex size-8 items-center justify-center text-muted-foreground">
+            <span role="status" aria-label={sendingElsewhere.label} data-toolbar-transient className="inline-flex size-8 items-center justify-center text-muted-foreground">
               <SendRing done={sendingElsewhere.done} total={sendingElsewhere.total} />
             </span>
           </TooltipTrigger>

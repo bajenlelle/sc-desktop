@@ -536,6 +536,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
   return (
     <Page>
       <Toolbar
+        compactBelow="auto"
         title={<GameTitle title={title || storedMatch.title} />}
         subtitle={[`${storedMatch.homeTeam.name} – ${storedMatch.awayTeam.name}`, date ? formatDate(parseISO(date)) : null]
           .filter(Boolean)
@@ -551,6 +552,8 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
             {saveState && (
               <motion.span
                 key={saveState}
+                // Comes and goes: the toolbar's fit leaves it out (components/shell/toolbar.tsx).
+                data-toolbar-transient
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}

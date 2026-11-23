@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ChevronLeft, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
 import { teamKeys, type TeamKey } from "@scoutable/shared/lib/team-keys";
 import { flipPick, keyStatOf, teamLibraryGames, teamVideo, type PlaysPick, type PlaysSide } from "@scoutable/shared/lib/team-video";
 import { TeamPlaysView, type LatestImport } from "@/components/team/team-plays-view";
@@ -20,7 +20,7 @@ import { TeamPlayersSection } from "@/components/team/team-players-section";
 import { useTeamPlayers } from "@/lib/use-team-players";
 import { EmptyState } from "@/components/empty-state";
 import { Page, PageContent } from "@/components/shell/page";
-import { Toolbar } from "@/components/shell/toolbar";
+import { Toolbar, ToolbarBackButton } from "@/components/shell/toolbar";
 import { TeamHeader } from "@/components/team/team-header";
 import { TeamKeysSection } from "@/components/team/team-keys-section";
 import { TeamProfileSection } from "@/components/team/team-profile-section";
@@ -216,12 +216,10 @@ export function TeamPage() {
   return (
     <Page>
       <Toolbar
+        compactBelow="auto"
         leading={
           <>
-            <Button variant="ghost" size="sm" className="-ml-1 min-w-0 shrink text-muted-foreground" onClick={() => navigate(back.path)}>
-              <ChevronLeft className="shrink-0" />
-              <span className="max-w-48 truncate">{back.label}</span>
-            </Button>
+            <ToolbarBackButton label={back.label} onClick={() => navigate(back.path)} />
             {profile && <TeamViewSwitch value={view} onChange={setView} />}
           </>
         }

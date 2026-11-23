@@ -311,6 +311,18 @@ Export and the Clips | Report switch show their icons only, their labels as tool
 actions stay put on the right whatever the title's length; beside a subtitle of parts (the editor's count and its
 game) the title takes at most two thirds, and the game's name keeps a few letters to click.
 
+**The game and team pages (2026-11-23).** Their toolbars held the back button, a three-way view switch, the title
+and the "Adding to" control with Open playlist (and New report on a team), and nothing gave way: in a 1,024 px
+window with the sidebar, the game's title kept 4 px and a team's name none, while every label stayed. Their bars
+step by the title itself (`compactBelow="auto"`, `packages/shared/lib/toolbar-fit.ts`), not by a width: what sits
+beside the title changes by 200 px and more once a playlist is chosen. When the title would be cut, the bar goes
+compact: the back button becomes its chevron (as iOS drops a back button's title first; "Back to …" in its
+tooltip), the Game | Stats | Details and Season | Plays switches their icons, Open playlist and New report their
+icons. If the title is still cut, the bar goes tight: the subtitle (a team's season) goes and "Adding to" drops its
+words, keeping the playlist's name and count. The sidebar toggle, the title, the playlist and the view on screen
+always stay. Each step is measured on the bar and drawn before the frame is painted (no label flickers out and
+back), and a step back needs the saving it took plus 32 px.
+
 ## Buttons and filters (2026-11-21)
 
 Controls that sit on a bar are quiet, after Notion's search filters: no fill, ring or shadow at rest, a neutral fill (`fill-2`) on hover, while their menu is open and while a filter is on, and a width that is their label's (`components/ui/filter-button.tsx`: `FilterButton`, and `quietControl` for triggers with their own markup). Every filter dropdown, the presets and game pickers, Leaders, the game view's Filter button and the choice menus of toolbars (`PopUpButton`, default `variant="quiet"`) use it. Filter chips are a fill at rest and a darker fill when pressed, with no ring. Borders stay where something is typed into or set in a form: text and search fields, the colour and date pickers, and `PopUpButton variant="field"` in dialogs and settings rows. The second button of a pair (`variant="outline"` and `"secondary"`, the collect control, the export progress pill) is the lightest fill (`fill-1`) with no ring or shadow, `fill-2` on hover and `fill-3` pressed, so it sits about as light as a hovered row, as Notion's buttons do; the accent stays on the primary action.

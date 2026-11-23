@@ -1,4 +1,5 @@
 import { ChartColumn, Film, SlidersHorizontal } from "lucide-react";
+import { useToolbarCompact } from "@/components/shell/toolbar";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 
 export type GameViewMode = "game" | "stats" | "details";
@@ -11,6 +12,8 @@ export type GameViewMode = "game" | "stats" | "details";
  * to" control and a long title, which leave no stable centre.
  */
 export function GameViewSwitch({ value, onChange }: { value: GameViewMode; onChange: (view: GameViewMode) => void }) {
+  const compact = useToolbarCompact();
+  const name = (text: string) => (compact ? <span className="sr-only">{text}</span> : text);
   return (
     <SegmentedControl
       size="md"
@@ -18,9 +21,9 @@ export function GameViewSwitch({ value, onChange }: { value: GameViewMode; onCha
       value={value}
       onValueChange={onChange}
       options={[
-        { value: "game", label: "Game", icon: <Film />, title: "The whole game: its video, its plays and its score" },
-        { value: "stats", label: "Stats", icon: <ChartColumn />, title: "Box score, shots and lineups" },
-        { value: "details", label: "Details", icon: <SlidersHorizontal />, title: "Title, video, sync and rosters" },
+        { value: "game", label: name("Game"), icon: <Film />, title: "The whole game: its video, its plays and its score" },
+        { value: "stats", label: name("Stats"), icon: <ChartColumn />, title: "Box score, shots and lineups" },
+        { value: "details", label: name("Details"), icon: <SlidersHorizontal />, title: "Title, video, sync and rosters" },
       ]}
     />
   );

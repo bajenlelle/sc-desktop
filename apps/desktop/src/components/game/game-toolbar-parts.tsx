@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, ChevronDown, ChevronLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Check, ChevronDown } from "lucide-react";
+import { ToolbarBackButton } from "@/components/shell/toolbar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,17 +27,13 @@ export function GameBackButton({ matchId }: { matchId: string }) {
   const navigate = useNavigate();
   const from = recallGameView(matchId)?.from ?? null;
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="-ml-1 min-w-0 shrink text-muted-foreground"
+    <ToolbarBackButton
+      label={from ? from.title : "Games"}
       onClick={() => (from ? navigate(from.path, { state: { restore: { playlistId: from.playlistId } } }) : navigate("/matches"))}
-    >
-      <ChevronLeft className="shrink-0" />
-      <span className="max-w-48 truncate">{from ? from.title : "Games"}</span>
-    </Button>
+    />
   );
 }
+
 
 /**
  * The game's title in its toolbar. With the sidebar shown it is the title, nothing more: the open games are
