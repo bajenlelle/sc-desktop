@@ -6901,7 +6901,14 @@ export function PlaylistsPage() {
               if (!open) setAddClipsFrom(null);
             }}
           >
-            <SheetContent onInteractOutside={(e) => e.preventDefault()}>
+            {/* A press on the dim scrim closes it, as a press outside the game's filters does. Nothing else outside
+                does: the window moved or resized by its edges, focus leaving with the window, an Undo on a toast. */}
+            <SheetContent
+              onInteractOutside={(e) => {
+                const t = e.detail.originalEvent.target;
+                if (!(t instanceof Element && t.closest('[data-slot="sheet-overlay"]'))) e.preventDefault();
+              }}
+            >
               <ClipBrowserPanel
                 matches={addClipsMatches}
                 matchLookup={matchLookup}

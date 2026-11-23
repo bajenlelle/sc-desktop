@@ -1,18 +1,23 @@
-import { Plus, Tag } from "lucide-react";
-import { describePlay, playClock } from "@scoutable/shared/lib/events";
+import { useRef } from "react";
+import { playClock } from "@scoutable/shared/lib/events";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { ClipBrowserLabelHandlers } from "@/components/editor/clip-browser-panel";
 import { PlayerStage } from "@/components/editor/player-stage";
+import { GameLabelKeys } from "@/components/game/game-label-keys";
+import { GameNowBar } from "@/components/game/game-now-bar";
+import type { CollectStatus } from "@/components/game/game-play-row";
 import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
-import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
 import { gameTitle } from "./team-play-list";
 import type { useCrossGamePlayback } from "./use-cross-game-playback";
 
+/** Under the stage, in its column: the Now bar with its air, and the selection's line when there is one. */
+export const TEAM_UNDER_STAGE = 52 + 44;
+
 /**
  * Plays' stage: the play's video with the opponent and clock over it, and
- * under it the play in words with Label (G) and Add (A), as the game view's
- * now bar has them.
+ * under it the game view's Now bar: the play in words with its labels, the
+ * same label again (⇧G), Label (G) and Add (A). Option held shows which label
+ * each key puts on, over the corner of the footage, as in the game view.
  */
 export function TeamPlaysStage({
   video,
@@ -25,8 +30,12 @@ export function TeamPlaysStage({
   labelHandlers,
   labelOpen,
   onLabelOpenChange,
+  lastLabel,
+  onLabelAgain,
+  keysShown,
   onAdd,
-  added,
+  status,
+  targetName,
 }: {
   video: HTMLVideoElement;
   playback: ReturnType<typeof useCrossGamePlayback>;
@@ -40,14 +49,21 @@ export function TeamPlaysStage({
   labelHandlers: ClipBrowserLabelHandlers;
   labelOpen: boolean;
   onLabelOpenChange: (open: boolean) => void;
-  onAdd: (anchor: HTMLElement) => void;
-  /** The play shown is in the target playlist already. */
-  added: boolean;
+  /** The label used last: one press puts it on the play, without the picker. */
+  lastLabel: Label | null;
+  onLabelAgain: () => void;
+  /** Option is held: show which label each key puts on. */
+  keysShown: boolean;
+  onAdd: (anchor: HTMLElement | null) => void;
+  /** Whether the play shown is in the target playlist. */
+  status: CollectStatus;
+  targetName: string | null;
 }) {
   const cur = playback.current;
+  const addRef = useRef<HTMLButtonElement | null>(null);
   return (
     <>
-      <div className="relative">
+      <div className="relative w-full">
         <PlayerStage
           video={video}
           src={why === "ok" || why === null ? playback.src : null}
@@ -80,44 +96,47 @@ export function TeamPlaysStage({
             </div>
           )}
         </PlayerStage>
+        {keysShown && <GameLabelKeys labels={labels} on={cur ? assigned : undefined} />}
       </div>
       {cur ? (
-        <div className="flex items-center gap-2 rounded-lg bg-fill-1 px-3 py-2 ring-1 ring-separator">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium nums">
-              {playClock(cur.event)} · {describePlay(cur.event)}
-            </p>
-            <p className="truncate text-subheadline text-muted-foreground nums">{gameTitle(cur.game)}</p>
-          </div>
-          <LabelPickerPopover
-            open={labelOpen}
-            onOpenChange={onLabelOpenChange}
-            trigger={
-              <Button size="sm" variant="outline" title="Label (G)">
-                <Tag />
-                Label
-                <Kbd>G</Kbd>
-              </Button>
-            }
-            labels={[...labels]}
-            assignedAllIds={new Set(assigned)}
-            assignedSomeIds={new Set()}
-            onToggle={(labelId, state) => labelHandlers.onToggleClip(cur.game.gameId, cur.event.eventId, labelId, state)}
-            onCreate={labelHandlers.onCreate}
-            onRename={labelHandlers.onRename}
-            onRecolor={labelHandlers.onRecolor}
-            onDelete={labelHandlers.onDelete}
-            onSetKey={labelHandlers.onSetKey}
-            onSeedDefaults={labelHandlers.onSeedDefaults}
-          />
-          <Button size="sm" onClick={(e) => onAdd(e.currentTarget)} disabled={added} title={added ? "In the playlist" : "Add to the playlist (A)"}>
-            <Plus />
-            {added ? "Added" : "Add"}
-            {!added && <Kbd className="bg-white/20 text-current">A</Kbd>}
-          </Button>
-        </div>
+        <GameNowBar
+          play={{ key: cur.key, event: cur.event, time: 0, start: 0, reach: "in" }}
+          footage
+          moment={null}
+          score={null}
+          breakScore={null}
+          details={[gameTitle(cur.game)]}
+          labels={labels.filter((l) => assigned.has(l.id))}
+          collect={status}
+          targetName={targetName}
+          labelButton={(trigger) => (
+            <LabelPickerPopover
+              open={labelOpen}
+              onOpenChange={onLabelOpenChange}
+              trigger={trigger}
+              side="top"
+              align="end"
+              labels={[...labels]}
+              assignedAllIds={new Set(assigned)}
+              onToggle={(labelId, state) => labelHandlers.onToggleClip(cur.game.gameId, cur.event.eventId, labelId, state)}
+              onCreate={labelHandlers.onCreate}
+              onRename={labelHandlers.onRename}
+              onRecolor={labelHandlers.onRecolor}
+              onDelete={labelHandlers.onDelete}
+              onSetKey={labelHandlers.onSetKey}
+              onSeedDefaults={labelHandlers.onSeedDefaults}
+            />
+          )}
+          lastLabel={lastLabel}
+          onLabelAgain={onLabelAgain}
+          addRef={addRef}
+          onAdd={() => onAdd(addRef.current)}
+          onSkip={null}
+        />
       ) : (
-        <p className="px-1 text-subheadline text-muted-foreground">Choose a play to watch it. Plays run on from one game into the next.</p>
+        <p className="flex h-11 shrink-0 items-center px-1 text-callout text-muted-foreground">
+          Choose a play to watch it. Plays run on from one game into the next.
+        </p>
       )}
     </>
   );

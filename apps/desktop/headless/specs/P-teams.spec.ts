@@ -717,3 +717,100 @@ test.describe("a play's row", () => {
     await expect.poll(() => opacityOf(playRow(page, 4).getByRole("button", { name: /^Add to / }))).toBe(0);
   });
 });
+
+test.describe("labels from the keys, as in the game view", () => {
+  const KEYED = owned("keyed label");
+  const SLOT = 9;
+  /** The label that had the key before this test took it, given it back after. */
+  let heldBy: string | null = null;
+
+  test.afterEach(async ({ page }) => {
+    await deleteLabels(page, [KEYED]);
+    if (heldBy) {
+      const id = heldBy;
+      await page.evaluate(
+        async ({ id, slot }) => {
+          const labels = await import("/src/lib/labels-db.ts" as string);
+          await labels.setLabelHotkey(id, slot);
+        },
+        { id, slot: SLOT },
+      );
+      heldBy = null;
+    }
+  });
+
+  /** This spec's label on the key, in the space of the game behind `key`. */
+  async function keyedLabel(page: Page, key: string): Promise<void> {
+    await makeLabels(page, key, [KEYED], []);
+    heldBy = await page.evaluate(
+      async ({ gameId, name, slot }) => {
+        const { createClient } = await import("/src/lib/supabase/client.ts" as string);
+        const labels = await import("/src/lib/labels-db.ts" as string);
+        const sb = createClient();
+        const { data: game } = await sb.from("matches").select("org_id").eq("id", gameId).single();
+        const all = (await labels.listLabels((game as { org_id: string }).org_id)) as Array<{ id: string; name: string; hotkey: number | null }>;
+        const before = all.find((l) => l.hotkey === slot && l.name !== name)?.id ?? null;
+        await labels.setLabelHotkey(all.find((l) => l.name === name)!.id, slot);
+        return before;
+      },
+      { gameId: key.split(":")[0], name: KEYED, slot: SLOT },
+    );
+  }
+
+  test("Option shows the keys; ⌥digit labels the play on screen into the Now bar; ⇧G puts the last label on the next", async ({ page, browserName }) => {
+    await alfaWithAPlayableGame(page);
+    await keyedLabel(page, (await playRow(page, 0).getAttribute("data-key"))!);
+    await reopenPlays(page);
+    await playRow(page, 0).click();
+    await expect(litRow(page)).toHaveCount(1);
+
+    // Option held for a moment shows which label each key puts on, over the footage, and goes when let go.
+    const keysCard = page.getByText("Label keys", { exact: true });
+    await page.keyboard.down("Alt");
+    await expect(keysCard).toBeVisible();
+    await expect(keysCard.locator("..")).toContainText(KEYED);
+    await shot(page, `${browserName}-P-team-plays-label-keys`);
+    await page.keyboard.up("Alt");
+    await expect(keysCard).toBeHidden();
+
+    // ⌥9 puts the label on the play on screen: in its row, in the bar under the player, and said with Undo.
+    const video = page.getByRole("region", { name: "Video" });
+    await page.keyboard.press(`Alt+Digit${SLOT}`);
+    await expect(page.getByText(`Labelled ${KEYED}`)).toBeVisible();
+    await expect(playRow(page, 0)).toContainText(KEYED);
+    await expect(video).toContainText(KEYED);
+    await shot(page, `${browserName}-P-team-plays-labelled`);
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(playRow(page, 0)).not.toContainText(KEYED);
+
+    // ⇧G: the label used last goes on the next play, and the bar then has nothing more to put on.
+    await page.keyboard.press("ArrowDown");
+    await expect(litRow(page)).toHaveAttribute("data-key", (await playRow(page, 1).getAttribute("data-key"))!);
+    await page.keyboard.press("Shift+KeyG");
+    await expect(playRow(page, 1)).toContainText(KEYED);
+    await expect(video.getByRole("button", { name: `Label this play ${KEYED} again` })).toBeDisabled();
+  });
+});
+
+test("dragging the divider resizes the list and the player, and the split is kept", async ({ page }) => {
+  await alfaWithAPlayableGame(page);
+  await playRow(page, 0).click();
+  const list = page.getByRole("region", { name: "Their plays" });
+  const video = page.getByRole("region", { name: "Video" });
+  const divider = page.getByRole("separator");
+  await expect(divider).toHaveCount(1);
+  const before = (await list.boundingBox())!.width;
+  const playerBefore = (await page.locator("video").first().boundingBox())!.width;
+  const at = (await divider.boundingBox())!;
+  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(at.x + at.width / 2 + 160, at.y + at.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => Math.round((await list.boundingBox())!.width - before)).toBeGreaterThan(100);
+  // A narrower video column: the player gives way, and still fits its column without a scroll.
+  await expect.poll(async () => (await page.locator("video").first().boundingBox())!.width).toBeLessThan(playerBefore);
+  expect(await video.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  const after = (await list.boundingBox())!.width;
+  await reopenPlays(page);
+  await expect.poll(async () => Math.abs((await list.boundingBox())!.width - after)).toBeLessThan(4);
+});

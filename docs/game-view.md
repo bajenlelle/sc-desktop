@@ -182,8 +182,14 @@ lead to it, as references in the text, not new buttons:
   facts and the zoom. The timeline is as wide as the footage and sits 44 px
   under it, so the control is by what it moves; the play list has the other
   column's whole height. The stage is as large as its column allows once the
-  Now bar and the timeline have their room (`UNDER_STAGE`). A sync warning
-  opens at the foot of the column.
+  Now bar and the timeline have their room (`UNDER_STAGE`, `useStageFit` in
+  `components/plays/use-stage-fit.ts`, which Teams' Plays shares). A sync
+  warning opens at the foot of the column.
+- **The divider between the columns drags** (`components/ui/resizable.tsx`):
+  a wider left column, a larger player. The line thickens and darkens under
+  the pointer and while it is dragged, a double-click puts the columns back,
+  and the split is kept for the session (panel ids `player` and `plays`, which
+  the saved layout is matched by).
 - **Two ways through the video, on purpose.** The player's own scrubber (the
   stage's floating bar, the one the editor and Add clips have) spans the whole
   file on a straight scale, with elapsed and total time and a mark where each
@@ -558,14 +564,20 @@ opened and the footage playing on.
   on: in the game view another play may be on screen by then. A label put on
   this way counts as used, so Recent and ⇧G follow it. A key no label has
   says so, and where a key is given.
-- **Where**: the game view (the play on screen), the editor (the selected
+- **Where**: the game view (the play on screen), Teams' Plays (the
+  selection, else the play on screen), the editor (the selected
   clips, else the clip on screen) and Add clips (the clip that is playing;
   the ticks are what will be added, so they are left to "Apply label"). Keys
   are off while a field has the keyboard, as all the app's keys are, so the
   characters Option types (@ and $ on a Swedish layout) still type.
-- **Holding Option** for a moment in the game view shows which key is which
-  label over the corner of the stage (`game-label-keys.tsx`), with a check on
-  the labels the play on screen has.
+- **Holding Option** for a moment in the game view and Teams' Plays shows
+  which key is which label over the corner of the stage (`game-label-keys.tsx`),
+  with a check on the labels the play on screen has.
+- **One hook for both pages**: the game view and Teams' Plays answer ⌥1–⌥9,
+  ⇧G and a held Option through `usePlayLabelKeys`
+  (`components/plays/use-play-label-keys.ts`), so the toasts, Undo and the
+  last label are the same on both. On several plays, a key that puts a label
+  on changes only the plays that lack it, and Undo takes it off those alone.
 - **Option with a digit** because nothing else is free: the digits alone are
   the quarters here and the arrow kinds while drawing, ⌘1–⌘6 are the Go menu,
   Control with a digit switches desktops on a Mac, and the letters are the
