@@ -6262,7 +6262,8 @@ export function PlaylistsPage() {
 
       <div
         ref={playlistScrollRef}
-        className={cn("min-h-0 flex-1 overflow-y-auto", selectedClipIds.size > 0 && "pb-16")}
+        // A pixel of room above the list: the group's ring is drawn outside it, and the scroller would cut its top edge.
+        className={cn("min-h-0 flex-1 overflow-y-auto pt-px", selectedClipIds.size > 0 && "pb-16")}
         // A click on the list's empty space lets go of the selection, as in Finder.
         onClick={(e) => {
           if (e.target === e.currentTarget && !e.metaKey && !e.shiftKey && selectedClipIds.size > 0) setSelectedClipIds(new Set());
@@ -6505,7 +6506,16 @@ export function PlaylistsPage() {
         filtersOpen={filtersOpen}
         filtersActive={filtersActive}
         activeFilterDims={activeFilterDims}
-        onToggleFilters={() => setFiltersOpen((v) => !v)}
+        // One press reaches the filters: the bar opens with its Filter popover open (as ⌘F), and closes both.
+        onToggleFilters={() => {
+          if (filtersOpen) {
+            setFiltersOpen(false);
+            setFilterPopoverOpen(false);
+          } else {
+            setFiltersOpen(true);
+            setFilterPopoverOpen(true);
+          }
+        }}
         onAddTextCard={() => void handleInsertCard("text", { at: "toolbar" }, "menu")}
         addTextCardDisabledReason={filtersActive ? "Clear filters to edit the playlist" : null}
         onAddStatsCard={() => void handleInsertCard("stats", { at: "toolbar" }, "menu")}

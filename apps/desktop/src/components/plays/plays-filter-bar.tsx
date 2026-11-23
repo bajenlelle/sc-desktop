@@ -287,11 +287,13 @@ export function PlaysFilterBar({
   const popoverCount = count - (filters.types.size > 0 ? 1 : 0);
 
   return (
-    <div className={cn("flex shrink-0 flex-col gap-2", className)}>
-      {/* In a narrow list column the scope wraps onto a second line rather than squeeze; Filter and Presets stay
-          on the first, beside its first control (top-aligned, not centred between the two lines). */}
+    // A container of its own (it is never a scrolling list's ancestor), so the first row lays out by the bar's width.
+    <div className={cn("@container/bar flex shrink-0 flex-col gap-2", className)}>
+      {/* Wide, the scope and Filter with Presets share one line. In a narrow list column (under 36rem) the scope
+          takes a line of its own, wrapping inside itself, and Filter and Presets start the next: nothing squeezes
+          a team's name or runs under another control. */}
       <div className="flex min-w-0 flex-wrap items-start gap-2">
-        {scope && <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{scope}</div>}
+        {scope && <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 @max-[36rem]/bar:basis-full">{scope}</div>}
         <div className={cn("flex shrink-0 items-center gap-1", !scope && "flex-1")}>
           <Popover
             modal={modal}
