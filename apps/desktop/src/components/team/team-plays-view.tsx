@@ -452,30 +452,31 @@ export function TeamPlaysView({
   };
   return (
     <div className="view-fade flex min-h-0 flex-1 flex-col">
-      <TeamPlaysFilters
-        side={side}
-        onSide={onSide}
-        games={allGames}
-        unticked={unticked}
-        onUntick={setUnticked}
-        filters={filters}
-        setFilters={setFilters}
-        playerGroups={playerGroups}
-        labels={labels}
-        presets={presets}
-        onApplyPreset={applyPreset}
-        pill={picked?.label ?? null}
-        onClearPick={onClearPick}
-        periods={periods}
-        moments={moments}
-        open={filterOpen}
-        onOpenChange={setFilterOpen}
-        searchRef={searchRef}
-      />
       {/* The divider between the list and the player drags, as in the game view: a wider column, a larger player. */}
       <ResizablePanelGroup direction="horizontal" autoSaveId="team-plays" className="min-h-0 flex-1">
         <ResizablePanel id="plays" defaultSize="42" minSize="320px" maxSize="60">
           <section aria-label="Their plays" className="flex h-full min-h-0 flex-col">
+            {/* The filters sit over the list they narrow, so the footage starts at the top of its column. */}
+            <TeamPlaysFilters
+              side={side}
+              onSide={onSide}
+              games={allGames}
+              unticked={unticked}
+              onUntick={setUnticked}
+              filters={filters}
+              setFilters={setFilters}
+              playerGroups={playerGroups}
+              labels={labels}
+              presets={presets}
+              onApplyPreset={applyPreset}
+              pill={picked?.label ?? null}
+              onClearPick={onClearPick}
+              periods={periods}
+              moments={moments}
+              open={filterOpen}
+              onOpenChange={setFilterOpen}
+              searchRef={searchRef}
+            />
             <PlaysCountLine
               className="border-b border-separator px-4"
               count={playCount}

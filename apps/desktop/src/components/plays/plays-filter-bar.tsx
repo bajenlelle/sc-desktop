@@ -288,8 +288,9 @@ export function PlaysFilterBar({
 
   return (
     <div className={cn("flex shrink-0 flex-col gap-2", className)}>
-      <div className="flex min-w-0 items-center gap-2">
-        {scope && <div className="flex min-w-0 flex-1 items-center gap-2">{scope}</div>}
+      {/* In a narrow list column the scope and Filter wrap onto two lines rather than squeeze. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        {scope && <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{scope}</div>}
         <div className={cn("flex shrink-0 items-center gap-1", !scope && "flex-1")}>
           <Popover
             modal={modal}

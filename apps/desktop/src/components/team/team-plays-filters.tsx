@@ -103,7 +103,7 @@ export function TeamPlaysFilters({
 }) {
   return (
     <PlaysFilterBar
-      className="border-b border-separator px-4 py-2.5"
+      className="px-4 pt-2.5 pb-1"
       filters={filters}
       onChange={(next) => setFilters(() => next)}
       scope={
