@@ -116,7 +116,10 @@ the Stats view's own rules (`gameBox`, `gameShots`).
 ball (what the team's opponents did against it); Games, every one of the
 team's games ticked to start, no limit; Add clips' Player, Shot type,
 Situation, Labels and Presets (surface `team_plays`); what Watch picked as one
-pill ("Turnovers · 41") with Clear; the event chips. The list is newest game
+pill ("Turnovers · 41") with Clear; the event chips. Over the list, the count
+line every list of plays has (`PlaysCountLine`): "231 plays in 3 games",
+Clear filters while a filter or the pick is on (it clears both), and "Newest
+game first". The list is newest game
 first, each game's plays in game order, a header per game (the top one pinned),
 windowed (`teamPlayRows`, `team-play-list.tsx`). A game whose video isn't on
 this computer, or isn't synced, is dimmed under one line with the way to fix
@@ -144,7 +147,8 @@ it, and playback skips it.
   the game view's menu (the target, another playlist, a new one). A row's
   Label, + and menu act on the selection when the row is in it, else on that
   row alone (Finder's rule); the keys act on the selection, else the play on
-  screen.
+  screen. A selection gets the game view's pill over the bottom of the list
+  (`PlaysSelectionBar`): Add to the target, Another playlist, and ×.
 - **Under the player** is the game view's Now bar (`GameNowBar`): quarter,
   clock and the game, the event, the player, the labels the play has, the
   same label again (⇧G), Label (G) and Add (A), or "In playlist" once the

@@ -248,7 +248,7 @@ test("the picker closes when its row leaves the list", async ({ page }) => {
   await expect(pickerList(page), "the picker closes with its row").toHaveCount(0);
   await expect(page.locator(`${GRID} [data-row-key="${rowKey}"]`), "the row has left the list").toHaveCount(0);
   if (labelled === 1) {
-    await expect(sheet.getByText(/^No events match the current filters/)).toBeVisible();
+    await expect(sheet.getByText(/^No plays match these filters/)).toBeVisible();
   } else {
     // Other plays of these games carry the label too.
     await expect.poll(() => eventCount(sheet)).toBe(labelled - 1);

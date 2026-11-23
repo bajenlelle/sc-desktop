@@ -31,6 +31,8 @@ import { useFilterPresets } from "@/lib/use-filter-presets";
 import type { TeamPlays } from "@/lib/use-team-plays";
 import { TeamPlayList, type ListRow, type RowClick } from "./team-play-list";
 import { TeamPlaysFilters } from "./team-plays-filters";
+import { PlaysCountLine } from "@/components/plays/plays-count-line";
+import { PlaysSelectionBar } from "@/components/plays/plays-selection-bar";
 
 /** No labels: one set, so the stage's memo of the play shown holds. */
 const EMPTY_LABELS: ReadonlySet<string> = new Set();
@@ -410,6 +412,11 @@ export function TeamPlaysView({
   }
 
   const filtered = hasActiveFilters(filters);
+  // Every filter and the pick from Season: the count line's Clear filters, and the empty state's.
+  const clearAll = () => {
+    setFiltersState(EMPTY_CLIP_FILTERS);
+    onClearPick();
+  };
   return (
     <div className="view-fade flex min-h-0 flex-1 flex-col">
       <TeamPlaysFilters
@@ -431,12 +438,14 @@ export function TeamPlaysView({
       <ResizablePanelGroup direction="horizontal" autoSaveId="team-plays" className="min-h-0 flex-1">
         <ResizablePanel id="plays" defaultSize="42" minSize="320px" maxSize="60">
           <section aria-label="Their plays" className="flex h-full min-h-0 flex-col">
-            <div className="flex h-8 shrink-0 items-center justify-between border-b border-separator px-4 text-subheadline text-muted-foreground nums">
-              <span>
-                {playCount} {playCount === 1 ? "play" : "plays"} in {gameCount} {gameCount === 1 ? "game" : "games"}
-              </span>
-              <span>Newest game first</span>
-            </div>
+            <PlaysCountLine
+              className="border-b border-separator px-4"
+              count={playCount}
+              detail={`in ${gameCount} ${gameCount === 1 ? "game" : "games"}`}
+              filtered={filtered || !!pick}
+              onClear={clearAll}
+              trail="Newest game first"
+            />
             {plays.failed.length > 0 && (
               <div className="flex shrink-0 items-center gap-3 border-b border-separator px-4 py-2">
                 <div className="min-w-0 flex-1 text-callout text-muted-foreground">
@@ -465,6 +474,14 @@ export function TeamPlaysView({
                 onAdd={onAdd}
                 onRemove={onRemove}
                 onLabel={setLabelFor}
+                selectionBar={
+                  <PlaysSelectionBar
+                    count={selected.size}
+                    collect={collect}
+                    plays={() => timed(playRows.filter((r) => selected.has(r.key)))}
+                    onClear={() => setSelected(new Set())}
+                  />
+                }
               />
             ) : plays.status === "reading" ? (
               <div className="space-y-2 p-4" aria-hidden>
@@ -479,10 +496,7 @@ export function TeamPlaysView({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => {
-                      setFiltersState(EMPTY_CLIP_FILTERS);
-                      onClearPick();
-                    }}
+                    onClick={clearAll}
                   >
                     Clear filters
                   </Button>
@@ -515,17 +529,6 @@ export function TeamPlaysView({
                   status={playback.currentKey ? collect.statusOf(playback.currentKey) : "none"}
                   targetName={collect.target?.name ?? null}
                 />
-                {selected.size > 0 && (
-                  <div className="flex h-11 items-center gap-2 px-1 text-subheadline text-muted-foreground nums">
-                    {selected.size} selected
-                    <Button size="sm" variant="outline" onClick={(e) => add(e.currentTarget)}>
-                      Add {selected.size}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-                      Deselect
-                    </Button>
-                  </div>
-                )}
               </div>
             </div>
           </section>

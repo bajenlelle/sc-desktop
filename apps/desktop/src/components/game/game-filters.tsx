@@ -20,6 +20,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { PlaysCountLine } from "@/components/plays/plays-count-line";
 
 /** The moments, in the order a coach asks for them. */
 const MOMENTS: readonly { value: GameMoment; label: string }[] = [
@@ -92,8 +93,8 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
  * plays (both teams or one) and the moments a coach asks a game about, one
  * at a time. One level down, in the filter sheet: a player search and the
  * Add clips vocabulary (event types, shot types, situations, quarters,
- * players, labels). And once anything narrows the list, a line that says how
- * many plays are left and offers to add them all.
+ * players, labels). Under them the count line (PlaysCountLine): how many plays
+ * are listed, and once anything narrows the list, Clear and Add all.
  */
 export function GameFilterBar({
   filters,
@@ -105,6 +106,7 @@ export function GameFilterBar({
   people,
   labels,
   visible,
+  total,
   filtered,
   addable,
   targetName,
@@ -126,6 +128,8 @@ export function GameFilterBar({
   labels: readonly Label[];
   /** Plays listed now. */
   visible: number;
+  /** Plays in the game, for "24 of 430 plays". */
+  total: number;
   filtered: boolean;
   /** Of the listed plays, how many aren't in the target yet. */
   addable: number;
@@ -292,11 +296,17 @@ export function GameFilterBar({
         })}
       </ScrollRow>
 
-      {filtered && (
-        <div className="flex h-7 items-center gap-2 text-subheadline">
-          {filters.picked && (
+      {/* How many plays are listed, always; Clear and Add all while filters narrow them (PlaysCountLine). */}
+      <PlaysCountLine
+        className="h-7"
+        count={visible}
+        total={total}
+        filtered={filtered}
+        onClear={() => onChange(EMPTY_GAME_FILTERS)}
+        lead={
+          filters.picked && (
             // The plays behind a number in Stats: one pill, cleared on its own; the rest of the filters stay.
-            <span className="flex h-6 min-w-0 items-center gap-0.5 rounded-full bg-fill-2 pr-0.5 pl-2.5" title={filters.picked.name}>
+            <span className="flex h-6 min-w-0 items-center gap-0.5 rounded-full bg-fill-2 pr-0.5 pl-2.5 text-foreground" title={filters.picked.name}>
               <span className="truncate">{filters.picked.name}</span>
               <button
                 type="button"
@@ -307,22 +317,14 @@ export function GameFilterBar({
                 <X className="size-3.5" />
               </button>
             </span>
-          )}
-          <span className="shrink-0 whitespace-nowrap nums text-muted-foreground">
-            {visible} {visible === 1 ? "play" : "plays"}
-          </span>
-          <button
-            type="button"
-            className="shrink-0 rounded px-1 text-muted-foreground outline-none transition-colors duration-100 hover:text-foreground focus-visible:ring-2 focus-visible:ring-selection"
-            onClick={() => onChange(EMPTY_GAME_FILTERS)}
-          >
-            Clear
-          </button>
-          {visible > 0 && (
+          )
+        }
+        trail={
+          filtered &&
+          visible > 0 && (
             <Button
               variant="outline"
               size="xs"
-              className="ml-auto shrink-0"
               disabled={addable === 0}
               onClick={(e) => onAddAll(e.currentTarget)}
               title={addable === 0 ? `All ${visible} are in ${targetName ?? "the playlist"}` : undefined}
@@ -330,9 +332,9 @@ export function GameFilterBar({
               {addable === 0 ? <Check /> : <Plus />}
               {addable === 0 ? "All added" : addable === visible ? `Add all ${visible}` : `Add the other ${addable}`}
             </Button>
-          )}
-        </div>
-      )}
+          )
+        }
+      />
     </div>
   );
 }

@@ -10,8 +10,8 @@ import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
 import { gameTitle } from "./team-play-list";
 import type { useCrossGamePlayback } from "./use-cross-game-playback";
 
-/** Under the stage, in its column: the Now bar with its air, and the selection's line when there is one. */
-export const TEAM_UNDER_STAGE = 52 + 44;
+/** Under the stage, in its column: the Now bar with its air (the selection's pill floats over the list). */
+export const TEAM_UNDER_STAGE = 52;
 
 /**
  * Plays' stage: the play's video with the opponent and clock over it, and

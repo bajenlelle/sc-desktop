@@ -1,3 +1,4 @@
+import { PlaysCountLine } from "@/components/plays/plays-count-line";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
@@ -30,6 +31,7 @@ import {
   Snail,
   Tag,
   VideoOff,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoPlaceholder } from "@/components/video-placeholder";
@@ -5740,6 +5742,42 @@ export function PlaylistsPage() {
   const activeMatchUrl = activeMatchId ? matchLookup.get(activeMatchId)?.videoUrl : undefined;
   const activeFileUnprobed =
     !cardOnStage && !!activeMatchUrl && isLocalPath(activeMatchUrl) && !videoStatusByMatch.has(activeMatchId!);
+  // A warning about the video sits in the player's column, under the video (or its placeholder), as the game
+  // view's does: what is wrong and one way to fix it.
+  const syncWarning = syncHint ? (
+    <Callout
+      tone="warning"
+      action={
+        <span className="flex shrink-0 items-center gap-1">
+          {syncHint.firstClip ? (
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() =>
+                openSyncFix(syncHint.firstClip!, "banner", {
+                  scope: "quarter",
+                  reason: "The video looks cut between quarters.",
+                })
+              }
+            >
+              Fix sync…
+            </Button>
+          ) : (
+            <Button size="xs" variant="outline" onClick={() => navigate(`/matches/${syncHint.matchId}`, { state: { openQuarters: true } })}>
+              Set quarters…
+            </Button>
+          )}
+          <Button size="icon-xs" variant="ghost" aria-label="Dismiss" title="Dismiss" onClick={() => dismissSyncHint(syncHint.matchId, syncHint.reason)}>
+            <X />
+          </Button>
+        </span>
+      }
+    >
+      {syncHint.pastEnd > 0
+        ? `${syncHint.pastEnd} ${syncHint.pastEnd === 1 ? "clip" : "clips"} from ${syncHint.title} ${syncHint.pastEnd === 1 ? "starts" : "start"} after the video ends, probably because it skips the breaks between quarters. ${syncHint.firstClip ? "Fix the sync" : "Set the quarters"} to line them up.`
+        : `The plays of ${syncHint.title} run past the end of its video, probably because it skips the breaks between quarters. ${syncHint.firstClip ? "Fix the sync" : "Set the quarters"} to line them up.`}
+    </Callout>
+  ) : null;
   const playerStack = localVideoUrl || stageCard ? (
       <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
         {/* Stage: in fullscreen it fills the layer; every overlay's coordinate
@@ -5873,6 +5911,7 @@ export function PlaylistsPage() {
         </div>
         {!playerFs.active && (
           <div className="flex flex-col gap-2">
+            {syncWarning}
             {stageCard?.card && (
               <StatsCardInspector
                 cardId={stageCard.id}
@@ -6060,6 +6099,7 @@ export function PlaylistsPage() {
     ) : (
       <div className="space-y-2">
         <VideoPlaceholder />
+        {syncWarning}
         {noVideo && selected.items.filter(isClipItem).length > 0 && (
           <p className="text-center text-xs text-muted-foreground">
             No video linked. Add one in the game.
@@ -6126,40 +6166,6 @@ export function PlaylistsPage() {
           No tip-off set. Set it in the game to play these clips.
         </Callout>
       )}
-      {syncHint && (
-        <Callout tone="warning" className="mb-3 shrink-0">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span className="min-w-0 flex-1">
-              {syncHint.pastEnd > 0
-                ? `${syncHint.pastEnd} clip${syncHint.pastEnd === 1 ? "" : "s"} from ${syncHint.title} ${syncHint.pastEnd === 1 ? "starts" : "start"} after the video ends.`
-                : `The play-by-play of ${syncHint.title} runs past the end of its video.`}{" "}
-              The video probably skips the breaks between quarters.
-            </span>
-            <span className="flex shrink-0 gap-1.5">
-              <Button size="xs" variant="ghost" onClick={() => dismissSyncHint(syncHint.matchId, syncHint.reason)}>
-                Dismiss
-              </Button>
-              <Button size="xs" variant="ghost" onClick={() => navigate(`/matches/${syncHint.matchId}`, { state: { openQuarters: true } })}>
-                Set quarters…
-              </Button>
-              {syncHint.firstClip && (
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() =>
-                    openSyncFix(syncHint.firstClip!, "banner", {
-                      scope: "quarter",
-                      reason: "The video looks cut between quarters.",
-                    })
-                  }
-                >
-                  Fix sync…
-                </Button>
-              )}
-            </span>
-          </div>
-        </Callout>
-      )}
       {showSyncTip && (
         <Callout
           icon={<Info />}
@@ -6191,21 +6197,26 @@ export function PlaylistsPage() {
                   setQueueFilters(next);
                 }}
                 options={queueFilterOptions}
-                shownCount={shownClipCount}
-                totalCount={totalClipCount}
+              />
+              <PlaysCountLine
+                count={shownClipCount}
+                total={totalClipCount}
+                noun={["clip", "clips"]}
+                filtered={filtersActive}
+                onClear={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}
               />
             </motion.div>
           ) : filtersActive ? (
-            <motion.div key="filtered" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="pb-2">
-              <div className="flex min-h-8 items-center gap-2 rounded-md bg-fill-1 py-1 pr-1 pl-3 text-callout text-muted-foreground">
-                <ListFilter className="size-3.5 shrink-0" aria-hidden />
-                <span className="nums">
-                  Filtered: {shownClipCount} of {totalClipCount} clips
-                </span>
-                <Button variant="ghost" size="xs" className="ml-auto" onClick={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}>
-                  Clear
-                </Button>
-              </div>
+            // The bar closed with filters still on: the count line alone says so, as every list of plays does.
+            <motion.div key="filtered" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="pb-1">
+              <PlaysCountLine
+                count={shownClipCount}
+                total={totalClipCount}
+                noun={["clip", "clips"]}
+                filtered
+                onClear={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}
+                lead={<ListFilter className="size-3.5 shrink-0" aria-hidden />}
+              />
             </motion.div>
           ) : null}
         </AnimatePresence>

@@ -217,14 +217,15 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
         {clockText}
       </span>
       {team && (
-        <span className={cn(cell, sized, "max-w-16 shrink-0 text-muted-foreground", faded)} data-sizer={team.join("\n")}>
+        <span className={cn(cell, sized, "max-w-16 shrink-0 text-muted-foreground @max-[300px]/row:hidden", faded)} data-sizer={team.join("\n")}>
           <span className="truncate">{teamCode(e) ?? ""}</span>
         </span>
       )}
       {pill && <span className={cn(cell, "shrink-0")}>{pill}</span>}
-      <span className={cn(cell, "flex w-24 shrink-0 items-center gap-1.5 @max-[370px]/row:w-[7px]", faded)} title={what}>
+      {/* What happened is the one thing a row must keep: in a narrow list the score goes first, then the team. */}
+      <span className={cn(cell, "flex w-24 shrink-0 items-center gap-1.5 @max-[370px]/row:w-20", faded)} title={what}>
         <EventDot event={e} />
-        <span className="truncate text-muted-foreground @max-[370px]/row:hidden">{what}</span>
+        <span className="truncate text-muted-foreground">{what}</span>
       </span>
       <span className={cn(cell, "flex min-w-0 flex-1 items-center gap-1.5", faded)}>
         <span className={cn("min-w-0 truncate", strong && "font-medium")}>{who}</span>
@@ -242,7 +243,7 @@ export function PlayRowCells({ event: e, clock, now, strong, team, labels, conte
       )}
       {score !== undefined && (
         <span
-          className={cn(cell, "flex w-9 shrink-0 justify-end text-muted-foreground nums", faded)}
+          className={cn(cell, "flex w-9 shrink-0 justify-end text-muted-foreground nums @max-[370px]/row:hidden", faded)}
           aria-label={score ? `${score.home} to ${score.away}` : undefined}
         >
           {score && (

@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { periodLabel } from "@scoutable/shared/lib/events";
 import type { Label } from "@scoutable/shared/types/labels";
@@ -39,8 +38,6 @@ export function PlaylistFilterBar({
   filters,
   onChange,
   options,
-  shownCount,
-  totalCount,
 }: {
   filters: QueueFilters;
   onChange: (next: QueueFilters) => void;
@@ -51,8 +48,6 @@ export function PlaylistFilterBar({
     periods: string[];
     games: { id: string; title: string }[];
   };
-  shownCount: number;
-  totalCount: number;
 }) {
   const set = <K extends keyof QueueFilters>(key: K, next: Set<string>) =>
     onChange({ ...filters, [key]: next });
@@ -98,14 +93,6 @@ export function PlaylistFilterBar({
           selected={filters.matchIds}
           onChange={(s) => set("matchIds", s)}
         />
-      )}
-      <span className="ml-auto pl-1 text-callout text-muted-foreground nums">
-        {shownCount} of {totalCount} clips
-      </span>
-      {queueFiltersActive(filters) && (
-        <Button variant="ghost" size="xs" onClick={() => onChange({ ...EMPTY_QUEUE_FILTERS })}>
-          Clear
-        </Button>
       )}
     </div>
   );

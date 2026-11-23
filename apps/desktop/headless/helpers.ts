@@ -239,7 +239,7 @@ async function walkSheetList(sheet: Locator, visit: (grid: Locator) => Promise<b
 /**
  * Every row of the Add clips list by key, in list order, read by scrolling the
  * list through and back to the top: only rows near the viewport are in the DOM.
- * Empty when the list has no rows (wait for "Loading clips…" first). Call it
+ * Empty when the list has no rows (wait for "Loading plays…" first). Call it
  * with no popover open (an open one hides the sheet from role queries).
  */
 export async function readSheetRows(sheet: Locator): Promise<Map<string, SheetRowText>> {
@@ -614,18 +614,19 @@ export async function openAddClips(page: Page, playlistId: string) {
   return sheet;
 }
 
-/** The sheet's "N events" counter: how many plays the filters leave. */
+/** The sheet's count line: how many plays the filters leave. */
 export async function eventCount(sheet: Locator): Promise<number> {
-  const text = await sheet.getByText(/^\d+ events?$/).innerText();
+  // The count line: "432 plays", or "24 of 432 plays" while filters narrow the list.
+  const text = await sheet.getByText(/^\d+ (of \d+ )?plays?$/).innerText();
   return Number(text.split(" ")[0]);
 }
 
 /**
- * Waits until the chosen games' plays are listed: no "Loading clips…" and at
+ * Waits until the chosen games' plays are listed: no "Loading plays…" and at
  * least one event. Only for filters that leave some plays.
  */
 export async function waitForPlays(sheet: Locator): Promise<number> {
-  await expect(sheet.getByText("Loading clips…")).toBeHidden({ timeout: 30_000 });
+  await expect(sheet.getByText("Loading plays…")).toBeHidden({ timeout: 30_000 });
   await expect.poll(() => eventCount(sheet), { message: "the chosen games' plays are listed", timeout: 30_000 }).toBeGreaterThan(0);
   return eventCount(sheet);
 }

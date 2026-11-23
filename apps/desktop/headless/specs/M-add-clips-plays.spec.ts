@@ -163,13 +163,13 @@ test("a game whose plays can't be read is named, and the others are listed", asy
   await pressGame(page, sheet, SODERTALJE);
   await expect(failed, "the game whose plays didn't come is named").toBeVisible({ timeout: 30_000 });
   await expect(tryAgain).toBeVisible();
-  await expect(sheet.getByText("Loading clips…")).toHaveCount(0);
+  await expect(sheet.getByText("Loading plays…")).toHaveCount(0);
   // Picking it alone again is a retry: it is read again (and fails again), never left loading.
   const readsBefore = failedReads;
   await pressGame(page, sheet, SODERTALJE);
   await expect.poll(() => failedReads, { message: "choosing the failed game again reads it again" }).toBeGreaterThan(readsBefore);
   await expect(failed, "it is named again").toBeVisible({ timeout: 30_000 });
-  await expect(sheet.getByText("Loading clips…")).toHaveCount(0);
+  await expect(sheet.getByText("Loading plays…")).toHaveCount(0);
 
   // Tick the first game too: its plays are listed, and the second game is named.
   await gameTrigger(sheet).click();
@@ -181,7 +181,7 @@ test("a game whose plays can't be read is named, and the others are listed", asy
   await expect(gameTrigger(sheet)).toHaveText("2 games");
   await expect(failed, "the game whose plays didn't come is named").toBeVisible({ timeout: 30_000 });
   await expect(tryAgain).toBeVisible();
-  await expect(sheet.getByText("Loading clips…")).toHaveCount(0);
+  await expect(sheet.getByText("Loading plays…")).toHaveCount(0);
   expect(await eventCount(sheet), "the first game's plays are listed").toBe(lulea);
   await shot(page, `${browserName}-M-failed-game`);
 

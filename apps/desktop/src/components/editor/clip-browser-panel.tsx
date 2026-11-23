@@ -22,6 +22,7 @@ import {
   SHOT_TYPE_OPTIONS,
   SITUATION_OPTIONS,
   applyClipFiltersByKey,
+  hasActiveFilters,
   keepKnownChoices,
   playerKey,
   playersByTeam,
@@ -57,6 +58,7 @@ import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EventTypeChips } from "./event-type-chips";
+import { PlaysCountLine } from "@/components/plays/plays-count-line";
 import { GamePicker, type GamePickVia } from "./game-picker";
 import { PlayerStage } from "./player-stage";
 import { usePersistentVideo } from "./use-persistent-video";
@@ -433,6 +435,8 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     });
   }, [keyNames]);
 
+  /** Whether any filter narrows the list: the count line offers Clear filters. */
+  const anyFilter = hasActiveFilters(filters);
   const filtered = useMemo(
     () => applyClipFiltersByKey(allEvents, filters, (x) => labelAssignments.get(`${x.matchId}:${x.event.eventId}`)),
     [allEvents, filters, labelAssignments],
@@ -1236,35 +1240,48 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
               </Button>
             </div>
           )}
-          <label className="flex h-8 shrink-0 cursor-default items-center gap-1.5 border-b border-separator pr-3 text-subheadline text-muted-foreground select-none">
-            <span aria-hidden className="w-[3px]" />
-            <span className="flex w-8 justify-center">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={toggleSelectAll}
-                disabled={filtered.length === 0}
-                className="size-3.5 rounded accent-primary"
-              />
-            </span>
-            Select all
-            <span className="ml-auto nums">
-              {filtered.length} event{filtered.length !== 1 ? "s" : ""}
-            </span>
-          </label>
+          {/* The count line every list of plays has (PlaysCountLine), with Select all before it. */}
+          <PlaysCountLine
+            className="gap-1.5 border-b border-separator pr-3"
+            count={filtered.length}
+            total={allEvents.length}
+            filtered={anyFilter}
+            onClear={() => setFilters(EMPTY_CLIP_FILTERS)}
+            lead={
+              <label className="flex cursor-default items-center gap-1.5 select-none">
+                <span aria-hidden className="w-[3px]" />
+                <span className="flex w-8 justify-center">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    disabled={filtered.length === 0}
+                    className="size-3.5 rounded accent-primary"
+                  />
+                </span>
+                Select all
+                <span aria-hidden className="text-separator-strong">·</span>
+              </label>
+            }
+          />
           <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
             {filtered.length === 0 ? (
               eventsLoading ? (
                 // This game's play-by-play is still arriving — without this
                 // branch the filter-advice copy below would be plainly wrong.
-                <div className="py-12 text-center text-sm text-muted-foreground">Loading clips…</div>
+                <div className="py-12 text-center text-sm text-muted-foreground">Loading plays…</div>
               ) : failedChosen.length > 0 ? null : (
                 <div className="flex flex-col items-center gap-3 py-12 text-center">
                   <p className="text-sm text-muted-foreground">
                     {matches.length === 0
                       ? "No games imported yet. Import a game to get started."
-                      : "No events match the current filters. Try adjusting them."}
+                      : "No plays match these filters."}
                   </p>
+                  {matches.length > 0 && anyFilter && (
+                    <Button size="sm" variant="outline" onClick={() => setFilters(EMPTY_CLIP_FILTERS)}>
+                      Clear filters
+                    </Button>
+                  )}
                   {matches.length === 0 && (
                     <Button asChild size="sm" variant="outline">
                       <Link to="/upload">

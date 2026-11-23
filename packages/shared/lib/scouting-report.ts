@@ -81,7 +81,7 @@ export interface ReportClip {
   id: string;
   clipKey: string;
   posterKey: string | null;
-  /** "3PT Made". */
+  /** "3PT made". */
   label: string;
   /** The play's type, sub type and result, so the page colours its badge as the apps do. */
   type: string;
@@ -473,6 +473,28 @@ function effectsKeyOf(b: ReportClip): { d?: string; w?: string } {
  * publishing, not the playlist's). A coach sees "up to date" while the playlist
  * still builds the same report.
  */
+/**
+ * A clip's event name as the key reads it: the title case event names had before they took the chips'
+ * sentence case (2026-11-23). The name follows from the play alone, so the change says nothing about the
+ * report, and a report shared before it stays up to date.
+ */
+const KEYED_EVENT_LABEL: Readonly<Record<string, string>> = {
+  "2PT made": "2PT Made",
+  "2PT miss": "2PT Miss",
+  "3PT made": "3PT Made",
+  "3PT miss": "3PT Miss",
+  "FT made": "FT Made",
+  "FT miss": "FT Miss",
+  "Inbound play": "Inbound Play",
+  "Off. rebound": "Off Rebound",
+  "Def. rebound": "Def Rebound",
+  "Bad pass": "Bad Pass",
+  "Ball handling": "Ball Handling",
+  "Shot clock": "Shot Clock",
+  "Out of bounds": "Out of Bounds",
+  "Foul drawn": "Foul Drawn",
+};
+
 export function reportContentKey(report: ScoutingReport): string {
   const stable = {
     // The summary and a section's kind and name only where a report has them, so one from before sections keeps its key.
@@ -486,7 +508,7 @@ export function reportContentKey(report: ScoutingReport): string {
       b: s.blocks.map((b) => {
         switch (b.kind) {
           case "clip":
-            return { k: b.clipKey, n: b.note, l: b.labels, g: b.game, y: b.label, q: b.period, c: b.clock, ...effectsKeyOf(b) };
+            return { k: b.clipKey, n: b.note, l: b.labels, g: b.game, y: KEYED_EVENT_LABEL[b.label] ?? b.label, q: b.period, c: b.clock, ...effectsKeyOf(b) };
           case "text":
             return { x: b.text };
           case "stats":

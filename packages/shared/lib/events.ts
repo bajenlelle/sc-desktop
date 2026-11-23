@@ -8,31 +8,31 @@
 import type { PlayByPlayEvent } from "../types/match";
 
 /**
- * Human-readable event name, e.g. "3PT Made", "Def Rebound", "Bad Pass".
+ * Human-readable event name, e.g. "3PT made", "Def. rebound", "Bad pass".
  *
  * Decodes `subType` where it carries meaning a player or coach would want —
- * "Bad Pass" says more than "Turnover", and "Charge" more than "Foul".
+ * "Bad pass" says more than "Turnover", and "Charge" more than "Foul".
  */
 export function eventLabel(e: PlayByPlayEvent): string {
   const sub = e.subType?.toLowerCase() ?? "";
   switch (e.type) {
     case "2pt":
-      return e.isSuccessful ? "2PT Made" : "2PT Miss";
+      return e.isSuccessful ? "2PT made" : "2PT miss";
     case "3pt":
-      return e.isSuccessful ? "3PT Made" : "3PT Miss";
+      return e.isSuccessful ? "3PT made" : "3PT miss";
     case "freethrow":
-      return e.isSuccessful ? "FT Made" : "FT Miss";
+      return e.isSuccessful ? "FT made" : "FT miss";
     case "rebound":
-      if (sub === "offensivedeadball") return "Inbound Play";
-      if (sub.includes("off")) return "Off Rebound";
-      if (sub.includes("def")) return "Def Rebound";
+      if (sub === "offensivedeadball") return "Inbound play";
+      if (sub.includes("off")) return "Off. rebound";
+      if (sub.includes("def")) return "Def. rebound";
       return "Rebound";
     case "turnover":
-      if (sub === "badpass") return "Bad Pass";
-      if (sub === "ballhandling") return "Ball Handling";
+      if (sub === "badpass") return "Bad pass";
+      if (sub === "ballhandling") return "Ball handling";
       if (sub === "travel") return "Travel";
-      if (sub === "24sec") return "Shot Clock";
-      if (sub === "outofbounds") return "Out of Bounds";
+      if (sub === "24sec") return "Shot clock";
+      if (sub === "outofbounds") return "Out of bounds";
       return "Turnover";
     case "steal":
       return "Steal";
@@ -41,7 +41,7 @@ export function eventLabel(e: PlayByPlayEvent): string {
       if (["technical", "benchtechnical", "coachtechnical"].includes(sub)) return "Technical";
       return "Foul";
     case "foulon":
-      return "Foul Drawn";
+      return "Foul drawn";
     case "block":
       return "Block";
     case "assist":
@@ -56,7 +56,7 @@ export function eventLabel(e: PlayByPlayEvent): string {
  * "dead-ball rebound" (no player attached) whenever possession changes hands
  * after a foul or score. There's nothing to watch — the clip window lands on
  * a baseline inbound — so browsers hide these. Playback surfaces still label
- * them ("Inbound Play") in case a legacy playlist references one.
+ * them ("Inbound play") in case a legacy playlist references one.
  */
 export function isBookkeepingEvent(e: PlayByPlayEvent): boolean {
   return e.type === "rebound" && (e.subType?.toLowerCase() ?? "") === "offensivedeadball";
@@ -192,7 +192,7 @@ export function playClock(e: PlayByPlayEvent): string {
   return `${periodLabel(e.period)}${clock ? ` ${clock}` : ""}`;
 }
 
-/** The play in words a coach can spot in the footage: "#7 Ida Andersson, 3PT Made"; the team when no player is on it. */
+/** The play in words a coach can spot in the footage: "#7 Ida Andersson, 3PT made"; the team when no player is on it. */
 export function describePlay(e: PlayByPlayEvent): string {
   const who = e.player ? `${e.player.pno ? `#${e.player.pno} ` : ""}${playerName(e)}` : (e.eventTeam?.teamName ?? "");
   return [who, eventLabel(e)].filter(Boolean).join(", ");

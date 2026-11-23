@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ListPlus, Play, Plus, Tag, VideoOff } from "lucide-react";
+import { Play, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, afterTimeoutPlays, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
@@ -11,9 +11,8 @@ import { labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, pruneSelection, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
-import { AddToPopover } from "@/components/editor/add-to-popover";
 import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
-import { PILL_LABEL, PillButton, SelectionBar } from "@/components/editor/selection-bar";
+import { PlaysSelectionBar } from "@/components/plays/plays-selection-bar";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { usePlayLabelKeys } from "@/components/plays/use-play-label-keys";
 import { useStageFit } from "@/components/plays/use-stage-fit";
@@ -37,7 +36,6 @@ import { useClipLabels } from "@/lib/use-clip-labels";
 import { useFilterPresets } from "@/lib/use-filter-presets";
 import { useGameMarks } from "@/lib/use-game-marks";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
-import { cn } from "@/lib/utils";
 import { videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
 import { CollectControl } from "./collect-control";
@@ -1097,6 +1095,7 @@ export function GameWatchView({
               people={people}
               labels={labels.labels}
               visible={order.length}
+              total={timeline.byTime.length}
               filtered={filtered}
               addable={addable}
               targetName={collect.target?.name ?? null}
@@ -1152,48 +1151,7 @@ export function GameWatchView({
               )}
               selecting={selected.size > 0}
               selectionBar={
-                <SelectionBar
-                  count={selected.size}
-                  onClear={clearSelection}
-                  clearTitle="Deselect all (Esc)"
-                  group={null}
-                  addTo={
-                    <>
-                      <PillButton
-                        title={collect.target ? `Add ${selected.size} ${selected.size === 1 ? "play" : "plays"} to ${collect.target.name}` : "Add to playlist…"}
-                        // With no target the picker opens from its own button (the pill leaves with the selection), and
-                        // the selection stays until a playlist is chosen and the plays are in: dismissed, nothing is lost.
-                        onClick={() => collect.add(selectedPlays, "selection", filters.moment, null, clearSelection)}
-                      >
-                        <Plus />
-                        {collect.target ? (
-                          <span className={cn(PILL_LABEL, "max-w-40 truncate")}>Add to {collect.target.name}</span>
-                        ) : (
-                          <span className={PILL_LABEL}>Add to playlist…</span>
-                        )}
-                      </PillButton>
-                      <AddToPopover
-                        playlists={collect.candidates}
-                        activePlaylistId={collect.target?.id ?? null}
-                        onAddToPlaylist={async (pl) => {
-                          collect.addToPlaylist(pl, selectedPlays, "selection", filters.moment);
-                          clearSelection();
-                        }}
-                        onCreatePlaylist={async (name) => {
-                          await collect.createAndAddTo(name, selectedPlays, "selection", filters.moment);
-                          clearSelection();
-                        }}
-                        trigger={
-                          <PillButton title="Add to another playlist">
-                            <ListPlus />
-                            <span className={PILL_LABEL}>Another playlist</span>
-                            <ChevronDown className="size-3 text-muted-foreground" />
-                          </PillButton>
-                        }
-                      />
-                    </>
-                  }
-                />
+                <PlaysSelectionBar count={selected.size} collect={collect} plays={() => selectedPlays} moment={filters.moment} onClear={clearSelection} />
               }
             />
           </div>

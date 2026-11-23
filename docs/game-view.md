@@ -444,8 +444,17 @@ add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
 (held: which key is which label); ⌘F the player search. ⌘-click toggles a
 play into the selection and Shift-click selects a range; Shift+↑ ↓ extends it
 and plays there; ⌘A selects every listed play; Esc lets go. The pill over the
-list adds the selection to the target or another playlist; a row's menu acts
-on the selection when that row is in it.
+list (`components/plays/plays-selection-bar.tsx`, shared with Teams' Plays)
+adds the selection to the target or another playlist; a row's menu acts on
+the selection when that row is in it.
+
+**A narrow list** (the column under about 370 px, a 1180 px window) keeps
+each play's event name: the score column goes first (the quarter header
+carries the score), the event narrows, and under about 300 px the team code
+goes too (`PlayRowCells`). **The moment chips** and every event chip row
+scroll sideways and fade where more chips wait; under the pointer a ‹ or ›
+in the fade moves the row a page (`ui/scroll-row.tsx`), so a chip that ends
+at the edge isn't taken for the last.
 
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 
@@ -464,7 +473,10 @@ game; a team's Plays view (`docs/teams.md`, "Plays") passes the team's games.
   playlist, so quick adds get increasing positions. Undo and removing through
   the row's check are `writePlaylistItems`, and only for clips added on this
   visit: a clip that was already in the playlist may carry notes and trims.
-  "Add all n" appears only while a filter or a moment is on.
+  "Add all n" appears only while a filter or a moment is on, on the count line
+  over the list (`components/plays/plays-count-line.tsx`, the same line Teams'
+  Plays, Add clips and the editor have): always "430 plays", "24 of 430
+  plays" and Clear filters while the list is narrowed.
 - **Any playlist, once**: a row's menu (right-click) adds the play to the
   target or, under "Add to another playlist", to any other playlist or a new
   one named after the game. The target doesn't change. The menu is one

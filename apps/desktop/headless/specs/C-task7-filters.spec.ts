@@ -1,7 +1,7 @@
 /**
  * Group C, Task 7: Add clips filters through the shared ClipFilters. Event
  * types widen within their group and every other control narrows, the
- * "N events" counter follows, there is no Timeout chip, a team narrows the
+ * "N plays" count line follows, there is no Timeout chip, a team narrows the
  * Player list, and switching to a game without the chosen team and player
  * clears them.
  *
@@ -67,7 +67,7 @@ test("Add clips filters narrow the list together, and a game switch clears team 
   const types = await eventCount(sheet);
   expect(types).toBeLessThan(all);
   const badges = [...(await readSheetRows(sheet)).values()].map((r) => r.badge);
-  expect(new Set(badges), "only made twos and missed threes are listed").toEqual(new Set(["2PT Made", "3PT Miss"]));
+  expect(new Set(badges), "only made twos and missed threes are listed").toEqual(new Set(["2PT made", "3PT miss"]));
   await shot(page, name("types"));
 
   // Every further control narrows (or keeps) the list.

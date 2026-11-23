@@ -317,7 +317,7 @@ test("a preset applied while the plays load applies at once and leaves the chose
   await page.keyboard.press("Escape");
   await expect(gameTrigger(sheet)).toHaveText("2 games");
   await expect.poll(() => held, { message: "the sheet asks for Luleå's plays" }).toBeGreaterThan(0);
-  await expect(sheet.getByText("Loading clips…"), "Södertälje's plays stay listed").toHaveCount(0);
+  await expect(sheet.getByText("Loading plays…"), "Södertälje's plays stay listed").toHaveCount(0);
   await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the team stays while Luleå's plays load").toBeVisible();
   await expect(sheet.getByRole("button", { name: playerLabel, exact: true }), "the player stays while Luleå's plays load").toBeVisible();
   expect(released, "Luleå's plays are still held back").toBe(0);
@@ -337,7 +337,7 @@ test("a preset applied while the plays load applies at once and leaves the chose
   await expect.poll(() => released, { message: "Luleå's plays are let through", timeout: 25_000 }).toBeGreaterThan(0);
   await waitForQuiet(page);
   await page.unroute(lulea);
-  await expect(sheet.getByText("Loading clips…")).toBeHidden();
+  await expect(sheet.getByText("Loading plays…")).toBeHidden();
   await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the team survives the plays landing").toBeVisible();
   await expect(sheet.getByRole("button", { name: playerLabel, exact: true }), "the player survives the plays landing").toBeVisible();
   expect(await pressedChips(chips), "the preset's chip survives the plays landing").toEqual(["2PT made"]);

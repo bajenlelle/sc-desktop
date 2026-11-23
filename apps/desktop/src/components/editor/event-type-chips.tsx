@@ -39,7 +39,7 @@ export function EventTypeChips({
   }
 
   return (
-    <ScrollRow role="group" aria-label="Event type" className={cn("gap-1.5 py-0.5", className)}>
+    <ScrollRow role="group" aria-label="Event type" className="gap-1.5 py-0.5" frameClassName={className}>
       {selected.size > 0 && (
         <button
           type="button"

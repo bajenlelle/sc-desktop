@@ -146,6 +146,7 @@ export function TeamPlayList({
   onAdd,
   onRemove,
   onLabel,
+  selectionBar,
 }: {
   rows: readonly ListRow[];
   current: string | null;
@@ -163,6 +164,8 @@ export function TeamPlayList({
   onAdd: (key: string, anchor: HTMLElement) => void;
   onRemove: (key: string) => void;
   onLabel: (key: string) => void;
+  /** The selection's pill (PlaysSelectionBar), over the bottom of the list while plays are selected. */
+  selectionBar?: ReactNode;
 }) {
   /** The play the menu is open on, and its row: one menu for the whole list, as the game view's. */
   const [menuFor, setMenuFor] = useState<{ key: string; anchor: HTMLElement } | null>(null);
@@ -187,13 +190,14 @@ export function TeamPlayList({
   }
 
   return (
-    <div className="relative min-h-0 flex-1">
+    <div className="relative min-h-0 flex-1 @container">
       {pinned && <GameHeader game={pinned.game} plays={pinned.plays} pinned />}
       <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
         <ContextMenuTrigger asChild>
       <div
         ref={scrollRef}
-        className="h-full overflow-y-auto"
+        // Room under the last play for the selection's pill, so it never covers one.
+        className={cn("h-full overflow-y-auto", selected.size > 0 && "pb-16")}
         role="list"
         aria-label="Plays"
         // A right-click on a play opens its menu; on a header, a note or empty space none opens.
@@ -244,6 +248,7 @@ export function TeamPlayList({
         </ContextMenuTrigger>
         {menuFor && rowMenu(menuFor.key, menuFor.anchor)}
       </ContextMenu>
+      {selectionBar}
     </div>
   );
 }
