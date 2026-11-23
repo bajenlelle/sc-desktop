@@ -30,7 +30,7 @@ stretch where a game turned.
   for the app session its filters, quarter zoom, list scroll and (on a switch
   between open games) view (`lib/game-tabs.ts`), labels and playlists shown at
   once and read again behind. A link to a play opens without the filters.
-  Not kept: the filter sheet, the selection, and Undo for adds made on an
+  Not kept: the Filter popover, the selection, and Undo for adds made on an
   earlier visit. All of it but the position is dropped when the signed-in
   user changes (sign-out doesn't reload the webview).
 
@@ -275,8 +275,11 @@ lead to it, as references in the text, not new buttons:
   `ACTIVE_LEAD_SECONDS` before the playhead reaches it; a jump to a quarter
   lands `PERIOD_LEAD_SECONDS` ahead of it, and those seconds already count as
   the quarter.
-- **Moments** (one at a time, combined with the team filter): After timeouts,
-  Quarter starts, Quarter ends, Clutch, Runs, Fast breaks. "After timeouts" is
+- **Moments** (one at a time, under When in the Filter popover, combined with
+  the rest): After timeouts, Quarter starts, Quarter ends, Clutch, Runs. Fast
+  break is a Situation (the feed's own qualifier), so it isn't offered twice.
+  Teams' Plays, Add clips and the editor filter by them too, each game's read
+  from its plays and marks (`usePlayMoments`). "After timeouts" is
   the first shot, turnover or foul after each team timeout in the same
   quarter.
 - **A filter keeps the game's frame.** Filtered, the list shows only the plays
@@ -429,8 +432,14 @@ released app lists each row there as a clip.
   The player's name keeps room for its number and a few letters: in a narrow
   column the keys' hints go first, then the same-label-again button (⇧G still
   does it).
-- `game-filters.tsx`: team, moments, and the filter sheet (presets, search,
-  event and shot types, situations, players, quarters, labels, on court).
+- `game-filters.tsx`: the game's own fields (team, on court, the Stats pick)
+  around the bar every list of plays has (`components/plays/plays-filter-bar.tsx`,
+  over `PlayFilters` in `packages/shared/lib/play-filters.ts`, shared with
+  Teams' Plays, Add clips and the editor): the team switch, Filter (one
+  popover: players by team, shot type, situation, When with the quarters and
+  the moments, labels; its search narrows the choices, "#7" or a name) and
+  Presets; the event chips; a token per filter that is on ("Player is #13
+  Larsson ×"), as Linear draws them.
   Presets are saved per account and space (`filter_presets`,
   `lib/filter-presets.ts`) and shared with Add clips; a preset keeps plays,
   shot types, situations and labels, never the team or players, so the same
@@ -445,7 +454,7 @@ released app lists each row there as a clip.
 ↑ ↓ the previous or next listed play; Page Up and Page Down the previous or
 next marker (quarter start, timeout, run); 1–9 the start of that period; A
 add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
-(held: which key is which label); ⌘F the player search. ⌘-click toggles a
+(held: which key is which label); ⌘F the Filter popover, its search focused (in every list of plays). ⌘-click toggles a
 play into the selection and Shift-click selects a range; Shift+↑ ↓ extends it
 and plays there; ⌘A selects every listed play; Esc lets go. The pill over the
 list (`components/plays/plays-selection-bar.tsx`, shared with Teams' Plays)

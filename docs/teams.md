@@ -114,9 +114,12 @@ the Stats view's own rules (`gameBox`, `gameShots`).
 
 **Plays** (`components/team/team-plays-view.tsx`): With the ball | Without the
 ball (what the team's opponents did against it); Games, every one of the
-team's games ticked to start, no limit; Add clips' Player, Shot type,
-Situation, Labels and Presets (surface `team_plays`); what Watch picked as one
-pill ("Turnovers · 41") with Clear; the event chips. Over the list, the count
+team's games ticked to start, no limit; then the bar every list of plays has
+(`PlaysFilterBar`, see docs/game-view.md): Filter (players, shot type,
+situation, When with quarters and moments, labels; ⌘F) and Presets (surface
+`team_plays`); what Watch picked as a token ("Turnovers · 41") with ×; the
+event chips. The filters sit over the list, so the footage starts at the top
+of its column. Over the list, the count
 line every list of plays has (`PlaysCountLine`): "231 plays in 3 games",
 Clear filters while a filter or the pick is on (it clears both), and "Newest
 game first". The list is newest game
