@@ -8,7 +8,7 @@
  * and the sample game (one quarter, a run, footage from the network).
  */
 import type { Locator, Page } from "@playwright/test";
-import { PLAY_ROW, expect, giveSampleGameATimeout, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoTime } from "../helpers";
+import { PLAY_ROW, closeFilters, expect, filterSection, filterToken, giveSampleGameATimeout, openLibraryGame, openFilters, openSampleGame, patchGameReads, pickFilter, playRows, recordAnalytics, shot, showGameView, test, videoTime } from "../helpers";
 
 const timeline = (page: Page) => page.getByRole("region", { name: "Game timeline" });
 const track = (page: Page) => page.getByRole("slider", { name: "Position in the game" });
@@ -39,7 +39,23 @@ const listFrame = (page: Page) =>
       return out;
     });
 
-const moment = (page: Page, name: string) => page.getByRole("group", { name: "Moment" }).getByRole("button", { name, exact: true });
+/**
+ * Chooses a moment in the Filter popover's When section (one at a time); null turns the moment that is on off,
+ * by pressing it again (what the gone "All plays" chip did).
+ */
+async function setMoment(page: Page, name: string | null): Promise<void> {
+  if (name) {
+    await pickFilter(page, page, "When", name);
+    await expect(filterToken(page, "When"), "the moment's token says it").toContainText(name);
+    return;
+  }
+  const when = filterSection(await openFilters(page), "When");
+  await expect(when.getByRole("button", { pressed: true }), "a moment is on").toHaveCount(1);
+  await when.getByRole("button", { pressed: true }).click();
+  await expect(when.getByRole("button", { pressed: true }), "pressed again, it is off").toHaveCount(0);
+  await closeFilters(page);
+  await expect(filterToken(page, "When")).toHaveCount(0);
+}
 
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -132,7 +148,7 @@ test("the whole game shows its story: quarters, runs with their score, timeouts,
 test("a filter brings out the plays it leaves, in one colour, and they go when it is cleared", async ({ page, browserName }) => {
   await openLeagueGame(page);
   const whole = await listFrame(page);
-  await moment(page, "After timeouts").click();
+  await setMoment(page, "After timeouts");
   const listed = await playRows(page).count();
   expect(listed, "the filter leaves some plays").toBeGreaterThan(0);
   // The game's frame stays around the plays that are left: every period of the game, also one with no play
@@ -150,7 +166,7 @@ test("a filter brings out the plays it leaves, in one colour, and they go when i
     await shot(page, `${browserName}-J-strip-filtered-${scheme}`);
   }
 
-  await moment(page, "All plays").click();
+  await setMoment(page, null);
   await expect(drawn(page, "play-mark"), "no filter, no marks").toHaveCount(0);
 });
 
@@ -277,7 +293,7 @@ test("with no marks on the strip a click goes to the second under the pointer, n
 test("with marks on the strip, a click on one plays that play", async ({ page }) => {
   const tracked = await recordAnalytics(page);
   await openSampleGame(page);
-  await moment(page, "Runs").click();
+  await setMoment(page, "Runs");
   await expect.poll(() => drawn(page, "play-mark").count(), { message: "the filter's plays are marked" }).toBeGreaterThan(0);
   const mark = await boxOf(drawn(page, "play-mark").first(), "a play's mark");
   await page.mouse.move(mark.x + mark.width / 2 - 20, mark.y + mark.height / 2);
@@ -310,7 +326,7 @@ test("the line under the track is about the second the pointer is on, whatever t
   const unfiltered = await said();
   expect(unfiltered, "the line names a quarter and a clock").toMatch(/Q\d/);
 
-  await moment(page, "Runs").click();
+  await setMoment(page, "Runs");
   await expect.poll(() => drawn(page, "play-mark").count()).toBeGreaterThan(0);
   expect(await said(), "the same second, the same words, with a filter on").toBe(unfiltered);
 });
@@ -422,7 +438,7 @@ test("the two clicks of a double-click are one report, on a play's mark and on a
   const tracked = await recordAnalytics(page);
   await openSampleGame(page);
   const reports = async (kind: string) => (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.via === "timeline" && e.properties?.kind === kind).length;
-  await moment(page, "Runs").click();
+  await setMoment(page, "Runs");
   await expect.poll(() => drawn(page, "play-mark").count()).toBeGreaterThan(0);
   const mark = await boxOf(drawn(page, "play-mark").first(), "a play's mark");
   await page.mouse.dblclick(mark.x + mark.width / 2, mark.y + mark.height / 2);
@@ -479,13 +495,14 @@ test("the line under the track keeps its words inside itself, in the smallest wi
   await patchGameReads(page, { names: ["Vintergatan Basketbollklubb Herrar", "Norrskenet Basketbollklubb Herrar"] });
   await page.setViewportSize({ width: 1024, height: 640 });
   await openLeagueGame(page);
-  // The divider between the footage and the list, as far left as it goes.
+  // The divider between the list and the footage, as far right as it goes: the footage's column at its narrowest.
   const divider = await boxOf(page.getByRole("separator").first(), "the divider");
   await page.mouse.move(divider.x + divider.width / 2, divider.y + divider.height / 2);
   await page.mouse.down();
-  await page.mouse.move(divider.x - 500, divider.y + divider.height / 2, { steps: 12 });
+  await page.mouse.move(divider.x + 500, divider.y + divider.height / 2, { steps: 12 });
   await page.mouse.up();
   await page.waitForTimeout(400);
+  expect((await boxOf(page.getByRole("separator").first(), "the divider")).x, "the drag narrowed the footage's column").toBeGreaterThan(divider.x);
   const zoom = await boxOf(page.getByRole("button", { name: "Timeline zoom" }), "the zoom");
   const run = await boxOf(drawn(page, "run").last(), "a run's stretch");
   const timeout = await boxOf(drawn(page, "timeout").last(), "a timeout's mark");
@@ -579,7 +596,7 @@ test("a jump to a timeout marks the play it leads to at once, whichever way it i
   await openSampleGame(page);
   const timeoutRow = list(page).locator(`[data-row-key="timeout:${timeoutId}"]`);
   // The play the timeout leads to: the one the After timeouts list puts under it.
-  await moment(page, "After timeouts").click();
+  await setMoment(page, "After timeouts");
   await expect(timeoutRow).toBeVisible();
   const led = await list(page)
     .locator("[data-row-key]")
@@ -588,7 +605,7 @@ test("a jump to a timeout marks the play it leads to at once, whichever way it i
       return keys[keys.indexOf(key) + 1] ?? null;
     }, `timeout:${timeoutId}`);
   expect(led, "the timeout leads to a play").not.toBeNull();
-  await moment(page, "All plays").click();
+  await setMoment(page, null);
   await expect(playRows(page).nth(8)).toBeVisible();
   // What the Now bar says of that play: what it says when the play's own row is clicked.
   const nowBar = async () => `${await page.locator('[data-now="where"]').innerText()} ${await page.locator('[data-now="name"]').innerText()}`;

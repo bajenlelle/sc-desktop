@@ -5,7 +5,10 @@
  */
 import type { Page } from "@playwright/test";
 import {
+  closeFilters,
   expect,
+  filterPopover,
+  filterSearch,
   FIXTURE_VIDEO,
   mockLeague,
   openLibraryGame,
@@ -64,7 +67,8 @@ test("a narrow game list keeps each play's event name", async ({ page, browserNa
 test("a chip row that runs past its edge pages with ›", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 760 });
   await gameView(page);
-  const row = page.getByRole("group", { name: "Moment" });
+  // The event chips: the bar's one chip row (the moments went into the Filter popover's When).
+  const row = page.getByRole("group", { name: "Event type" });
   await expect(row).toHaveAttribute("data-more", /end|both/);
   await row.hover();
   const more = page.locator('[data-scroll-page="end"]').first();
@@ -72,6 +76,28 @@ test("a chip row that runs past its edge pages with ›", async ({ page }) => {
   await more.click();
   await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
   await expect(row).toHaveAttribute("data-more", /start|both/);
+});
+
+test("⌘F opens the Filter popover with its search focused, in the game view and in Teams' Plays", async ({ page }) => {
+  await gameView(page);
+  await playRows(page).first().click();
+  await page.keyboard.press("Meta+f");
+  await expect(filterPopover(page), "the game view's Filter opens").toBeVisible();
+  await expect(filterSearch(page), "with its search focused").toBeFocused();
+  // The search narrows the choices, not the plays: the count line keeps every play.
+  const count = page.getByRole("status").filter({ hasText: /^\d+ plays?$/ });
+  const all = await count.innerText();
+  await filterSearch(page).fill("zzqx");
+  await expect(filterPopover(page).getByText("No filters match “zzqx”.")).toBeVisible();
+  await expect(count, "typing in the search doesn't filter the plays").toHaveText(all);
+  await closeFilters(page);
+
+  await teamPlays(page);
+  await page.getByRole("list", { name: "Plays" }).locator("[data-key]").first().click();
+  await page.keyboard.press("Meta+f");
+  await expect(filterPopover(page), "Teams' Plays' Filter opens").toBeVisible();
+  await expect(filterSearch(page), "with its search focused").toBeFocused();
+  await closeFilters(page);
 });
 
 test("Teams' Plays: the count line clears filters, and a selection gets the game view's pill", async ({ page, browserName }) => {

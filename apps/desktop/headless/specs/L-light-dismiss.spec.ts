@@ -6,11 +6,9 @@
  * Reads only.
  */
 import type { Page } from "@playwright/test";
-import { emulateWindowDragRegions, expect, goViaSidebar, openLibraryGame, showGameView, test } from "../helpers";
+import { emulateWindowDragRegions, expect, filterButton, filterPopover as filterPanel, goViaSidebar, openLibraryGame, showGameView, test } from "../helpers";
 
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
-const filterButton = (page: Page) => page.getByRole("button", { name: /^Filters/ });
-const filterPanel = (page: Page) => page.getByRole("dialog").filter({ has: page.getByPlaceholder("Player name or number") });
 const searchPanel = (page: Page) => page.getByRole("dialog", { name: "Search", exact: true });
 
 /** The middle of the drag region under a point, after checking that a drag region is what lies there. */
