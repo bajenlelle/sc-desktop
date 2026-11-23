@@ -675,72 +675,92 @@ export async function pickOnlyGame(page: Page, sheet: Locator, title: string): P
 /** The bar's Filter button: "Filters", or "Filters, N on" while something in its popover is on. */
 export const filterButton = (scope: Page | Locator) => scope.getByRole("button", { name: /^Filters(, \d+ on)?$/ });
 
-/** The open Filter popover (portalled to the page, so found there): the one with the "Search filters" field. */
+/** The open Filter menu (portalled to the page, so found there): the one with the "Search filters" field. */
 export const filterPopover = (page: Page) =>
   page.locator('[data-slot="popover-content"]').filter({ has: page.getByLabel("Search filters", { exact: true }) });
 
-/** The popover's search: it narrows the choices shown, never the plays. */
+/** The menu's search: on the fields it finds values across every field; on a field's page it narrows that field. */
 export const filterSearch = (page: Page) => filterPopover(page).getByLabel("Search filters", { exact: true });
 
-/** Opens the Filter popover of the bar in `scope` (the page, or the Add clips sheet), unless it is open; returns it. */
+/** Opens the Filter menu of the bar in `scope` (the page, or the Add clips sheet), unless it is open; returns it. */
 export async function openFilters(page: Page, scope: Page | Locator = page): Promise<Locator> {
   const popover = filterPopover(page);
   if (!(await popover.isVisible())) await filterButton(scope).click();
-  await expect(popover, "the Filter popover opens").toBeVisible();
+  await expect(popover, "the Filter menu opens").toBeVisible();
   return popover;
 }
 
-/** Closes the Filter popover with Escape. */
+/** Closes the Filter menu: Escape goes back from a field's page to the fields, and then closes. */
 export async function closeFilters(page: Page): Promise<void> {
-  await page.keyboard.press("Escape");
-  await expect(filterPopover(page), "Escape closes the Filter popover").toBeHidden();
+  for (let i = 0; i < 3 && (await filterPopover(page).isVisible()); i++) await page.keyboard.press("Escape");
+  await expect(filterPopover(page), "Escape closes the Filter menu").toBeHidden();
 }
 
-/** A section of the open popover: a team's players (by the team's name), "Shot type", "Situation", "When", "Team", "Labels". */
-export const filterSection = (popover: Locator, name: string) => popover.getByRole("region", { name, exact: true });
+/** The menu's fields, as they are named on their rows. Any other section name is a team: its players are on Player's page. */
+export const FILTER_FIELDS = ["Player", "Team", "Shot type", "Situation", "When", "Labels"] as const;
+const fieldOf = (section: string) => ((FILTER_FIELDS as readonly string[]).includes(section) ? section : "Player");
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** The popover's sections, by name, in order. */
-export async function filterSectionNames(popover: Locator): Promise<string[]> {
-  return popover.locator("section[aria-label]").evaluateAll((all) => all.map((s) => s.getAttribute("aria-label") ?? ""));
-}
+/** The menu's list: the fields, or a field's values (named by the field while its page is open). */
+export const filterList = (popover: Locator) => popover.getByRole("listbox");
 
-/** The sections that aren't a team's players. */
-const NOT_PLAYERS = new Set(["Shot type", "Situation", "When", "Team", "Labels"]);
-
-/** The popover's player sections (one per team, titled with its name), in order. */
-export async function playerSectionNames(popover: Locator): Promise<string[]> {
-  return (await filterSectionNames(popover)).filter((n) => !NOT_PLAYERS.has(n));
-}
-
-/** A section's chips in order, as they read ("#7 Ada Lind", "Layup"), and whether each is on. */
-export async function sectionChips(popover: Locator, section: string): Promise<{ label: string; pressed: boolean }[]> {
-  return filterSection(popover, section)
-    .locator("button[aria-pressed]")
-    .evaluateAll((all) =>
-      all.map((b) => ({
-        // The number and the name are separate spans: read them as words.
-        label: Array.from(b.childNodes)
-          .map((n) => (n.textContent ?? "").trim())
-          .filter(Boolean)
-          .join(" "),
-        pressed: b.getAttribute("aria-pressed") === "true",
-      })),
-    );
+/** Opens a field's page in the open menu (back to the fields first, when another page is open). */
+export async function openFilterPage(popover: Locator, field: string): Promise<void> {
+  const list = filterList(popover);
+  if ((await list.getAttribute("aria-label")) === field) return;
+  const back = popover.getByRole("button", { name: "Back to all filters" });
+  if (await back.isVisible()) await back.click();
+  await filterList(popover).getByRole("option", { name: new RegExp(`^${escapeRe(field)}(,|$)`) }).click();
+  await expect(list, `the menu shows ${field}`).toHaveAttribute("aria-label", field);
 }
 
 /**
- * Presses one chip in a section of the Filter popover of the bar in `scope` (its first chip without `value`),
- * checks that it flipped, and closes the popover with Escape. Returns the chip's label ("#7 Ada Lind").
+ * Where a section's values are, with its page open: a field's whole list, or a team's group on Player's page.
+ * Its rows are `option`s named as they read ("#7 Ada Lind", "Layup"), `aria-selected` while on.
+ */
+export async function filterSection(popover: Locator, section: string): Promise<Locator> {
+  const field = fieldOf(section);
+  await openFilterPage(popover, field);
+  return field === section ? filterList(popover) : filterList(popover).getByRole("group", { name: section, exact: true });
+}
+
+/** Whether the menu lists a field at all (Labels only with labels, Team only with several teams…). */
+export async function hasFilterField(popover: Locator, field: string): Promise<boolean> {
+  const back = popover.getByRole("button", { name: "Back to all filters" });
+  if (await back.isVisible()) await back.click();
+  return (await filterList(popover).getByRole("option", { name: new RegExp(`^${escapeRe(field)}(,|$)`) }).count()) > 0;
+}
+
+/** The teams on Player's page, in order (it stays open). */
+export async function playerSectionNames(popover: Locator): Promise<string[]> {
+  await openFilterPage(popover, "Player");
+  return filterList(popover).getByRole("group").evaluateAll((all) => all.map((g) => g.getAttribute("aria-label") ?? ""));
+}
+
+/** A section's values in order, as they read ("#7 Ada Lind", "Layup"), and whether each is on (its page stays open). */
+export async function sectionChips(popover: Locator, section: string): Promise<{ label: string; pressed: boolean }[]> {
+  const area = await filterSection(popover, section);
+  return area
+    .getByRole("option")
+    .evaluateAll((all) => all.map((o) => ({ label: o.getAttribute("aria-label") ?? "", pressed: o.getAttribute("aria-selected") === "true" })));
+}
+
+/**
+ * Turns one value of a section on or off in the Filter menu of the bar in `scope` (its first that can be chosen,
+ * without `value`), checks that it flipped, and closes the menu. Returns the value as it reads ("#7 Ada Lind").
  */
 export async function pickFilter(page: Page, scope: Page | Locator, section: string, value?: string | RegExp): Promise<string> {
   const popover = await openFilters(page, scope);
-  const chips = filterSection(popover, section).locator("button[aria-pressed]");
-  await expect(chips.first(), `the Filter popover has a "${section}" section`).toBeVisible({ timeout: 30_000 });
-  const chip = value === undefined ? chips.first() : filterSection(popover, section).getByRole("button", { name: value, exact: typeof value === "string" });
-  const was = await chip.getAttribute("aria-pressed");
-  const label = (await chip.evaluate((b) => Array.from(b.childNodes).map((n) => (n.textContent ?? "").trim()).filter(Boolean).join(" "))).trim();
-  await chip.click();
-  await expect(chip, `"${label}" in ${section} is ${was === "true" ? "off" : "on"}`).toHaveAttribute("aria-pressed", was === "true" ? "false" : "true");
+  const area = await filterSection(popover, section);
+  await expect(area.getByRole("option").first(), `the Filter menu lists ${section}`).toBeVisible({ timeout: 30_000 });
+  const option =
+    value === undefined
+      ? area.locator('[role="option"]:not([aria-disabled="true"])').first()
+      : area.getByRole("option", { name: value, exact: typeof value === "string" });
+  const was = await option.getAttribute("aria-selected");
+  const label = (await option.getAttribute("aria-label")) ?? "";
+  await option.click();
+  await expect(option, `"${label}" in ${section} is ${was === "true" ? "off" : "on"}`).toHaveAttribute("aria-selected", was === "true" ? "false" : "true");
   await closeFilters(page);
   return label;
 }

@@ -7,7 +7,7 @@
  * that game's marks once, as any visit does).
  */
 import type { Locator, Page } from "@playwright/test";
-import { expect, filterButton, filterPopover, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
+import { filterSection, expect, filterButton, filterPopover, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
 
 const SIZES = [
   { width: 1440, height: 900 },
@@ -319,7 +319,8 @@ test("a switch's thumb stays in its track while the page around it settles", asy
   await showGameView(page);
   await filterButton(page).click();
   const sheet = filterPopover(page);
-  await sheet.locator("button[aria-pressed]").filter({ hasText: /^#\d+/ }).first().click();
+  // One player chosen on Player's page: its foot offers "While on the floor".
+  await (await filterSection(sheet, "Player")).getByRole("option", { name: /^#\d+ / }).first().click();
   const onFloor = sheet.getByRole("switch");
   await expect(onFloor).toHaveAttribute("aria-checked", "false");
   /** The thumb's gap to the track's left and right edges. */

@@ -49,10 +49,11 @@ async function setMoment(page: Page, name: string | null): Promise<void> {
     await expect(filterToken(page, "When"), "the moment's token says it").toContainText(name);
     return;
   }
-  const when = filterSection(await openFilters(page), "When");
-  await expect(when.getByRole("button", { pressed: true }), "a moment is on").toHaveCount(1);
-  await when.getByRole("button", { pressed: true }).click();
-  await expect(when.getByRole("button", { pressed: true }), "pressed again, it is off").toHaveCount(0);
+  const when = await filterSection(await openFilters(page), "When");
+  const moments = when.getByRole("group", { name: "Moment" });
+  await expect(moments.getByRole("option", { selected: true }), "a moment is on").toHaveCount(1);
+  await moments.getByRole("option", { selected: true }).click();
+  await expect(moments.getByRole("option", { selected: true }), "pressed again, it is off").toHaveCount(0);
   await closeFilters(page);
   await expect(filterToken(page, "When")).toHaveCount(0);
 }

@@ -196,11 +196,11 @@ test("presets save, apply, refuse a taken name, delete with Undo, travel to the 
   const koping = page.getByRole("radiogroup", { name: "Team" }).getByRole("radio", { name: KOPING });
   await koping.click();
   await expect(koping).toBeChecked();
-  const squad = filterSection(await openFilters(page), KOPING);
-  const first = squad.getByRole("button").nth(0);
-  const second = squad.getByRole("button").nth(1);
+  const squad = await filterSection(await openFilters(page), KOPING);
+  const first = squad.getByRole("option").nth(0);
+  const second = squad.getByRole("option").nth(1);
   await first.click();
-  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await expect(first).toHaveAttribute("aria-selected", "true");
   await closeFilters(page);
   await plays.getByRole("button", { name: "FT made", exact: true }).click();
   menu = await openPresets(page, page);
@@ -212,11 +212,11 @@ test("presets save, apply, refuse a taken name, delete with Undo, travel to the 
 
   // Another player: the trigger still names it (a player isn't part of a preset). FT made off, then
   // the preset applied: FT made is back, the player and team chosen in the meantime stay.
-  await openFilters(page);
+  await filterSection(await openFilters(page), KOPING);
   await first.click();
   await second.click();
-  await expect(second).toHaveAttribute("aria-pressed", "true");
-  await expect(first).toHaveAttribute("aria-pressed", "false");
+  await expect(second).toHaveAttribute("aria-selected", "true");
+  await expect(first).toHaveAttribute("aria-selected", "false");
   await closeFilters(page);
   await expect(page.getByRole("button", { name: PLAYER, exact: true }), "a change of player keeps the preset's name on the trigger").toBeVisible();
   await plays.getByRole("button", { name: "FT made", exact: true }).click();
@@ -225,9 +225,9 @@ test("presets save, apply, refuse a taken name, delete with Undo, travel to the 
   await menu.getByRole("button", { name: PLAYER, exact: true }).click();
   await expect(menu).toBeHidden();
   await expect.poll(() => pressedChips(plays), { message: "the preset ticks FT made again" }).toEqual(["FT made"]);
-  await openFilters(page);
-  await expect(second, "the player chosen in the meantime stays").toHaveAttribute("aria-pressed", "true");
-  await expect(first, "the player chosen when the preset was saved isn't brought back").toHaveAttribute("aria-pressed", "false");
+  await filterSection(await openFilters(page), KOPING);
+  await expect(second, "the player chosen in the meantime stays").toHaveAttribute("aria-selected", "true");
+  await expect(first, "the player chosen when the preset was saved isn't brought back").toHaveAttribute("aria-selected", "false");
   await expect(koping, "the team stays").toBeChecked();
   await expect(page.getByText(LABELS_GONE)).toHaveCount(0);
   await shot(page, name("game-view-player-kept"));

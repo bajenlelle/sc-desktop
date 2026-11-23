@@ -11,6 +11,7 @@
  * the playlist `headless-<port> filters` and deletes it afterwards.
  */
 import {
+  hasFilterField,
   PORT,
   closeFilters,
   createPlaylist,
@@ -120,7 +121,7 @@ test("Add clips filters narrow the list together, and a game switch clears team 
 
   // A label, if the space has one.
   popover = await openFilters(page, sheet);
-  const hasLabels = (await filterSection(popover, "Labels").count()) > 0;
+  const hasLabels = await hasFilterField(popover, "Labels");
   await closeFilters(page);
   if (hasLabels) {
     const labelName = await pickFilter(page, sheet, "Labels");
@@ -136,8 +137,9 @@ test("Add clips filters narrow the list together, and a game switch clears team 
   await page.getByRole("option").filter({ hasText: OTHER_GAME }).first().getByText(OTHER_GAME, { exact: true }).click();
   await expect(gameTrigger(sheet)).toHaveText(OTHER_GAME);
   popover = await openFilters(page, sheet);
-  await expect(filterSection(popover, "Team").getByRole("button", { name: "Nässjö Basket" }), "the new game's plays are in").toBeVisible({ timeout: 30_000 });
-  await expect(filterSection(popover, "Team").getByRole("button", { pressed: true })).toHaveCount(0);
+  const teams = await filterSection(popover, "Team");
+  await expect(teams.getByRole("option", { name: "Nässjö Basket" }), "the new game's plays are in").toBeVisible({ timeout: 30_000 });
+  await expect(teams.getByRole("option", { selected: true })).toHaveCount(0);
   await closeFilters(page);
   await expect(filterToken(sheet, "Team")).toHaveCount(0);
   await expect(filterToken(sheet, "Player")).toHaveCount(0);
@@ -149,9 +151,9 @@ test("Add clips filters narrow the list together, and a game switch clears team 
   await page.getByRole("option").filter({ hasText: GAME }).first().getByText(GAME, { exact: true }).click();
   await expect(gameTrigger(sheet)).toHaveText(GAME);
   popover = await openFilters(page, sheet);
-  const lulea = filterSection(popover, "Team").getByRole("button", { name: "BC Luleå" });
+  const lulea = (await filterSection(popover, "Team")).getByRole("option", { name: "BC Luleå" });
   await expect(lulea).toBeVisible({ timeout: 30_000 });
-  await expect(lulea, "the team was cleared").toHaveAttribute("aria-pressed", "false");
+  await expect(lulea, "the team was cleared").toHaveAttribute("aria-selected", "false");
   expect((await sectionChips(popover, "BC Luleå")).filter((c) => c.pressed), "the player was cleared").toEqual([]);
   await closeFilters(page);
   await expect(filterToken(sheet, "Team")).toHaveCount(0);

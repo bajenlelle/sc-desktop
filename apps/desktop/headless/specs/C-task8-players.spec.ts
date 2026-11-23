@@ -49,7 +49,7 @@ async function playersShown(popover: Locator): Promise<{ heading: string; option
   return out;
 }
 
-test("players are grouped by team with shirt numbers, and the search narrows them by name or number", async ({ page, browserName }) => {
+test("players are grouped by team with shirt numbers on Player's page, and its search narrows them by name or number", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-C-task8-${step}`;
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
   const playlistId = await createPlaylist(page, PLAYLIST);
@@ -94,9 +94,9 @@ test("players are grouped by team with shirt numbers, and the search narrows the
   expect((await playersShown(popover)).flatMap((g) => g.options), `${target} is among them`).toContain(target);
   await shot(page, name("search-name"));
 
-  // A shirt number, with or without "#": the players whose number holds it.
+  // A shirt number, with or without "#": the players whose number starts with it ("1" finds #1 and #12).
   const numbered = all.map(parse).find((p) => p.number !== null)!;
-  const byNumber = (n: string) => all.filter((label) => String(parse(label).number ?? "").includes(n) || parse(label).name.toLowerCase().includes(n)).sort();
+  const byNumber = (n: string) => all.filter((label) => String(parse(label).number ?? "").startsWith(n) || parse(label).name.toLowerCase().includes(n)).sort();
   await filterSearch(page).fill(`#${numbered.number}`);
   await expect
     .poll(async () => (await playersShown(popover)).flatMap((g) => g.options).sort(), { message: `"#${numbered.number}" finds the players by number` })

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ListFilter, X } from "lucide-react";
+import { Clock, Crosshair, ListFilter, Shield, Tag, User, X, Zap } from "lucide-react";
 import { EVENT_TYPE_OPTIONS, SHOT_TYPE_OPTIONS, SITUATION_OPTIONS, type PlayerGroup } from "@scoutable/shared/lib/clip-filters";
 import { periodLabel } from "@scoutable/shared/lib/events";
 import type { GameMoment } from "@scoutable/shared/lib/game-flow";
@@ -11,60 +11,18 @@ import {
   playFiltersCount,
   toggled,
   type AppliedFilter,
+  type PlayFilterField,
   type PlayFilters,
 } from "@scoutable/shared/lib/play-filters";
 import type { Label } from "@scoutable/shared/types/labels";
 import { EventTypeChips } from "@/components/editor/event-type-chips";
-import { Button } from "@/components/ui/button";
 import { quietControl, quietState } from "@/components/ui/filter-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { SearchField } from "@/components/ui/search-field";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { FilterMenu, type MenuField } from "./filter-menu";
 import { cn } from "@/lib/utils";
 
 /** The event chips every list offers: the Add clips set without Timeout (a game mark, not a play). */
 export const PLAY_EVENT_OPTIONS = EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeout");
-
-/** One value in a section: pressed while it filters. */
-export function FilterChip({
-  pressed,
-  disabled,
-  onClick,
-  children,
-  className,
-}: {
-  pressed: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium whitespace-nowrap outline-none transition-[background-color,color,transform] duration-100 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:opacity-40 disabled:active:scale-100",
-        pressed ? "bg-fill-3 text-foreground hover:bg-fill-4" : "bg-fill-1 text-foreground hover:bg-fill-2 active:bg-fill-3",
-        className,
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** A section of the Filter popover: its name, then its chips. */
-export function FilterSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-1.5" aria-label={title}>
-      <h3 className="text-subheadline font-medium text-muted-foreground">{title}</h3>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
-    </section>
-  );
-}
 
 /**
  * A filter that is on, as Linear draws one: what it filters, how, the values, and × to take it off. A press on
@@ -125,16 +83,15 @@ export function FilterToken({
   );
 }
 
-const matchesQuery = (query: string, ...texts: (string | null | undefined)[]) =>
-  query === "" || texts.some((t) => !!t && t.toLowerCase().includes(query));
 
 /**
  * The filters over every list of plays (the game view, Teams' Plays, Add clips, the editor), as Linear keeps
  * them: a row with the list's scope (whose plays, which games), Filter and Presets; the event chips, one press
  * away; and, while anything else is on, a token per filter that says what it is and takes it off. Everything
- * but the events lives in the one Filter popover, its search narrowing the choices ("#7", "Berg", "clutch").
- * A section shows only where its choices exist: quarters with more than one, moments where the list has them,
- * teams where `teams` is given.
+ * but the events lives in the Filter menu (FilterMenu): its fields first, each opening a page of values with
+ * checkmarks, and one search that finds values across every field ("#7", "Berg", "clutch"). A token opens its
+ * field's page. A field is listed only where its values exist: quarters with more than one, moments where the
+ * list has them, teams where `teams` is given.
  */
 export function PlaysFilterBar({
   filters,
@@ -181,8 +138,8 @@ export function PlaysFilterBar({
   modal?: boolean;
   className?: string;
 }) {
-  const [query, setQuery] = React.useState("");
-  const q = query.trim().toLowerCase().replace(/^#/, "");
+  // The Filter menu's open page: a field's values, or null for the fields.
+  const [page, setPage] = React.useState<string | null>(null);
   const count = playFiltersCount(filters);
   const set = <K extends keyof PlayFilters>(key: K, value: PlayFilters[K]) => onChange({ ...filters, [key]: value });
   const toggle = (key: "types" | "shotTypes" | "situations" | "teams" | "players" | "labels", value: string) =>
@@ -200,88 +157,110 @@ export function PlaysFilterBar({
   // The events have their chips, always in view: a token for them would say it twice.
   const tokens = appliedFilters(filters, { player: playerName, label: labelName }).filter((t) => t.field !== "types");
 
-  const sections: React.ReactNode[] = [];
-  const optionChips = (key: "shotTypes" | "situations", options: readonly { value: string; label: string }[]) =>
-    options
-      .filter((o) => matchesQuery(q, o.label))
-      .map((o) => (
-        <FilterChip key={o.value} pressed={filters[key].has(o.value)} onClick={() => toggle(key, o.value)}>
-          {o.label}
-        </FilterChip>
-      ));
-  for (const g of players) {
-    const shown = g.players.filter((p) => matchesQuery(q, p.name, p.number));
-    if (shown.length === 0) continue;
-    sections.push(
-      <FilterSection key={`players:${g.teamName}`} title={g.teamName || "Players"}>
-        {shown.map((p) => (
-          <FilterChip key={p.key} pressed={filters.players.has(p.key)} onClick={() => toggle("players", p.key)}>
-            {p.number ? <span className="nums opacity-70">#{p.number}</span> : null}
-            {p.name}
-          </FilterChip>
-        ))}
-      </FilterSection>,
-    );
-  }
-  if (playerExtra && q === "") sections.push(<React.Fragment key="player-extra">{playerExtra}</React.Fragment>);
-  const shots = optionChips("shotTypes", SHOT_TYPE_OPTIONS);
-  if (shots.length > 0) sections.push(<FilterSection key="shot" title="Shot type">{shots}</FilterSection>);
-  const situations = optionChips("situations", SITUATION_OPTIONS);
-  if (situations.length > 0) sections.push(<FilterSection key="situation" title="Situation">{situations}</FilterSection>);
-  const quarterChips = periods.length > 1 ? periods.filter((p) => matchesQuery(q, periodLabel(p))) : [];
-  const momentChips = moments ? MOMENT_OPTIONS.filter((m) => matchesQuery(q, m.label)) : [];
-  if (quarterChips.length > 0 || momentChips.length > 0) {
-    sections.push(
-      <FilterSection key="when" title="When">
-        {quarterChips.map((p) => (
-          <FilterChip key={p} pressed={filters.periods.has(p)} onClick={() => set("periods", toggled(filters.periods, p))}>
-            {periodLabel(p)}
-          </FilterChip>
-        ))}
-        {momentChips.map((m) => {
-          const why = moments?.why?.[m.value] ?? (moments?.counts[m.value] === 0 ? "No plays like this here." : null);
-          const on = filters.moment === m.value;
-          return (
-            <Tooltip key={m.value}>
-              <TooltipTrigger asChild>
-                {/* The wrapper takes the hover, so a chip that is off still says why. */}
-                <span className="shrink-0">
-                  <FilterChip pressed={on} disabled={!!why && !on} onClick={() => set("moment", on ? null : m.value)}>
-                    {m.label}
-                  </FilterChip>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{why ?? m.help}</TooltipContent>
-            </Tooltip>
-          );
-        })}
-      </FilterSection>,
-    );
+  // The Filter menu's fields (FilterMenu): each with its values, what is chosen in it, and how it reads on its row.
+  const one = <T,>(set: ReadonlySet<T>, words: (v: T) => string) => (set.size === 1 ? words([...set][0]) : String(set.size));
+  const fields: MenuField[] = [];
+  if (players.some((g) => g.players.length > 0)) {
+    fields.push({
+      id: "players",
+      name: "Player",
+      icon: User,
+      values: players.flatMap((g) =>
+        g.players.map((p) => ({ value: p.key, label: p.name, lead: p.number, keywords: p.number ? [p.number] : [], group: g.teamName || "Other players" })),
+      ),
+      isOn: (v) => filters.players.has(v),
+      toggle: (v) => toggle("players", v),
+      clear: () => set("players", new Set()),
+      count: filters.players.size,
+      summary: one(filters.players, playerName),
+      footer: playerExtra || undefined,
+    });
   }
   if (teams && teams.length > 1) {
-    const shown = teams.filter((t) => matchesQuery(q, t));
-    if (shown.length > 0)
-      sections.push(
-        <FilterSection key="teams" title="Team">
-          {shown.map((t) => (
-            <FilterChip key={t} pressed={filters.teams.has(t)} onClick={() => toggle("teams", t)}>
-              {t}
-            </FilterChip>
-          ))}
-        </FilterSection>,
-      );
+    fields.push({
+      id: "teams",
+      name: "Team",
+      icon: Shield,
+      values: teams.map((t) => ({ value: t, label: t })),
+      isOn: (v) => filters.teams.has(v),
+      toggle: (v) => toggle("teams", v),
+      clear: () => set("teams", new Set()),
+      count: filters.teams.size,
+      summary: one(filters.teams, (t) => t),
+    });
   }
-  const labelChips = labels.filter((l) => matchesQuery(q, l.name));
-  if (labelChips.length > 0)
-    sections.push(
-      <FilterSection key="labels" title="Labels">
-        {labelChips.map((l) => (
-          <FilterChip key={l.id} pressed={!!filters.labels?.has(l.id)} onClick={() => toggle("labels", l.id)}>
-            {l.name}
-          </FilterChip>
-        ))}
-      </FilterSection>,
-    );
+  fields.push({
+    id: "shotTypes",
+    name: "Shot type",
+    icon: Crosshair,
+    values: SHOT_TYPE_OPTIONS,
+    isOn: (v) => filters.shotTypes.has(v),
+    toggle: (v) => toggle("shotTypes", v),
+    clear: () => set("shotTypes", new Set()),
+    count: filters.shotTypes.size,
+    summary: one(filters.shotTypes, (v) => SHOT_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v),
+  });
+  fields.push({
+    id: "situations",
+    name: "Situation",
+    icon: Zap,
+    values: SITUATION_OPTIONS,
+    isOn: (v) => filters.situations.has(v),
+    toggle: (v) => toggle("situations", v),
+    clear: () => set("situations", new Set()),
+    count: filters.situations.size,
+    summary: one(filters.situations, (v) => SITUATION_OPTIONS.find((o) => o.value === v)?.label ?? v),
+  });
+  // When: the quarters (any of them) and one moment at a time.
+  const whenValues = [
+    ...(periods.length > 1 ? periods.map((p) => ({ value: `period:${p}`, label: periodLabel(p), group: "Quarter" })) : []),
+    ...(moments
+      ? MOMENT_OPTIONS.map((m) => {
+          const why = moments.why?.[m.value] ?? (moments.counts[m.value] === 0 ? "None here" : null);
+          return { value: `moment:${m.value}`, label: m.label, group: "Moment", disabledReason: filters.moment === m.value ? null : why };
+        })
+      : []),
+  ];
+  if (whenValues.length > 0) {
+    const whenCount = filters.periods.size + (filters.moment ? 1 : 0);
+    fields.push({
+      id: "when",
+      name: "When",
+      icon: Clock,
+      values: whenValues,
+      isOn: (v) => (v.startsWith("period:") ? filters.periods.has(Number(v.slice(7))) : filters.moment === v.slice(7)),
+      toggle: (v) => {
+        if (v.startsWith("period:")) set("periods", toggled(filters.periods, Number(v.slice(7))));
+        else {
+          const m = v.slice(7) as GameMoment;
+          set("moment", filters.moment === m ? null : m);
+        }
+      },
+      clear: () => onChange({ ...filters, periods: new Set(), moment: null }),
+      count: whenCount,
+      summary:
+        whenCount === 1
+          ? filters.moment
+            ? (MOMENT_OPTIONS.find((m) => m.value === filters.moment)?.label ?? filters.moment)
+            : periodLabel([...filters.periods][0])
+          : String(whenCount),
+    });
+  }
+  if (labels.length > 0) {
+    fields.push({
+      id: "labels",
+      name: "Labels",
+      icon: Tag,
+      values: labels.map((l) => ({ value: l.id, label: l.name })),
+      isOn: (v) => !!filters.labels?.has(v),
+      toggle: (v) => toggle("labels", v),
+      clear: () => set("labels", new Set()),
+      count: filters.labels?.size ?? 0,
+      summary: one(filters.labels ?? new Set<string>(), labelName),
+    });
+  }
+  // The token of a field opens that field's page.
+  const pageOf: Partial<Record<PlayFilterField, string>> = { players: "players", teams: "teams", shotTypes: "shotTypes", situations: "situations", periods: "when", moment: "when", labels: "labels" };
 
   const clearPopover = onClearAll ?? (() => onChange({ ...EMPTY_PLAY_FILTERS, types: filters.types }));
   const popoverCount = count - (filters.types.size > 0 ? 1 : 0);
@@ -299,7 +278,7 @@ export function PlaysFilterBar({
             modal={modal}
             open={open}
             onOpenChange={(o) => {
-              if (!o) setQuery("");
+              if (!o) setPage(null);
               onOpenChange(o);
             }}
           >
@@ -315,20 +294,34 @@ export function PlaysFilterBar({
                 {popoverCount > 0 && <span className="nums">{popoverCount}</span>}
               </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="flex max-h-[min(70vh,34rem)] w-80 flex-col gap-3 overflow-y-auto p-3">
-              <SearchField
-                ref={searchRef}
-                placeholder="Player name or number"
-                aria-label="Search filters"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+            <PopoverContent
+              align="start"
+              className="w-auto overflow-hidden p-0"
+              // Esc on a field's page goes back to the fields; on the fields it closes, as a menu does.
+              onEscapeKeyDown={(e) => {
+                if (page !== null) {
+                  e.preventDefault();
+                  setPage(null);
+                }
+              }}
+            >
+              <FilterMenu
+                fields={fields}
+                page={page}
+                onPage={setPage}
+                inputRef={searchRef}
+                footer={
+                  popoverCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={clearPopover}
+                      className="h-7 w-full rounded-md px-2 text-left text-sm text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-selection"
+                    >
+                      Clear these filters
+                    </button>
+                  ) : undefined
+                }
               />
-              {sections.length > 0 ? sections : <p className="py-2 text-center text-callout text-muted-foreground">No filters match “{query.trim()}”.</p>}
-              {popoverCount > 0 && (
-                <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={clearPopover}>
-                  Clear these filters
-                </Button>
-              )}
             </PopoverContent>
           </Popover>
           {presets}
@@ -344,7 +337,10 @@ export function PlaysFilterBar({
               name={t.name}
               op={t.op}
               values={t.values.join(", ")}
-              onEdit={() => onOpenChange(true)}
+              onEdit={() => {
+                setPage(pageOf[t.field] ?? null);
+                onOpenChange(true);
+              }}
               onRemove={() => onChange(clearField(filters, t.field))}
             />
           ))}
