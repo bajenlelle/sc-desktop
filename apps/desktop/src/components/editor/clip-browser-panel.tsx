@@ -38,7 +38,7 @@ import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
-import { PLAY_ROW_HEIGHT, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot } from "@/components/plays/play-row";
+import { LIST_GROUP, listSelecting, PLAY_ROW_HEIGHT, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot } from "@/components/plays/play-row";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import { LeadersPopover } from "@/components/leaders-popover";
@@ -130,7 +130,7 @@ const BrowserRow = memo(function BrowserRow({
   /** The + at the row's end: adds this play (the selection, when the row is in it), as in the game view. */
   onAdd: (rowKey: string, anchor: HTMLElement) => void;
   /** The row: plain plays it, ⌘ selects it, Shift selects the range. */
-  onPress: (event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) => void;
+  onPress: (event: PlayByPlayEvent, matchId: string, mods: { shift: boolean; toggle: boolean }) => void;
   /** The Tag button: opens the label picker on this row. */
   onLabel: (rowKey: string) => void;
 }) {
@@ -141,14 +141,15 @@ const BrowserRow = memo(function BrowserRow({
       aria-rowindex={index + 1}
       aria-selected={isSelected}
       aria-current={isActive ? "true" : undefined}
-      onClick={(e) => onPress(event, matchId, e)}
+      onClick={(e) => onPress(event, matchId, { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey })}
       className={cn(
         // One height for every row, whatever it holds: the list is windowed by it (PLAY_ROW_HEIGHT).
-        playRowClass({ selected: isActive }),
+        playRowClass({ selected: isSelected }),
         "box-border",
         // The separator goes by place in the list: the first row drawn isn't always the list's first.
         index > 0 && "shadow-[inset_0_1px_0_var(--separator)]",
-        !isActive && isSelected && "bg-fill-1 hover:bg-fill-2",
+        // The playing row, when it isn't selected: the current row's fill, a step lighter than the selection's.
+        !isSelected && isActive && "bg-fill-2 hover:bg-fill-2",
       )}
     >
       <PlayRowCells
@@ -159,6 +160,7 @@ const BrowserRow = memo(function BrowserRow({
         team={null}
         labels={assignedLabels}
         context={showGame ? matchTitle : undefined}
+        check={{ on: isSelected, onToggle: (shift) => onPress(event, matchId, { shift, toggle: !shift }) }}
         actions={
           <>
             {/* A plain button until it is pressed: the picker itself is mounted on one row at a time. */}
@@ -845,10 +847,10 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     anchorKeyRef.current = next.anchor;
     extendFocusRef.current = next.focus;
   }
-  function handleRowPress(event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) {
+  function handleRowPress(event: PlayByPlayEvent, matchId: string, mods: { shift: boolean; toggle: boolean }) {
     const key = `${matchId}:${event.eventId}`;
-    if (e.shiftKey || e.metaKey || e.ctrlKey) {
-      applyClick(key, e.shiftKey, !e.shiftKey);
+    if (mods.shift || mods.toggle) {
+      applyClick(key, mods.shift, !mods.shift);
       return;
     }
     setAnchor(key);
@@ -858,7 +860,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   const handleRowPressRef = useRef(handleRowPress);
   handleRowPressRef.current = handleRowPress;
   const onRowPress = useCallback(
-    (event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) => handleRowPressRef.current(event, matchId, e),
+    (event: PlayByPlayEvent, matchId: string, mods: { shift: boolean; toggle: boolean }) => handleRowPressRef.current(event, matchId, mods),
     [],
   );
   const onRowAdd = useCallback((key: string) => addFromRowRef.current(key), []);
@@ -1285,6 +1287,8 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
               <div
                 role="grid"
                 aria-label="Events"
+                className={LIST_GROUP}
+                {...listSelecting(selectedIds.size > 0)}
                 aria-rowcount={filtered.length}
                 // The rows not drawn, above and below: the list scrolls as if they were there.
                 style={{ paddingTop: listRange.padTop, paddingBottom: listRange.padBottom }}

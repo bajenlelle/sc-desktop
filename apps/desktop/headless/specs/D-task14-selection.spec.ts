@@ -109,6 +109,17 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await expect(selectedRows(page)).toHaveCount(0);
   await expect(pill(page)).toHaveCount(0);
 
+  // The row's check, under the pointer: a press selects without ⌘, and every row then shows its box.
+  await rows.nth(7).hover();
+  const check = rows.nth(7).locator("[data-row-check]");
+  await expect(check).toBeVisible();
+  await check.click();
+  await expect(rows.nth(7)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(8).locator('[data-row-check="off"]'), "selecting: the other rows show an empty box").toBeVisible();
+  await shot(page, name("check"));
+  await rows.nth(7).locator("[data-row-check]").click();
+  await expect(selectedRows(page)).toHaveCount(0);
+
   // ⌘A with one team's plays listed selects exactly the listed plays.
   const total = await rows.count();
   const teams = page.getByRole("radiogroup", { name: "Team" }).getByRole("radio");

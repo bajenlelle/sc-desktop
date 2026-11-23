@@ -80,6 +80,7 @@ export function GameFilterBar({
       <PlaysFilterBar
         filters={play}
         onChange={(next) => onChange({ ...filters, play: next, onCourt: next.players.size === 1 ? filters.onCourt : false })}
+        scopeFill
         scope={
           <SegmentedControl
             aria-label="Team"

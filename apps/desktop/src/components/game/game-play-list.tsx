@@ -12,6 +12,7 @@ import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { riseVariants, useReducedMotionSafe } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { GamePlayRow, type CollectStatus } from "./game-play-row";
+import { LIST_GROUP, listSelecting } from "@/components/plays/play-row";
 
 const NO_LABELS: readonly Label[] = [];
 /** How long one of the list's own scrolls can take: scroll events inside it aren't the coach's. */
@@ -296,6 +297,7 @@ export function GamePlayList({
             ref={scrollerRef}
             role="list"
             aria-label="Plays"
+            {...listSelecting(selecting)}
             onScroll={onScroll}
             onContextMenu={onContextMenu}
             // A press with the mouse doesn't take the keyboard's focus: every key works from anywhere in the view,
@@ -311,7 +313,7 @@ export function GamePlayList({
               if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
             }}
             // Room for the selection's pill under the last row, as in the editor.
-            className={cn("min-h-0 flex-1 overflow-y-auto", selecting ? "pb-16" : "pb-4")}
+            className={cn(LIST_GROUP, "min-h-0 flex-1 overflow-y-auto", selecting ? "pb-16" : "pb-4")}
           >
             {rows.map((row) => {
               if (row.kind === "play") {

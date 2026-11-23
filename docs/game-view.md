@@ -439,7 +439,12 @@ released app lists each row there as a clip.
   popover: players by team, shot type, situation, When with the quarters and
   the moments, labels; its search narrows the choices, "#7" or a name) and
   Presets; the event chips; a token per filter that is on ("Player is #13
-  Larsson ×"), as Linear draws them.
+  Larsson ×"), as Linear draws them. Filter and Presets follow the scope on
+  its line (in the game view the team switch fills the line, so they sit at
+  its end). The editor has no bar: its toolbar's Filter opens the same menu
+  in place (`usePlaylistFilters` in `components/playlist-filter-bar.tsx`),
+  with Event and Game as fields since it has no chips, Presets at the menu's
+  foot, and the tokens over the list only while something is on.
   Presets are saved per account and space (`filter_presets`,
   `lib/filter-presets.ts`) and shared with Add clips; a preset keeps plays,
   shot types, situations and labels, never the team or players, so the same
@@ -455,7 +460,11 @@ released app lists each row there as a clip.
 next marker (quarter start, timeout, run); 1–9 the start of that period; A
 add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
 (held: which key is which label); ⌘F the Filter popover, its search focused (in every list of plays). ⌘-click toggles a
-play into the selection and Shift-click selects a range; Shift+↑ ↓ extends it
+play into the selection, as a press on the row's check does (under the
+pointer at the row's start; every row shows its box while anything is
+selected), and Shift-click selects a range. A selected row is a step darker
+than the playing row (`--row-checked` over `--row-selected`) and carries a
+filled check, so what the pill's Add takes is never in doubt; Shift+↑ ↓ extends it
 and plays there; ⌘A selects every listed play; Esc lets go. The pill over the
 list (`components/plays/plays-selection-bar.tsx`, shared with Teams' Plays)
 adds the selection to the target or another playlist; a row's menu acts on

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { TeamGame, TeamPlayRow } from "@scoutable/shared/lib/team-video";
 import type { CollectStatus } from "@/components/game/game-play-row";
-import { ActiveRowPill, PLAY_ROW_HEIGHT, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot, RowTip } from "@/components/plays/play-row";
+import { ActiveRowPill, LIST_GROUP, listSelecting, PLAY_ROW_HEIGHT, PlayRowCells, playRowClass, RowLabelButton, RowPlaylistSlot, RowTip } from "@/components/plays/play-row";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { pressable } from "@/lib/pressable";
 import { useListWindow } from "@/lib/use-list-window";
@@ -104,6 +104,7 @@ const PlayRow = memo(function PlayRow({
         team={null}
         labels={labels ?? NO_LABELS}
         dim={dim}
+        check={{ on: selected, onToggle: (shift) => onPlay(row.key, { toggle: !shift, range: shift }) }}
         actions={
           <>
             {labelPicker ?? (
@@ -197,9 +198,10 @@ export function TeamPlayList({
       <div
         ref={scrollRef}
         // Room under the last play for the selection's pill, so it never covers one.
-        className={cn("h-full overflow-y-auto", selected.size > 0 && "pb-16")}
+        className={cn(LIST_GROUP, "h-full overflow-y-auto", selected.size > 0 && "pb-16")}
         role="list"
         aria-label="Plays"
+        {...listSelecting(selected.size > 0)}
         // A right-click on a play opens its menu; on a header, a note or empty space none opens.
         onContextMenu={(e) => {
           const el = (e.target as Element).closest<HTMLElement>("[data-key]");

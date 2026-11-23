@@ -145,7 +145,7 @@ const rowBase =
   "group relative flex min-h-11 cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100";
 
 function rowClasses({ isSelected }: { isSelected: boolean }) {
-  return cn(rowBase, isSelected ? "bg-row-selected text-foreground" : "hover:bg-fill-1 active:bg-fill-2");
+  return cn(rowBase, isSelected ? "bg-row-checked text-foreground" : "hover:bg-fill-1 active:bg-fill-2");
 }
 
 export function ClipRow({

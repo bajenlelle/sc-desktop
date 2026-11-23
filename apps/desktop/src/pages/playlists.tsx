@@ -125,7 +125,7 @@ import { PurchaseSheet } from "@/components/purchase-sheet";
 import { usePlayerAccess } from "@/lib/player-access";
 import { canExport } from "@scoutable/shared/lib/player-access";
 import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
-import { PlaylistFilterBar, EMPTY_QUEUE_FILTERS, queueFilterCount, queueFiltersActive, type QueueFilters } from "@/components/playlist-filter-bar";
+import { usePlaylistFilters, EMPTY_QUEUE_FILTERS, queueFiltersActive, type QueueFilters } from "@/components/playlist-filter-bar";
 import { usePlayMoments } from "@/components/plays/use-play-moments";
 import { matchesPlay } from "@scoutable/shared/lib/play-filters";
 import { playersByTeam } from "@scoutable/shared/lib/clip-filters";
@@ -584,7 +584,6 @@ export function PlaylistsPage() {
   const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
   // In-playlist filter lens (transient — reset on playlist switch).
   const [queueFilters, setQueueFilters] = useState<QueueFilters>({ ...EMPTY_QUEUE_FILTERS });
-  const [filtersOpen, setFiltersOpen] = useState(false);
   // The Filter popover inside the bar, and its search (⌘F opens both).
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
   const filterSearchRef = useRef<HTMLInputElement | null>(null);
@@ -1173,7 +1172,7 @@ export function PlaylistsPage() {
   // A filter is a momentary lens — switching playlists clears it.
   useEffect(() => {
     setQueueFilters({ ...EMPTY_QUEUE_FILTERS });
-    setFiltersOpen(false);
+    setFilterPopoverOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
 
@@ -1762,7 +1761,6 @@ export function PlaylistsPage() {
   // dimension (AND across dimensions, OR within one).
   // -------------------------------------------------------------------------
   const filtersActive = queueFiltersActive(queueFilters);
-  const activeFilterDims = queueFilterCount(queueFilters);
 
   // The playlist's games, each with every play it has: a moment (a run, Clutch) is read off the whole game.
   const queueMomentGames = useMemo(() => {
@@ -1830,6 +1828,32 @@ export function PlaylistsPage() {
     queuePresets.applied(p);
     if (presetLabelsMissing(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
   };
+  // The toolbar's Filter opens the Filter menu in place; what is on shows over the list as tokens.
+  const queueFilterUi = usePlaylistFilters({
+    filters: queueFilters,
+    onChange: (next) => {
+      if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
+      setQueueFilters(next);
+    },
+    games: queueFilterOptions.games,
+    players: queueFilterOptions.players,
+    labels,
+    periods: queueFilterOptions.periods,
+    moments: queueMoments,
+    open: filterPopoverOpen,
+    onOpenChange: setFilterPopoverOpen,
+    searchRef: filterSearchRef,
+    presets: activeOrgId ? (
+      <FilterPresetsMenu
+        presets={queuePresets.presets}
+        current={queueFilters}
+        onApply={applyQueuePreset}
+        onSave={(name) => queuePresets.save(name, queueFilters)}
+        onRename={queuePresets.rename}
+        onDelete={queuePresets.remove}
+      />
+    ) : undefined,
+  });
 
   // ---------------------------------------------------------------------------
   // Playback
@@ -3018,7 +3042,6 @@ export function PlaylistsPage() {
     // ⌘F: the filters, with their search, as in every list of plays.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyF") {
       e.preventDefault();
-      setFiltersOpen(true);
       setFilterPopoverOpen(true);
       window.setTimeout(() => filterSearchRef.current?.focus(), 80);
       return;
@@ -6207,53 +6230,17 @@ export function PlaylistsPage() {
           and cross-fade (a fade only under reduced motion). */}
       <AutoHeight className="shrink-0">
         <AnimatePresence mode="popLayout" initial={false}>
-          {filtersOpen ? (
-            <motion.div key="filter-bar" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="pb-2">
-              <PlaylistFilterBar
-                filters={queueFilters}
-                onChange={(next) => {
-                  if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
-                  setQueueFilters(next);
-                }}
-                games={queueFilterOptions.games}
-                players={queueFilterOptions.players}
-                labels={labels}
-                periods={queueFilterOptions.periods}
-                moments={queueMoments}
-                open={filterPopoverOpen}
-                onOpenChange={setFilterPopoverOpen}
-                searchRef={filterSearchRef}
-                presets={
-                  activeOrgId ? (
-                    <FilterPresetsMenu
-                      presets={queuePresets.presets}
-                      current={queueFilters}
-                      onApply={applyQueuePreset}
-                      onSave={(name) => queuePresets.save(name, queueFilters)}
-                      onRename={queuePresets.rename}
-                      onDelete={queuePresets.remove}
-                    />
-                  ) : undefined
-                }
-              />
-              <PlaysCountLine
-                count={shownClipCount}
-                total={totalClipCount}
-                noun={["clip", "clips"]}
-                filtered={filtersActive}
-                onClear={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}
-              />
-            </motion.div>
-          ) : filtersActive ? (
-            // The bar closed with filters still on: the count line alone says so, as every list of plays does.
-            <motion.div key="filtered" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="pb-1">
+          {filtersActive ? (
+            // Only while something is on: what is on, as tokens (each opens its page of the toolbar's Filter menu),
+            // and the count with Clear filters, as every list of plays has.
+            <motion.div key="filtered" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="flex flex-col gap-1.5 pb-1">
+              {queueFilterUi.tokens}
               <PlaysCountLine
                 count={shownClipCount}
                 total={totalClipCount}
                 noun={["clip", "clips"]}
                 filtered
                 onClear={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}
-                lead={<ListFilter className="size-3.5 shrink-0" aria-hidden />}
               />
             </motion.div>
           ) : null}
@@ -6503,19 +6490,7 @@ export function PlaylistsPage() {
         onStop={handleStop}
         onAddClips={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
         highlightAddClips={onboardingHighlight === "add-clips"}
-        filtersOpen={filtersOpen}
-        filtersActive={filtersActive}
-        activeFilterDims={activeFilterDims}
-        // One press reaches the filters: the bar opens with its Filter popover open (as ⌘F), and closes both.
-        onToggleFilters={() => {
-          if (filtersOpen) {
-            setFiltersOpen(false);
-            setFilterPopoverOpen(false);
-          } else {
-            setFiltersOpen(true);
-            setFilterPopoverOpen(true);
-          }
-        }}
+        filter={queueFilterUi.button}
         onAddTextCard={() => void handleInsertCard("text", { at: "toolbar" }, "menu")}
         addTextCardDisabledReason={filtersActive ? "Clear filters to edit the playlist" : null}
         onAddStatsCard={() => void handleInsertCard("stats", { at: "toolbar" }, "menu")}

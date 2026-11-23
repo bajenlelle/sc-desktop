@@ -117,6 +117,7 @@ export const GamePlayRow = memo(function GamePlayRow({
         labels={labels}
         score={score && scored ? { home: score.home, away: score.away, scored } : null}
         dim={outside !== null}
+        check={{ on: selected, onToggle: (shift) => onPress(play, { shift, toggle: !shift }) }}
         actions={
           <>
             {labelPicker ?? (

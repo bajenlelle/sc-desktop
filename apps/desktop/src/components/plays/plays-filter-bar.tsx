@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Clock, Crosshair, ListFilter, Shield, Tag, User, X, Zap } from "lucide-react";
+import { CircleDot, Clock, Crosshair, ListFilter, Shield, Tag, User, X, Zap } from "lucide-react";
 import { EVENT_TYPE_OPTIONS, SHOT_TYPE_OPTIONS, SITUATION_OPTIONS, type PlayerGroup } from "@scoutable/shared/lib/clip-filters";
 import { periodLabel } from "@scoutable/shared/lib/events";
 import type { GameMoment } from "@scoutable/shared/lib/game-flow";
@@ -84,63 +84,32 @@ export function FilterToken({
 }
 
 
-/**
- * The filters over every list of plays (the game view, Teams' Plays, Add clips, the editor), as Linear keeps
- * them: a row with the list's scope (whose plays, which games), Filter and Presets; the event chips, one press
- * away; and, while anything else is on, a token per filter that says what it is and takes it off. Everything
- * but the events lives in the Filter menu (FilterMenu): its fields first, each opening a page of values with
- * checkmarks, and one search that finds values across every field ("#7", "Berg", "clutch"). A token opens its
- * field's page. A field is listed only where its values exist: quarters with more than one, moments where the
- * list has them, teams where `teams` is given.
- */
-export function PlaysFilterBar({
+/** The Filter menu's fields for a list's filters, the tokens of what is on, and how many fields the menu holds on. */
+export function usePlayFilterFields({
   filters,
   onChange,
-  scope,
-  presets,
   players,
   labels,
   periods = [],
   moments = null,
   teams,
   playerExtra,
-  open,
-  onOpenChange,
-  searchRef,
-  picks,
-  onClearAll,
-  modal = false,
-  className,
+  events = false,
+  leadFields = [],
 }: {
   filters: PlayFilters;
   onChange: (next: PlayFilters) => void;
-  /** Row 1's start: whose plays (a switch) and which games. */
-  scope?: React.ReactNode;
-  /** The saved filters (FilterPresetsMenu), at row 1's end. */
-  presets?: React.ReactNode;
   players: readonly PlayerGroup[];
   labels: readonly Label[];
   periods?: readonly number[];
-  /** The moments the list's plays have; why a moment is off (no timeouts on record), by moment. Null: no moments. */
   moments?: { counts: Partial<Record<GameMoment, number>>; why?: Partial<Record<GameMoment, string>> } | null;
-  /** Team names, for a Team section (Add clips, whose games are any teams'). */
   teams?: readonly string[];
-  /** Under the players: the game view's "While on the floor". */
   playerExtra?: React.ReactNode;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  searchRef?: React.Ref<HTMLInputElement>;
-  /** Picks that aren't filters (the plays behind a number in Stats, a Season key), drawn as tokens first. */
-  picks?: React.ReactNode;
-  /** The popover's "Clear these filters": what the view clears (its scope stays). Defaults to every field. */
-  onClearAll?: () => void;
-  /** Inside a sheet (Add clips): the popover takes the focus trap over, as the sheet's other menus do. */
-  modal?: boolean;
-  className?: string;
+  /** An Event field in the menu, for a list without the event chips (the editor). */
+  events?: boolean;
+  /** Fields of the view's own before the shared ones (the editor's Game). */
+  leadFields?: readonly MenuField[];
 }) {
-  // The Filter menu's open page: a field's values, or null for the fields.
-  const [page, setPage] = React.useState<string | null>(null);
-  const count = playFiltersCount(filters);
   const set = <K extends keyof PlayFilters>(key: K, value: PlayFilters[K]) => onChange({ ...filters, [key]: value });
   const toggle = (key: "types" | "shotTypes" | "situations" | "teams" | "players" | "labels", value: string) =>
     set(key, toggled(filters[key] ?? new Set<string>(), value));
@@ -154,12 +123,26 @@ export function PlaysFilterBar({
     const byId = new Map(labels.map((l) => [l.id, l.name]));
     return (id: string) => byId.get(id) ?? "Removed label";
   }, [labels]);
-  // The events have their chips, always in view: a token for them would say it twice.
-  const tokens = appliedFilters(filters, { player: playerName, label: labelName }).filter((t) => t.field !== "types");
+  // Where the events have their chips, always in view, a token for them would say it twice.
+  const tokens = appliedFilters(filters, { player: playerName, label: labelName }).filter((t) => events || t.field !== "types");
 
   // The Filter menu's fields (FilterMenu): each with its values, what is chosen in it, and how it reads on its row.
   const one = <T,>(set: ReadonlySet<T>, words: (v: T) => string) => (set.size === 1 ? words([...set][0]) : String(set.size));
   const fields: MenuField[] = [];
+  if (events) {
+    fields.push({
+      id: "types",
+      name: "Event",
+      icon: CircleDot,
+      values: PLAY_EVENT_OPTIONS,
+      isOn: (v) => filters.types.has(v),
+      toggle: (v) => toggle("types", v),
+      clear: () => set("types", new Set()),
+      count: filters.types.size,
+      summary: one(filters.types, (v) => PLAY_EVENT_OPTIONS.find((o) => o.value === v)?.label ?? v),
+    });
+  }
+  fields.push(...leadFields);
   if (players.some((g) => g.players.length > 0)) {
     fields.push({
       id: "players",
@@ -259,93 +242,241 @@ export function PlaysFilterBar({
       summary: one(filters.labels ?? new Set<string>(), labelName),
     });
   }
-  // The token of a field opens that field's page.
-  const pageOf: Partial<Record<PlayFilterField, string>> = { players: "players", teams: "teams", shotTypes: "shotTypes", situations: "situations", periods: "when", moment: "when", labels: "labels" };
+  const count = playFiltersCount(filters);
+  // What the menu holds on: everything but the events where they have their chips; plus the view's own fields.
+  const menuCount = count - (!events && filters.types.size > 0 ? 1 : 0) + leadFields.filter((f) => f.count > 0).length;
+  return { fields, tokens, menuCount };
+}
 
+/** The token of a field opens that field's page in the menu. */
+export const PAGE_OF_FIELD: Partial<Record<PlayFilterField, string>> = {
+  types: "types",
+  players: "players",
+  teams: "teams",
+  shotTypes: "shotTypes",
+  situations: "situations",
+  periods: "when",
+  moment: "when",
+  labels: "labels",
+};
+
+/** "Clear these filters", at the foot of the menu's fields. */
+export function ClearFiltersRow({ onClear }: { onClear: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      className="h-7 w-full rounded-md px-2 text-left text-sm text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-selection"
+    >
+      Clear these filters
+    </button>
+  );
+}
+
+/**
+ * The Filter popover: the menu (FilterMenu) anchored to its trigger. Esc on a field's page goes back to the
+ * fields; on the fields it closes, as a menu does. Closing forgets the page.
+ */
+export function FilterPopover({
+  trigger,
+  fields,
+  page,
+  onPage,
+  open,
+  onOpenChange,
+  searchRef,
+  footer,
+  modal = false,
+  align = "start",
+}: {
+  trigger: React.ReactNode;
+  fields: readonly MenuField[];
+  page: string | null;
+  onPage: (page: string | null) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  searchRef?: React.Ref<HTMLInputElement>;
+  footer?: React.ReactNode;
+  modal?: boolean;
+  align?: "start" | "end";
+}) {
+  return (
+    <Popover
+      modal={modal}
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onPage(null);
+        onOpenChange(o);
+      }}
+    >
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent
+        align={align}
+        className="w-auto overflow-hidden p-0"
+        onEscapeKeyDown={(e) => {
+          if (page !== null) {
+            e.preventDefault();
+            onPage(null);
+          }
+        }}
+      >
+        <FilterMenu fields={fields} page={page} onPage={onPage} inputRef={searchRef} footer={footer} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** The tokens of what is on, after any picks: a token's values open its field's page. */
+export function FilterTokens({
+  tokens,
+  picks,
+  onEdit,
+  onRemove,
+  className,
+}: {
+  tokens: readonly AppliedFilter[];
+  picks?: React.ReactNode;
+  onEdit: (field: PlayFilterField) => void;
+  onRemove: (field: PlayFilterField) => void;
+  className?: string;
+}) {
+  if (tokens.length === 0 && !picks) return null;
+  return (
+    <div role="group" aria-label="Filters on" className={cn("flex min-w-0 flex-wrap items-center gap-1.5", className)}>
+      {picks}
+      {tokens.map((t) => (
+        <FilterToken
+          key={t.field}
+          name={t.name}
+          op={t.op}
+          values={t.values.join(", ")}
+          onEdit={() => onEdit(t.field)}
+          onRemove={() => onRemove(t.field)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The filters over every list of plays (the game view, Teams' Plays, Add clips), as Linear keeps them: a row
+ * with the list's scope (whose plays, which games), Filter and Presets; the event chips, one press away; and,
+ * while anything else is on, a token per filter that says what it is and takes it off. Everything but the
+ * events lives in the Filter menu (FilterMenu): its fields first, each opening a page of values with
+ * checkmarks, and one search that finds values across every field ("#7", "Berg", "clutch"). A token opens its
+ * field's page. A field is listed only where its values exist: quarters with more than one, moments where the
+ * list has them, teams where `teams` is given. The editor has no bar: its toolbar's Filter opens the same menu.
+ */
+export function PlaysFilterBar({
+  filters,
+  onChange,
+  scope,
+  scopeFill = false,
+  presets,
+  players,
+  labels,
+  periods = [],
+  moments = null,
+  teams,
+  playerExtra,
+  open,
+  onOpenChange,
+  searchRef,
+  picks,
+  onClearAll,
+  modal = false,
+  className,
+}: {
+  filters: PlayFilters;
+  onChange: (next: PlayFilters) => void;
+  /** Row 1's start: whose plays (a switch) and which games. */
+  scope?: React.ReactNode;
+  /** The scope takes the row's width (a switch that fills it); otherwise Filter and Presets follow it. */
+  scopeFill?: boolean;
+  /** The saved filters (FilterPresetsMenu), after Filter. */
+  presets?: React.ReactNode;
+  players: readonly PlayerGroup[];
+  labels: readonly Label[];
+  periods?: readonly number[];
+  /** The moments the list's plays have; why a moment is off (no timeouts on record), by moment. Null: no moments. */
+  moments?: { counts: Partial<Record<GameMoment, number>>; why?: Partial<Record<GameMoment, string>> } | null;
+  /** Team names, for a Team section (Add clips, whose games are any teams'). */
+  teams?: readonly string[];
+  /** Under the players: the game view's "While on the floor". */
+  playerExtra?: React.ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  searchRef?: React.Ref<HTMLInputElement>;
+  /** Picks that aren't filters (the plays behind a number in Stats, a Season key), drawn as tokens first. */
+  picks?: React.ReactNode;
+  /** The popover's "Clear these filters": what the view clears (its scope stays). Defaults to every field. */
+  onClearAll?: () => void;
+  /** Inside a sheet (Add clips): the popover takes the focus trap over, as the sheet's other menus do. */
+  modal?: boolean;
+  className?: string;
+}) {
+  // The Filter menu's open page: a field's values, or null for the fields.
+  const [page, setPage] = React.useState<string | null>(null);
+  const { fields, tokens, menuCount } = usePlayFilterFields({ filters, onChange, players, labels, periods, moments, teams, playerExtra });
   const clearPopover = onClearAll ?? (() => onChange({ ...EMPTY_PLAY_FILTERS, types: filters.types }));
-  const popoverCount = count - (filters.types.size > 0 ? 1 : 0);
+
+  const filterControls = (
+    <div className={cn("flex shrink-0 items-center gap-1", !scope && "flex-1")}>
+      <FilterPopover
+        modal={modal}
+        open={open}
+        onOpenChange={onOpenChange}
+        page={page}
+        onPage={setPage}
+        searchRef={searchRef}
+        fields={fields}
+        footer={menuCount > 0 ? <ClearFiltersRow onClear={clearPopover} /> : undefined}
+        trigger={
+          <button
+            type="button"
+            aria-label={menuCount > 0 ? `Filters, ${menuCount} on` : "Filters"}
+            title="Filter (⌘F)"
+            className={cn(quietControl, quietState(menuCount > 0), "text-xs font-medium [&_svg]:size-3.5")}
+          >
+            <ListFilter className="size-3.5" />
+            Filter
+            {menuCount > 0 && <span className="nums">{menuCount}</span>}
+          </button>
+        }
+      />
+      {presets}
+    </div>
+  );
 
   return (
     // A container of its own (it is never a scrolling list's ancestor), so the first row lays out by the bar's width.
     <div className={cn("@container/bar flex shrink-0 flex-col gap-2", className)}>
-      {/* Wide, the scope and Filter with Presets share one line. In a narrow list column (under 36rem) the scope
-          takes a line of its own, wrapping inside itself, and Filter and Presets start the next: nothing squeezes
-          a team's name or runs under another control. */}
-      <div className="flex min-w-0 flex-wrap items-start gap-2">
-        {scope && <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 @max-[36rem]/bar:basis-full">{scope}</div>}
-        <div className={cn("flex shrink-0 items-center gap-1", !scope && "flex-1")}>
-          <Popover
-            modal={modal}
-            open={open}
-            onOpenChange={(o) => {
-              if (!o) setPage(null);
-              onOpenChange(o);
-            }}
-          >
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label={popoverCount > 0 ? `Filters, ${popoverCount} on` : "Filters"}
-                title="Filter (⌘F)"
-                className={cn(quietControl, quietState(popoverCount > 0), "text-xs font-medium [&_svg]:size-3.5")}
-              >
-                <ListFilter className="size-3.5" />
-                Filter
-                {popoverCount > 0 && <span className="nums">{popoverCount}</span>}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className="w-auto overflow-hidden p-0"
-              // Esc on a field's page goes back to the fields; on the fields it closes, as a menu does.
-              onEscapeKeyDown={(e) => {
-                if (page !== null) {
-                  e.preventDefault();
-                  setPage(null);
-                }
-              }}
-            >
-              <FilterMenu
-                fields={fields}
-                page={page}
-                onPage={setPage}
-                inputRef={searchRef}
-                footer={
-                  popoverCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={clearPopover}
-                      className="h-7 w-full rounded-md px-2 text-left text-sm text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-selection"
-                    >
-                      Clear these filters
-                    </button>
-                  ) : undefined
-                }
-              />
-            </PopoverContent>
-          </Popover>
-          {presets}
+      {scopeFill ? (
+        // Wide, the scope and Filter with Presets share one line. In a narrow list column (under 36rem) the scope
+        // takes a line of its own, wrapping inside itself, and Filter and Presets start the next: nothing squeezes
+        // a team's name or runs under another control.
+        <div className="flex min-w-0 flex-wrap items-start gap-2">
+          {scope && <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 @max-[36rem]/bar:basis-full">{scope}</div>}
+          {filterControls}
         </div>
-      </div>
-      <EventTypeChips options={PLAY_EVENT_OPTIONS} selected={filters.types} onChange={(next) => set("types", next)} />
-      {(tokens.length > 0 || picks) && (
-        <div role="group" aria-label="Filters on" className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {picks}
-          {tokens.map((t: AppliedFilter) => (
-            <FilterToken
-              key={t.field}
-              name={t.name}
-              op={t.op}
-              values={t.values.join(", ")}
-              onEdit={() => {
-                setPage(pageOf[t.field] ?? null);
-                onOpenChange(true);
-              }}
-              onRemove={() => onChange(clearField(filters, t.field))}
-            />
-          ))}
+      ) : (
+        // The scope's controls and Filter with Presets as one run, left to right, as Linear's filter row: what
+        // narrows the list sits beside what picks it, and wraps as a whole.
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          {scope}
+          {filterControls}
         </div>
       )}
+      <EventTypeChips options={PLAY_EVENT_OPTIONS} selected={filters.types} onChange={(next) => onChange({ ...filters, types: next })} />
+      <FilterTokens
+        tokens={tokens}
+        picks={picks}
+        onEdit={(field) => {
+          setPage(PAGE_OF_FIELD[field] ?? null);
+          onOpenChange(true);
+        }}
+        onRemove={(field) => onChange(clearField(filters, field))}
+      />
     </div>
   );
 }
