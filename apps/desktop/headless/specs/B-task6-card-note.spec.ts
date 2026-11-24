@@ -6,15 +6,15 @@
  * card's fallback line, the note's lines joined with " / "), the fallback line
  * saved to text_content, the Vertical (9:16) frame
  * through the same painter, and the note surviving a change of player and of
- * Game/Season. Creates "headless-<port> card" and deletes it. The numbers come
+ * Game/Season. Creates "headless-<port>-<slot> card" and deletes it. The numbers come
  * from Genius' hosted pages through the browser's fetch.
  */
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, OUT_DIR, playlistIdNamed, PORT, selectRows, shot, test } from "../helpers";
+import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, OUT_DIR, playlistIdNamed, PORT, selectRows, shot, test, owned } from "../helpers";
 
-const NAME = `headless-${PORT} card`;
+const NAME = owned("card");
 /** 106 characters, typed with one Return: two or three lines under the numbers (shared card-layout tests). */
 const NOTE = "Great closeouts all game and\nsmart help from the weak side, keep talking on every switch and box out early";
 /** The note as the fallback line carries it: one line, the break as " / ". */

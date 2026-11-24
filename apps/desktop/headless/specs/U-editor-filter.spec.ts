@@ -2,7 +2,7 @@
  * The editor's filters (pages/playlists.tsx, usePlaylistFilters): no bar of its own. The toolbar's Filter opens
  * the Filter menu in place, with Event as a field (the editor has no event chips); what is on shows over the
  * list as tokens, only while something is on, and a token opens its field's page. Makes its own playlist,
- * `headless-<port> editor filter`, and deletes it afterwards.
+ * `headless-<port>-<slot> editor filter`, and deletes it afterwards.
  */
 import {
   closeFilters,

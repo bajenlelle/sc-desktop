@@ -14,13 +14,13 @@
  *
  * Needs the staging test account's games "BC Luleå vs Köping Stars" and
  * "Södertälje BBK vs Köping Stars". The account has one space, so the
- * per-space list isn't checked. Creates the playlist `headless-<port> presets`
- * and presets named `headless-<port> …`, and deletes them afterwards, failed
+ * per-space list isn't checked. Creates the playlist `headless-<port>-<slot> presets`
+ * and presets named `headless-<port>-<slot> …`, and deletes them afterwards, failed
  * or not.
  */
 import type { Locator, Page, Route } from "@playwright/test";
 import {
-  PORT,
+  OWNER,
   createPlaylist,
   deleteOwnRowsNamed,
   eventCount,
@@ -43,7 +43,7 @@ import {
   waitForQuiet,
 } from "../helpers";
 
-const PREFIX = `headless-${PORT}`;
+const PREFIX = OWNER;
 const PLAYLIST = `${PREFIX} presets`;
 const GUARD = `${PREFIX} guard`;
 const OTHER = `${PREFIX} other`;
@@ -61,7 +61,7 @@ const GUARD_TYPES = ["2PT made", "2PT miss", "3PT made", "3PT miss"];
 const LABELS_GONE = /This preset's labels no longer exist/;
 
 test.afterEach(async ({ page }) => {
-  await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
+  await deleteOwnRowsNamed(page, "filter_presets", `${PREFIX} `);
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
 });
 
@@ -97,10 +97,10 @@ async function pressedChips(group: Locator): Promise<string[]> {
   return (await group.getByRole("button", { pressed: true }).allInnerTexts()).map((t) => t.trim()).sort();
 }
 
-test("presets save, apply, refuse a taken name, delete with Undo, travel to the game view, and leave the chosen player alone", async ({ page, browserName }) => {
+test("presets save, apply, refuse a taken name, delete with Undo, travel to the game view, and leave the chosen player alone", { tag: "@alone:presets" }, async ({ page, browserName }) => {
   test.setTimeout(150_000);
   const name = (step: string) => `${browserName}-C-task12-${step}`;
-  await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
+  await deleteOwnRowsNamed(page, "filter_presets", `${PREFIX} `);
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
   const playlistId = await createPlaylist(page, PLAYLIST);
   let sheet = await openAddClips(page, playlistId);
@@ -251,9 +251,9 @@ test("presets save, apply, refuse a taken name, delete with Undo, travel to the 
 
 });
 
-test("a preset applied while the plays load applies at once and leaves the chosen team and player alone, before and after they land", async ({ page, browserName }) => {
+test("a preset applied while the plays load applies at once and leaves the chosen team and player alone, before and after they land", { tag: "@alone:presets" }, async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-C-task12-${step}`;
-  await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
+  await deleteOwnRowsNamed(page, "filter_presets", `${PREFIX} `);
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
   await goViaSidebar(page, "Games");
   const gameLink = page.locator('a[href^="/matches/"]').filter({ hasText: LULEA }).first();
@@ -339,10 +339,10 @@ test("a preset applied while the plays load applies at once and leaves the chose
   await shot(page, name("pending-landed"));
 });
 
-test("the presets menu is filled from the last read, while the next read is still on its way", async ({ page, browserName }) => {
+test("the presets menu is filled from the last read, while the next read is still on its way", { tag: "@alone:presets" }, async ({ page, browserName }) => {
   test.setTimeout(120_000);
   const name = (step: string) => `${browserName}-C-task12-${step}`;
-  await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
+  await deleteOwnRowsNamed(page, "filter_presets", `${PREFIX} `);
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
   const playlistId = await createPlaylist(page, PLAYLIST);
 

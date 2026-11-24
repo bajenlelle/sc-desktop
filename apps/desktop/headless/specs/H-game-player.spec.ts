@@ -435,7 +435,7 @@ test("a click on a play doesn't leave the keyboard's focus ring on it", async ({
 });
 
 
-test("in full screen the controls say where the video is between plays too", async ({ page }) => {
+test("in full screen the controls say where the video is between plays too", { tag: "@smoke" }, async ({ page }) => {
   await openSampleGame(page);
   // The sample game opens before its tip-off: no play is on.
   await expect(page.getByText("Before tip-off").first(), "the Now bar says the video is before tip-off").toBeVisible();

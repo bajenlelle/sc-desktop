@@ -41,7 +41,7 @@ test("a visited team is an open team, selected while it is on screen", async ({ 
   await expect(teamsLink(page)).toHaveAttribute("aria-current", "page");
 });
 
-test("a row opens its team as it was left", async ({ page }) => {
+test("a row opens its team as it was left", { tag: "@smoke" }, async ({ page }) => {
   await openTeam(page, "Alfa");
   await page.getByRole("radio", { name: "Plays" }).click();
   await expect(page).toHaveURL(/view=plays/);

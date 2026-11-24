@@ -5,12 +5,12 @@
  * sheet open, a childless strip of the title bar's height sits above the scrim:
  * a click on it closes the sheet (the toolbar behind is scrim too), a drag on it
  * moves the window and leaves the sheet open. Real window drag and resize stay
- * manual. Creates "headless-<port> sheet" with one clip and deletes it.
+ * manual. Creates "headless-<port>-<slot> sheet" with one clip and deletes it.
  */
 import type { Locator, Page } from "@playwright/test";
-import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, PORT, sheetScrimPoint, shot, test } from "../helpers";
+import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, owned, sheetScrimPoint, shot, test } from "../helpers";
 
-const NAME = `headless-${PORT} sheet`;
+const NAME = owned("sheet");
 
 test.beforeEach(async ({ page }) => {
   // A crashed run's playlist, swept in a scratch page so the test's page starts clean.

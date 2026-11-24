@@ -12,13 +12,13 @@
  * in the Library (the one other specs are least likely to open) and brings it
  * back in the same test, through the UI, then in `finally` and in afterEach
  * through the app's client if the UI path failed, polling the server until
- * `archived_at` reads null. Creates the playlists `headless-<port> …` and
+ * `archived_at` reads null. Creates the playlists `headless-<port>-<slot> …` and
  * deletes them afterwards.
  */
 import type { Locator, Page } from "@playwright/test";
 import {
   addSheetRows,
-  PORT,
+  OWNER,
   archiveCreatePlaylist,
   archiveDeletePlaylistsNamed,
   archivePlaylistNames,
@@ -30,7 +30,7 @@ import {
   test,
 } from "../helpers";
 
-const PREFIX = `headless-${PORT} `;
+const PREFIX = `${OWNER} `;
 const KEEPS_CLIPS = `${PREFIX}keeps clips`;
 const ADD_CLIPS = `${PREFIX}add clips`;
 const FROM_ARCHIVED = `${PREFIX}from archived`;
@@ -141,7 +141,7 @@ async function closePicker(page: Page): Promise<void> {
   await expect(gameList(page)).toBeHidden();
 }
 
-test("Games: archive, Undo, Show and Hide, search, bring back", async ({ page, browserName }) => {
+test("Games: archive, Undo, Show and Hide, search, bring back", { tag: "@alone" }, async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-E-task18-${step}`;
   let game: Game | null = null;
   try {
@@ -213,7 +213,7 @@ test("Games: archive, Undo, Show and Hide, search, bring back", async ({ page, b
   }
 });
 
-test("archived: Add clips and playlists leave it out or keep it as they should", async ({ page, browserName }) => {
+test("archived: Add clips and playlists leave it out or keep it as they should", { tag: "@alone" }, async ({ page, browserName }) => {
   test.setTimeout(180_000);
   const name = (step: string) => `${browserName}-E-task18-${step}`;
   let game: Game | null = null;

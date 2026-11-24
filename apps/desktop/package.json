@@ -11,7 +11,9 @@
     "version": "node scripts/bump-tauri-version.js && git add src-tauri/tauri.conf.json",
     "dev:staging": "cp .env.staging .env && vite",
     "use:prod": "cp .env.prod .env",
-    "headless": "playwright test -c playwright.config.ts"
+    "headless": "playwright test -c playwright.config.ts --project='webkit*'",
+    "headless:full": "playwright test -c playwright.config.ts",
+    "headless:smoke": "playwright test -c playwright.config.ts --project='webkit*' --grep @smoke"
   },
   "dependencies": {
     "@scoutable/shared": "*",

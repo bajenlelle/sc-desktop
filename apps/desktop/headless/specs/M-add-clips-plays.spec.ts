@@ -10,14 +10,14 @@
  * "Södertälje BBK vs Köping Stars" (and, for the first test, one of those or
  * "Nässjö Basket vs Norrköping Dolphins" that no playlist on the account has
  * clips from, so the page doesn't read it when it loads). Creates the playlist
- * `headless-<port> plays` and deletes it afterwards. The failure is the
+ * `headless-<port>-<slot> plays` and deletes it afterwards. The failure is the
  * page's own read of one game's plays, rewritten in the browser: nothing on
  * staging fails.
  */
 import type { Locator, Page, Route } from "@playwright/test";
 import {
   addSheetRows,
-  PORT,
+  owned,
   addClipsSheet,
   createPlaylist,
   deleteOwnRowsNamed,
@@ -38,7 +38,7 @@ import {
   waitForQuiet,
 } from "../helpers";
 
-const PLAYLIST = `headless-${PORT} plays`;
+const PLAYLIST = owned("plays");
 const LULEA = "BC Luleå vs Köping Stars";
 const SODERTALJE = "Södertälje BBK vs Köping Stars";
 const NASSJO = "Nässjö Basket vs Norrköping Dolphins";

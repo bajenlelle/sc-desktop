@@ -3,7 +3,7 @@
  * "Opening the app"): with no playlist asked for it reopens the one opened last in this space, and it
  * takes New playlist (⌘N, Ctrl+N on Windows, or the list's own New playlist) while it is already shown, showing the
  * playlist browser when the coach had hidden it. With no games of its own the right pane says to import one
- * first. Creates playlists named `headless-<port> reopen …` and deletes them. The keys are driven as the
+ * first. Creates playlists named `headless-<port>-<slot> reopen …` and deletes them. The keys are driven as the
  * Windows build reads them (the native menu is mocked here). The account has one space, so a second one is
  * added in the browser (addSecondSpace): nothing of it is written to staging.
  */
@@ -42,7 +42,7 @@ test.afterEach(async ({ page }) => {
   await deleteOwnRowsNamed(page, "playlists", PREFIX);
 });
 
-test("Playlists reopens the playlist opened last", async ({ page, browserName }) => {
+test("Playlists reopens the playlist opened last", { tag: "@smoke" }, async ({ page, browserName }) => {
   await openAlpha(page);
   await goViaSidebar(page, "Games");
   await expect(heading(page)).toHaveText("Games", { timeout: 30_000 });

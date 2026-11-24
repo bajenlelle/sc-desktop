@@ -29,6 +29,17 @@ export const OUT_DIR = path.join(HERE, "out");
 export const STATE_FILE = path.join(OUT_DIR, `state-${PORT}.json`);
 
 /**
+ * Who owns what a spec writes on the shared staging account: this worktree's
+ * port and this worker's slot, `headless-<port>-<slot>`. The slot is
+ * Playwright's parallelIndex (0 … workers-1): no two workers that run at the
+ * same time share one, and a worker that replaces a crashed one takes its
+ * slot, so its sweeps clear what the crashed one left. Outside a worker (the
+ * global setup) it is 0.
+ */
+export const SLOT = Number(process.env.TEST_PARALLEL_INDEX ?? 0);
+export const OWNER = `headless-${PORT}-${SLOT}`;
+
+/**
  * Page errors that are the browser's, not the app's. PostHog's config fetch
  * is refused by WebKit's CORS checks on localhost; the app never sees it.
  * WebKit raises "ResizeObserver loop completed with undelivered notifications"
@@ -70,7 +81,106 @@ export async function waitForQuiet(page: Page): Promise<void> {
   throw new Error(`headless: ${open.size} Supabase request(s) still open after 15 s: ${[...open].map((r) => r.url().slice(0, 120)).join(", ")}`);
 }
 
-export const test = base.extend<{ headlessProblems: void }>({
+/*
+ * Running alone. Most tests only read the shared account, or write rows named
+ * by their own OWNER, so they run side by side in several workers. A few
+ * change what every other test sees (archive a game, link a game to the test
+ * video, put labels on a game's plays): those carry the tag `@alone` (on the
+ * test, or on its describe) and run with no other test of this worktree's run
+ * in flight. Tests that only see each other's writes (presets, which the whole
+ * space lists; reports, found by the made-up league's team ids) carry
+ * `@alone:<group>` instead: one test of the group at a time, beside
+ * everything else. Every test holds the account lock, shared or alone, for its
+ * whole length, hooks included: a lock directory in the system's temp folder,
+ * one file per holder named by its process, so a holder that died (a killed
+ * worker, a stopped run) is noticed and cleared. An alone test that is waiting
+ * keeps new tests from starting, so it never waits on a stream of short ones.
+ */
+const LOCK_DIR = path.join(tmpdir(), `scoutable-headless-lock-${PORT}`);
+const ALONE_FILE = path.join(LOCK_DIR, "alone");
+
+function holderAlive(file: string): boolean {
+  let pid = 0;
+  try {
+    pid = Number(readFileSync(file, "utf8").split(" ")[0]);
+  } catch {
+    return false; // Gone between the listing and the read.
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** True when the file is held by a live process; a dead holder's file is removed. */
+function heldByLive(file: string): boolean {
+  if (!existsSync(file)) return false;
+  if (holderAlive(file)) return true;
+  rmSync(file, { force: true });
+  return false;
+}
+
+const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+/** Takes `file` once no live process holds it. */
+async function takeFile(file: string, stamp: string): Promise<void> {
+  for (;;) {
+    try {
+      writeFileSync(file, stamp, { flag: "wx" });
+      return;
+    } catch {
+      heldByLive(file);
+      await pause(200);
+    }
+  }
+}
+
+async function takeAccountLock(tags: readonly string[], title: string): Promise<() => void> {
+  sidebarFs.mkdirSync(LOCK_DIR, { recursive: true });
+  const stamp = `${process.pid} ${title}`;
+  if (tags.includes("@alone")) {
+    await takeFile(ALONE_FILE, stamp);
+    // Wait for the tests already running to finish; new ones wait on ALONE_FILE.
+    while (sidebarFs.readdirSync(LOCK_DIR).some((f) => f.startsWith("shared-") && heldByLive(path.join(LOCK_DIR, f)))) await pause(200);
+    return () => rmSync(ALONE_FILE, { force: true });
+  }
+  // A group's turn first, then a place beside the others (never the other way round, so nothing waits in a circle).
+  const groups = tags.filter((t) => t.startsWith("@alone:")).map((t) => path.join(LOCK_DIR, `group-${t.slice("@alone:".length)}`));
+  for (const group of groups) await takeFile(group, stamp);
+  const releaseGroups = () => groups.forEach((group) => rmSync(group, { force: true }));
+  const mine = path.join(LOCK_DIR, `shared-${process.pid}`);
+  for (;;) {
+    if (heldByLive(ALONE_FILE)) {
+      await pause(200);
+      continue;
+    }
+    writeFileSync(mine, stamp);
+    // An alone test may have taken its file between the check and the write: let it go first.
+    if (!heldByLive(ALONE_FILE)) {
+      return () => {
+        rmSync(mine, { force: true });
+        releaseGroups();
+      };
+    }
+    rmSync(mine, { force: true });
+  }
+}
+
+export const test = base.extend<{ accountLock: void; headlessProblems: void }>({
+  accountLock: [
+    async ({}, use, testInfo) => {
+      const release = await takeAccountLock(testInfo.tags, testInfo.titlePath.join(" › "));
+      try {
+        await use();
+      } finally {
+        release();
+      }
+    },
+    // The wait for the lock is not the test's: it has its own, long timeout.
+    { auto: true, timeout: 20 * 60_000 },
+  ],
   headlessProblems: [
     async ({ page }, use) => {
       const problems: string[] = [];
@@ -82,6 +192,9 @@ export const test = base.extend<{ headlessProblems: void }>({
       });
       trackSupabaseReads(page);
       await use();
+      // A spec's route handler can still be waiting on route.fetch() when its test ends (more often with
+      // several workers): that fetch then throws outside any test and takes the worker down. Let it go quietly.
+      await page.unrouteAll({ behavior: "ignoreErrors" });
       if (problems.length > 0) {
         throw new Error(`headless: the page reported ${problems.length} problem(s):\n${problems.join("\n")}`);
       }
@@ -169,9 +282,9 @@ export async function openPlaylists(page: Page): Promise<void> {
   await expect(page.locator("[data-playlist-id]").or(page.getByText("No playlists yet")).first()).toBeVisible({ timeout: 30_000 });
 }
 
-/** The account's own playlists whose names start with `prefix` (this worktree's `headless-<port> `), deleted. Returns their names. */
+/** The account's own playlists whose names start with `prefix` (this worker's `headless-<port>-<slot> `, OWNER), deleted. Returns their names. */
 export async function deletePlaylistsNamed(page: Page, prefix: string): Promise<string[]> {
-  if (!prefix.startsWith(`headless-${PORT} `)) throw new Error(`headless: refusing to delete playlists outside "headless-${PORT} "`);
+  if (!prefix.startsWith(`${OWNER} `)) throw new Error(`headless: refusing to delete playlists outside "${OWNER} "`);
   if (page.url() === "about:blank") await openPlaylists(page);
   return withAppModule(page, "/src/lib/supabase/client.ts", `
     const sb = mod.createClient();
@@ -333,7 +446,7 @@ export const FIXTURE_VIDEO = path.join(HERE, "fixtures", "game.mp4");
  * file there reloads the open page (mid-test, that cancels the app's own
  * requests); out/ is also emptied when a run starts.
  */
-export const VIDEO_LINK_JOURNAL = path.join(tmpdir(), `scoutable-headless-video-link-${PORT}.json`);
+export const VIDEO_LINK_JOURNAL = path.join(tmpdir(), `scoutable-headless-video-link-${PORT}-${SLOT}.json`);
 
 /** A game linked to the test video for a spec, and what to put back. */
 export interface FixtureLink {
@@ -419,8 +532,8 @@ export async function sheetScrimPoint(page: Page): Promise<{ x: number; y: numbe
   throw new Error("headless: the sheet leaves no scrim to click");
 }
 
-/** A name for something a spec creates on the shared account: `headless-<port> <what>`. */
-export const owned = (what: string) => `headless-${PORT} ${what}`;
+/** A name for something a spec creates on the shared account: `headless-<port>-<slot> <what>` (OWNER). */
+export const owned = (what: string) => `${OWNER} ${what}`;
 
 /** What a play row of the game view's list is, as a selector: not a period header, not a marker row (those are buttons). */
 export const PLAY_ROW = 'div[data-row-key]:not([data-row-key^="period:"])';
@@ -475,12 +588,12 @@ export const addingCount = (page: Page, name: string) =>
 /**
  * Deletes the test account's playlists with exactly these names through the
  * app's own signed-in Supabase client (Vite serves its modules). For a spec's
- * cleanup: every name must be this worktree's (`owned(…)`, `headless-<port> …`),
+ * cleanup: every name must be this worker's (`owned(…)`, `headless-<port>-<slot> …`),
  * anything else is refused. Returns how many went.
  */
 export async function deleteOwnedPlaylists(page: Page, names: readonly string[]): Promise<number> {
-  const outside = names.filter((n) => !n.startsWith(`headless-${PORT} `));
-  if (outside.length > 0) throw new Error(`headless: refusing to delete playlists outside "headless-${PORT} …": ${outside.join(", ")}`);
+  const outside = names.filter((n) => !n.startsWith(`${OWNER} `));
+  if (outside.length > 0) throw new Error(`headless: refusing to delete playlists outside "${OWNER} …": ${outside.join(", ")}`);
   if (!page.url().startsWith(BASE_URL)) await page.goto("/matches");
   return page.evaluate(async (names) => {
     const { createClient } = await import("/src/lib/supabase/client.ts" as string);
@@ -525,7 +638,7 @@ async function onAppOrigin(page: Page): Promise<void> {
 
 /**
  * Creates a playlist in the active space (the first one the account belongs
- * to when none is stored) and returns its id. Name it `headless-<port> …` and
+ * to when none is stored) and returns its id. Name it `headless-<port>-<slot> …` and
  * delete it in the same spec (deleteOwnRowsNamed).
  */
 export async function createPlaylist(page: Page, name: string): Promise<string> {
@@ -548,11 +661,11 @@ export async function createPlaylist(page: Page, name: string): Promise<string> 
 
 /**
  * Deletes the signed-in account's rows in `table` (playlists, filter_presets)
- * whose name starts with `prefix`: a spec's own `headless-<port> …` rows, in
+ * whose name starts with `prefix`: a spec's own `headless-<port>-<slot> …` rows, in
  * its afterEach, so a failed run leaves nothing behind. Returns how many.
  */
 export async function deleteOwnRowsNamed(page: Page, table: "playlists" | "filter_presets", prefix: string): Promise<number> {
-  if (!prefix.startsWith(`headless-${PORT}`)) throw new Error(`headless: only delete what this port created (headless-${PORT} …)`);
+  if (!prefix.startsWith(`${OWNER} `)) throw new Error(`headless: only delete what this worker created (${OWNER} …)`);
   await onAppOrigin(page);
   return page.evaluate(async ({ table, prefix }) => {
     const { createClient } = await import("/src/lib/supabase/client.ts" as string);
@@ -898,11 +1011,11 @@ export async function sidebarRowsNamed(page: Page, table: SidebarTable, prefix: 
 
 /**
  * Deletes the account's playlists, then folders, whose name starts with
- * `prefix` (a port-named prefix, `headless-<port> `, so only what a spec made).
+ * `prefix` (this worker's prefix, `headless-<port>-<slot> `, so only what a spec made).
  * Returns how many rows went.
  */
 export async function deleteSidebarRowsNamed(page: Page, prefix: string): Promise<number> {
-  if (!prefix.startsWith(`headless-${PORT} `)) throw new Error(`headless: refusing to delete rows outside "headless-${PORT} …"`);
+  if (!prefix.startsWith(`${OWNER} `)) throw new Error(`headless: refusing to delete rows outside "${OWNER} …"`);
   let removed = 0;
   for (const table of ["playlists", "playlist_folders"] as const) {
     removed += ((await sidebarRest(page, "DELETE", `${table}?name=like.${encodeURIComponent(`${prefix}*`)}`)) as unknown[]).length;
@@ -960,7 +1073,7 @@ export async function archiveRestoreGame(page: Page, matchId: string): Promise<v
 
 /**
  * Creates an empty playlist in the active space and returns its id. Name it
- * `headless-<port> …`; archiveDeletePlaylistsNamed removes it.
+ * `headless-<port>-<slot> …`; archiveDeletePlaylistsNamed removes it.
  */
 export async function archiveCreatePlaylist(page: Page, name: string): Promise<string> {
   return archiveWithClient(page, `
@@ -975,9 +1088,9 @@ export async function archiveCreatePlaylist(page: Page, name: string): Promise<s
   `, name);
 }
 
-/** Deletes the account's own playlists whose names start with `prefix` (this port's `headless-<port> `). Returns their names. */
+/** Deletes the account's own playlists whose names start with `prefix` (this worker's `headless-<port>-<slot> `). Returns their names. */
 export async function archiveDeletePlaylistsNamed(page: Page, prefix: string): Promise<string[]> {
-  if (!prefix.startsWith(`headless-${PORT} `)) throw new Error(`headless: refusing to delete playlists outside "headless-${PORT} "`);
+  if (!prefix.startsWith(`${OWNER} `)) throw new Error(`headless: refusing to delete playlists outside "${OWNER} "`);
   return archiveWithClient(page, `
     const { data, error } = await sb.from("playlists").delete().eq("user_id", user.id).like("name", arg + "%").select("name");
     if (error) throw new Error("headless: " + error.message);

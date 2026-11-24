@@ -201,9 +201,10 @@ test("zoomed into a quarter the strip marks that quarter's plays, and zoomed out
   await zoomTo(page, "Q2");
   const after = Math.max(...(await bandWidths(page)));
   const frames = await page.evaluate(() => (window as unknown as { __frames: { bands: number; widest: number; marks: number }[] }).__frames);
-  // The quarter grows to fill the strip: it is seen on the way, not only before and after.
+  // The quarter grows to fill the strip: it is seen on the way, not only before and after (in at least two
+  // frames; a busy machine, several browsers at once, draws fewer of them).
   const onTheWay = frames.filter((f) => f.widest > before + (after - before) * 0.1 && f.widest < after - (after - before) * 0.1);
-  expect(onTheWay.length, "the zoom moves from the whole game to the quarter").toBeGreaterThan(2);
+  expect(onTheWay.length, "the zoom moves from the whole game to the quarter").toBeGreaterThan(1);
   // The quarter's marks ride along: there from the zoom's first frame, and never the whole game's.
   const moving = frames.filter((f) => f.widest > before + 1);
   expect(moving.length, "the zoom was seen").toBeGreaterThan(0);
@@ -255,7 +256,7 @@ test("a click on a timeout shows it in the list", async ({ page }) => {
   await expect(row, "its row is brought into view").toBeInViewport();
 });
 
-test("a click on a run plays it from where it starts", async ({ page }) => {
+test("a click on a run plays it from where it starts", { tag: "@smoke" }, async ({ page }) => {
   const tracked = await recordAnalytics(page);
   await openSampleGame(page);
   const seeks = async () =>

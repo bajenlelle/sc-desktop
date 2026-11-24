@@ -2,7 +2,7 @@
  * Home is retired (docs/superpowers/specs/2026-11-21-retire-home-design.md): `/` opens the page the
  * coach left on in this space, else Playlists, and a game that is no longer open falls back to the
  * Library. The sidebar starts with Search (New playlist lives in the playlist list's header and on ⌘N).
- * Reads only, apart from New playlist's name field, which is named `headless-<port> start …` and swept
+ * Reads only, apart from New playlist's name field, which is named `headless-<port>-<slot> start …` and swept
  * in case a press outside saves it.
  * The account has one space, so a second one is added in the browser for the space switch
  * (addSecondSpace): nothing of it is written to staging.
@@ -31,7 +31,7 @@ test.afterEach(async ({ page }) => {
   await deleteOwnRowsNamed(page, "playlists", PREFIX);
 });
 
-test("the app opens on Playlists the first time", async ({ page, browserName }) => {
+test("the app opens on Playlists the first time", { tag: "@smoke" }, async ({ page, browserName }) => {
   const tracked = await recordAnalytics(page);
   await open(page, "/matches", "Games");
   await forgetLastPlaces(page);

@@ -14,7 +14,7 @@ const ALFA = owned("Alfa");
 const TYPED = owned("Typed opponent");
 const OLD = owned("Report from before sections");
 
-/** The made-up league with every team named `headless-<port> <name>`. */
+/** The made-up league with every team named `headless-<port>-<slot> <name>`. */
 function ownedLeague() {
   const league = madeUpLeague();
   for (const f of league.fixtures) for (const c of f.competitors) c.teamName = owned(c.teamName);
@@ -33,7 +33,7 @@ test.afterEach(async ({ page }) => {
   await deleteOwnedPlaylists(page, [ALFA, TYPED, OLD]);
 });
 
-test("New report on a team's page opens a report that knows the team", async ({ page }) => {
+test("New report on a team's page opens a report that knows the team", { tag: "@alone:team-report" }, async ({ page }) => {
   const tracked = await recordAnalytics(page);
   await openAlfa(page);
   await page.getByRole("button", { name: "New report" }).click();
@@ -74,7 +74,7 @@ test("New report on a team's page opens a report that knows the team", async ({ 
   expect(await selectRows(page, "playlists", "id", { name: ALFA })).toHaveLength(1);
 });
 
-test("the team's Plays adds into the report it started", async ({ page }) => {
+test("the team's Plays adds into the report it started", { tag: "@alone:team-report" }, async ({ page }) => {
   await openAlfa(page);
   await page.getByRole("button", { name: "New report" }).click();
   await expect(page.getByRole("textbox", { name: "Opponent" })).toHaveValue(ALFA, { timeout: 30_000 });
@@ -84,7 +84,7 @@ test("the team's Plays adds into the report it started", async ({ page }) => {
   expect(await page.evaluate((k) => localStorage.getItem(k), key!)).toBe(playlist.id);
 });
 
-test("Reports' New report starts an empty report for a typed opponent", async ({ page }) => {
+test("Reports' New report starts an empty report for a typed opponent", { tag: ["@alone:team-report", "@smoke"] }, async ({ page }) => {
   const tracked = await recordAnalytics(page);
   await page.goto("/reports");
   await expect(page.getByRole("heading", { level: 1, name: "Reports" })).toBeVisible({ timeout: 30_000 });
@@ -99,7 +99,7 @@ test("Reports' New report starts an empty report for a typed opponent", async ({
   });
 });
 
-test("a report's sections can be shown, added and taken out, and players see only the shown ones", async ({ page }) => {
+test("a report's sections can be shown, added and taken out, and players see only the shown ones", { tag: "@alone:team-report" }, async ({ page }) => {
   await openAlfa(page);
   await page.getByRole("button", { name: "New report" }).click();
   const profile = page.getByRole("region", { name: "How they play" });
@@ -149,7 +149,7 @@ test("a report's sections can be shown, added and taken out, and players see onl
     ]);
 });
 
-test("a report opened from Reports goes back there, and Edit clips opens its playlist", async ({ page }) => {
+test("a report opened from Reports goes back there, and Edit clips opens its playlist", { tag: "@alone:team-report" }, async ({ page }) => {
   await openAlfa(page);
   await page.getByRole("button", { name: "New report" }).click();
   await expect(page.getByRole("textbox", { name: "Opponent" })).toHaveValue(ALFA, { timeout: 30_000 });
@@ -164,7 +164,7 @@ test("a report opened from Reports goes back there, and Edit clips opens its pla
   await expect(page).toHaveURL(/\/playlists$/, { timeout: 30_000 });
 });
 
-test("a report from before sections has the same section controls, and takes on sections with the first change", async ({ page }) => {
+test("a report from before sections has the same section controls, and takes on sections with the first change", { tag: "@alone:team-report" }, async ({ page }) => {
   const id = await createPlaylist(page, OLD);
   await withAppModule(
     page,

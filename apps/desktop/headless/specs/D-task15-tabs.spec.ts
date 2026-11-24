@@ -76,7 +76,7 @@ test.afterEach(async ({ page }) => {
   await restoreTitle(page);
 });
 
-test("games open in tabs, switch without loading, and close", async ({ page, browserName }) => {
+test("games open in tabs, switch without loading, and close", { tag: "@alone" }, async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-D-task15-${step}`;
 
   // One game: one tab.

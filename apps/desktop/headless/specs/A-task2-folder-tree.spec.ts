@@ -3,7 +3,7 @@
  * icon and a guide line under its chevron; a child playlist's icon sits in its
  * sibling subfolder's column, 14 px right of the parent's; an empty folder's
  * hint starts there too; with no folders a playlist has no extra indent; the
- * guide line stays behind a selected row. Creates `headless-1431 …` rows and
+ * guide line stays behind a selected row. Creates `headless-<port>-<slot> …` rows and
  * deletes them, pass or fail.
  */
 import type { Locator, Page } from "@playwright/test";
@@ -15,12 +15,12 @@ import {
   openPlaylistsSidebar,
   sidebarRowsNamed,
   playlistRow,
-  PORT,
+  OWNER,
   shot,
   test,
 } from "../helpers";
 
-const PREFIX = `headless-${PORT} `;
+const PREFIX = `${OWNER} `;
 const TREE = `${PREFIX}tree`;
 const SUB = `${PREFIX}sub`;
 const CHILD = `${PREFIX}child`;

@@ -5,7 +5,7 @@
  */
 import { expect, openFirstGame, shot, test } from "../helpers";
 
-test("library, game view and Add clips render against staging", async ({ page, browserName }) => {
+test("library, game view and Add clips render against staging", { tag: "@smoke" }, async ({ page, browserName }) => {
   const name = (step: string) => `smoke-${browserName}-${step}`;
 
   // Asserts the Library heading and a game row, and screenshots the Library on the way.
@@ -21,7 +21,8 @@ test("library, game view and Add clips render against staging", async ({ page, b
   await shot(page, name("game"));
 
   await page.goto("/playlists");
-  const playlist = page.locator("[data-playlist-id]").first();
+  // One of the account's own, not a row another worker's test is making and deleting meanwhile.
+  const playlist = page.locator("[data-playlist-id]").filter({ hasNotText: "headless-" }).first();
   await expect(playlist, "the test account has a playlist").toBeVisible({ timeout: 30_000 });
   await playlist.click();
   await page.getByRole("button", { name: "Add clips", exact: true }).first().click();

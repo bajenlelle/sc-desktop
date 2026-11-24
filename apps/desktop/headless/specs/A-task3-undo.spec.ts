@@ -8,7 +8,7 @@
  *
  * Keys: the page's handler (pages/playlists.tsx, useHotkeys "editor") takes
  * ⌘ or Ctrl with Z, so on macOS both projects press Meta+z / Meta+Shift+z.
- * Creates `headless-1431 …` rows and deletes them, pass or fail.
+ * Creates `headless-<port>-<slot> …` rows and deletes them, pass or fail.
  */
 import type { Locator, Page } from "@playwright/test";
 import {
@@ -20,13 +20,13 @@ import {
   openPlaylistsSidebar,
   sidebarRowsNamed,
   playlistRow,
-  PORT,
+  OWNER,
   shot,
   test,
   toastWith,
 } from "../helpers";
 
-const PREFIX = `headless-${PORT} `;
+const PREFIX = `${OWNER} `;
 const PL = `${PREFIX}undo`;
 const PL_RENAMED = `${PREFIX}undo renamed`;
 const PL_TOAST = `${PREFIX}undo by toast`;

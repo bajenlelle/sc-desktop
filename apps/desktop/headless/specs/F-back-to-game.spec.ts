@@ -3,7 +3,7 @@
  * the way back, "‹ {game title}" leading the toolbar, and that button
  * returns to the game as it was left (no reload, both open games still in
  * the sidebar). Arriving from the sidebar shows no such button. Makes one
- * playlist of its own (`headless-<port> back`) and deletes it at the end.
+ * playlist of its own (`headless-<port>-<slot> back`) and deletes it at the end.
  */
 import {
   chooseNewTarget,

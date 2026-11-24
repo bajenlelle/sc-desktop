@@ -3,7 +3,7 @@
  * rename it, the name selected, one commit per rename, the new name shown at
  * once, and an unchanged name writes nothing. Also the New Playlist / New
  * folder fields and the editor header's rename field start selected.
- * Creates `headless-1431 …` rows and deletes them, pass or fail.
+ * Creates `headless-<port>-<slot> …` rows and deletes them, pass or fail.
  */
 import type { Locator, Page, Request, Route } from "@playwright/test";
 import {
@@ -16,13 +16,13 @@ import {
   openPlaylistsSidebar,
   sidebarRowsNamed,
   playlistRow,
-  PORT,
+  OWNER,
   shot,
   test,
   toastWith,
 } from "../helpers";
 
-const PREFIX = `headless-${PORT} `;
+const PREFIX = `${OWNER} `;
 const PLAYLIST = `${PREFIX}rename me`;
 const PLAYLIST_RENAMED = `${PREFIX}renamed`;
 const FOLDER = `${PREFIX}folder`;
