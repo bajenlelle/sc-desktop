@@ -1,13 +1,14 @@
 /**
  * The window sidebar's edge drags it wider or narrower (lib/use-column-resize.ts): clamped to 180–360, kept
- * across a reload, a hard pull inward hides it, a double-click goes back to 220. Its edge lights up blue; the
- * playlist browser's edge, an inner divider, lights up gray and still resizes. Reads only; creates nothing.
+ * across a reload. A click on the edge hides it and brings it back at its width; dragged shut, it comes back at
+ * 220. Hidden, its edge is the window's left edge, lit blue under the pointer. The playlist browser's edge, an
+ * inner divider, lights up gray and still resizes. Reads only; creates nothing.
  */
 import type { Page } from "@playwright/test";
 import { expect, goViaSidebar, shot, test } from "../helpers";
 
 const aside = (page: Page) => page.locator("aside").first();
-const edge = (page: Page) => page.getByRole("separator", { name: "Resize the sidebar" });
+const edge = (page: Page) => page.getByRole("separator", { name: /^(Hide|Show) sidebar$/ });
 const browserEdge = (page: Page) => page.getByRole("separator", { name: "Resize the playlist browser" });
 const widthOf = async (page: Page) => Math.round((await aside(page).boundingBox())!.width);
 const lineOf = (separator: ReturnType<typeof edge>) => separator.locator("[data-edge-line]");
@@ -51,14 +52,13 @@ test("the sidebar's edge resizes it, within its limits, and the width stays", as
   await dragBy(page, edge(page), -200);
   await expect.poll(() => widthOf(page), { message: "no narrower than 180" }).toBe(180);
 
-  await edge(page).dblclick();
-  await expect.poll(() => widthOf(page), { message: "a double-click goes back to 220" }).toBe(220);
-
   // The keys move it too.
   await edge(page).focus();
   await page.keyboard.press("ArrowRight");
-  await expect.poll(() => widthOf(page)).toBe(236);
+  await expect.poll(() => widthOf(page)).toBe(196);
   await page.keyboard.press("ArrowLeft");
+  await expect.poll(() => widthOf(page)).toBe(180);
+  await dragBy(page, edge(page), 40);
   await expect.poll(() => widthOf(page)).toBe(220);
 
   // The playlist browser's edge is an inner divider: gray, not the sidebar's blue, and it still resizes.
@@ -75,16 +75,47 @@ test("the sidebar's edge resizes it, within its limits, and the width stays", as
   await dragBy(page, browserEdge(page), -40);
 });
 
-test("a hard pull inward hides the sidebar, and the toolbar brings it back at its width", async ({ page }) => {
+test("a click on the edge hides the sidebar and brings it back at its width; dragged shut, it comes back at 220", async ({ page, browserName }) => {
   await goViaSidebar(page, "Games");
   await dragBy(page, edge(page), 40);
   await expect.poll(() => widthOf(page)).toBe(260);
-  await dragBy(page, edge(page), -240, { hold: false });
-  await expect.poll(() => widthOf(page), { message: "hidden" }).toBeLessThanOrEqual(1);
-  await expect(edge(page), "a hidden sidebar has no edge").toHaveCount(0);
 
+  // A click hides it, keeping the width.
+  await edge(page).click();
+  await expect.poll(() => widthOf(page), { message: "hidden by a click" }).toBeLessThanOrEqual(1);
+  await expect(edge(page)).toHaveAttribute("aria-label", "Show sidebar");
+
+  // Hidden, its edge is the window's left edge, lit blue under the pointer.
+  await page.mouse.move(2, 450);
+  await expect.poll(() => lineOf(edge(page)).evaluate((el) => getComputedStyle(el).opacity), { message: "the line shows near the window's edge" }).toBe("1");
+  const box = (await lineOf(edge(page)).boundingBox())!;
+  expect(box.x, "the line is at the window's left edge").toBeLessThanOrEqual(1);
+  await shot(page, `${browserName}-F-sidebar-resize-hidden-hover`);
+
+  await edge(page).click();
+  await expect.poll(() => widthOf(page), { message: "a click brings it back at the width it had" }).toBe(260);
+
+  // The keyboard: Return hides and shows it.
+  await edge(page).focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => widthOf(page)).toBeLessThanOrEqual(1);
+  await page.keyboard.press("Enter");
+  await expect.poll(() => widthOf(page)).toBe(260);
+
+  // Dragged shut, it comes back at the default width, by the edge or by the toolbar.
+  await dragBy(page, edge(page), -240, { hold: false });
+  await expect.poll(() => widthOf(page), { message: "hidden by a flick" }).toBeLessThanOrEqual(1);
   await page.locator("header").getByRole("button", { name: "Show sidebar" }).click();
-  await expect.poll(() => widthOf(page), { message: "back at the width it had" }).toBe(260);
-  await edge(page).dblclick();
+  await expect.poll(() => widthOf(page), { message: "back at 220" }).toBe(220);
+
+  // Hidden, a pull on the window's edge brings it out to where it is pulled.
+  await edge(page).click();
+  await expect.poll(() => widthOf(page)).toBeLessThanOrEqual(1);
+  await dragBy(page, edge(page), 280);
+  await expect.poll(() => widthOf(page), { message: "pulled out to 284" }).toBeGreaterThanOrEqual(280);
+  await edge(page).focus();
+  for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowLeft");
+  await expect.poll(() => widthOf(page)).toBe(180);
+  await dragBy(page, edge(page), 40);
   await expect.poll(() => widthOf(page)).toBe(220);
 });
