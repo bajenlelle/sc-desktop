@@ -24,7 +24,7 @@ import {
   withTipoff,
 } from "@scoutable/shared/lib/period-sync";
 import { isSuggestionPending, offeredSeconds, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
-import { FirstBasketLink, FirstBasketPanel, useFirstBasket } from "@/components/first-basket";
+import { FirstBasketPanel, FirstBasketSwitch, useFirstBasket } from "@/components/first-basket";
 import { firstScoreAfterS } from "@scoutable/shared/lib/sync-anchor";
 import { Page, PageContent } from "@/components/shell/page";
 import { GameBackButton, GameTitle } from "@/components/game/game-toolbar-parts";
@@ -762,6 +762,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
                         }
                         seekRequest={activeRow ? quarterSeek : newestRequest(quarterSeek, tipoffSuggestion.seekRequest)}
                         onUserAction={activeRow ? undefined : tipoffSuggestion.noteUserAction}
+                        alternative={activeRow ? undefined : <FirstBasketSwitch fb={firstBasket} />}
                         hasPendingSuggestion={!activeRow && !firstBasket.active && isSuggestionPending(tipoffSuggestion.state)}
                         suggestionSlot={
                           activeRow ? undefined : firstBasket.active ? (
@@ -775,7 +776,6 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
                                 onCancel={tipoffSuggestion.cancel}
                                 onUseBasket={firstBasket.available ? () => firstBasket.open("strip") : undefined}
                               />
-                              <FirstBasketLink fb={firstBasket} />
                             </>
                           )
                         }

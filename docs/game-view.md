@@ -612,9 +612,10 @@ before the clips lined up. Of 33 detections in 60 days, 7 said the recording
 starts after the tip-off.
 
 - **The first basket you can see** (`components/first-basket.tsx`): the
-  tip-off step, in the import and on Details, has "Tip-off not in the video?
-  Set the first basket you can see", and the suggestion offers "Use the first
-  basket" when it finds the recording starts late or finds nothing. The
+  tip-off step, in the import and on Details, has "Tip-off not in the video?"
+  beside its set button, where the coach decides (and "Use the tip-off" in the
+  same place to go back), and the suggestion offers "Use the first basket"
+  when it finds the recording starts late or finds nothing. The
   picker then sets a basket: the first quarter's made baskets from the field
   in order (`q1Baskets`, plays logged late left out), each with its score, its
   player, its clock and how long after the tip-off it came; ‹ › step to the

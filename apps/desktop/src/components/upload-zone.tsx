@@ -8,7 +8,7 @@ import { followsSummary, QuarterSyncPanel, quarterCopy } from "@/components/quar
 import { describePeriodSyncs, videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { newestRequest } from "@scoutable/shared/lib/latest";
 import { isSuggestionPending, offeredSeconds, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
-import { FirstBasketLink, FirstBasketPanel, useFirstBasket } from "@/components/first-basket";
+import { FirstBasketPanel, FirstBasketSwitch, useFirstBasket } from "@/components/first-basket";
 import { firstScoreAfterS } from "@scoutable/shared/lib/sync-anchor";
 import { ImportGuideBubble } from "@/components/import/import-guide";
 import { usePublishImportGuide } from "@/lib/import-guide-store";
@@ -1353,6 +1353,7 @@ export function UploadZone({
                   // Q1: whichever came last, a quarter step back to the tip-off or the suggestion's "Use".
                   seekRequest={activeRow ? quarterSeek : newestRequest(quarterSeek, tipoffSuggestion.seekRequest)}
                   onUserAction={activeRow ? undefined : tipoffSuggestion.noteUserAction}
+                  alternative={activeRow ? undefined : <FirstBasketSwitch fb={firstBasket} />}
                   hasPendingSuggestion={!activeRow && !firstBasket.active && isSuggestionPending(tipoffSuggestion.state)}
                   suggestionSlot={
                     activeRow ? undefined : firstBasket.active ? (
@@ -1366,7 +1367,6 @@ export function UploadZone({
                           onCancel={tipoffSuggestion.cancel}
                           onUseBasket={firstBasket.available ? () => firstBasket.open("strip") : undefined}
                         />
-                        <FirstBasketLink fb={firstBasket} />
                       </>
                     )
                   }

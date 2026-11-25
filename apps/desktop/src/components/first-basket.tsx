@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { describePlay, formatGameClock } from "@scoutable/shared/lib/events";
 import { footageStartFromCuts, q1Baskets, tipoffFromBasket, type BasketAnchor } from "@scoutable/shared/lib/sync-anchor";
 import type { AnchorCopy } from "@/components/sync-point-picker";
+import { Button } from "@/components/ui/button";
 import { quietControl } from "@/components/ui/filter-button";
 import { trackEvent } from "@/lib/analytics";
 import { isLocalPath } from "@/lib/stream";
@@ -138,15 +139,21 @@ export function useFirstBasket({
 
 export type FirstBasket = ReturnType<typeof useFirstBasket>;
 
-/** "Tip-off not in the video?": the way to the first basket, under the tip-off's suggestion. */
-export function FirstBasketLink({ fb }: { fb: FirstBasket }) {
-  if (!fb.available || fb.active) return null;
-  return (
-    <div className="-mt-1 pb-3">
-      <button type="button" data-sync="first-basket-link" className={cn(quietControl, "-ml-2 h-7 max-w-none text-callout text-muted-foreground")} onClick={() => fb.open("link")}>
-        Tip-off not in the video? Set the first basket you can see
-      </button>
-    </div>
+/**
+ * Beside the picker's set button, where the coach decides: "Tip-off not in
+ * the video?" while the tip-off is set, "Use the tip-off" while the first
+ * basket is. None when the game has no basket to sync on.
+ */
+export function FirstBasketSwitch({ fb }: { fb: FirstBasket }) {
+  if (!fb.available) return null;
+  return fb.active ? (
+    <Button type="button" variant="ghost" data-sync="tipoff-link" onClick={fb.close}>
+      Use the tip-off
+    </Button>
+  ) : (
+    <Button type="button" variant="ghost" data-sync="first-basket-link" title="Set the first basket you can see instead" onClick={() => fb.open("link")}>
+      Tip-off not in the video?
+    </Button>
   );
 }
 
@@ -194,9 +201,6 @@ export function FirstBasketPanel({ fb }: { fb: FirstBasket }) {
             <ChevronRight className="size-4" />
           </button>
         </span>
-        <button type="button" className={cn(quietControl, "h-7 shrink-0 text-callout text-muted-foreground")} onClick={fb.close}>
-          Use the tip-off
-        </button>
       </div>
     </div>
   );

@@ -77,6 +77,8 @@ export interface SyncPointPickerProps {
   confirmDisabledReason?: string;
   /** The user moved the playhead themselves (scrubber, steps or keys) to `seconds`, as opposed to playing. */
   onScrub?: (seconds: number) => void;
+  /** Beside the set button: another moment to set instead (the first basket, when the tip-off isn't in the video). */
+  alternative?: React.ReactNode;
 }
 
 export interface AnchorCopy {
@@ -144,6 +146,7 @@ export function SyncPointPicker({
   noteExtra,
   confirmDisabledReason,
   onScrub,
+  alternative,
 }: SyncPointPickerProps) {
   const copy = { ...TIPOFF_COPY, ...copyOverride };
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -496,6 +499,8 @@ export function SyncPointPicker({
           </motion.span>
         )}
       </AnimatePresence>
+      {/* Where the coach decides: looking for the moment and not finding it, the other way is beside the button. */}
+      {alternative}
       {onSkip && (
         <Button
           variant="ghost"
