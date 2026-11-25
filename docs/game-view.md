@@ -614,12 +614,14 @@ starts after the tip-off.
 - **The first basket you can see** (`components/first-basket.tsx`): the
   tip-off step, in the import and on Details, has "Tip-off not in the video?"
   beside its set button, where the coach decides (and "Use the tip-off" in the
-  same place to go back), and the suggestion offers "Use the first basket"
-  when it finds the recording starts late or finds nothing. The
-  picker then sets a basket: the first quarter's made baskets from the field
-  in order (`q1Baskets`, plays logged late left out), each with its score, its
-  player, its clock and how long after the tip-off it came; ‹ › step to the
-  next when one isn't in the footage either. The tip-off is that much before
+  same place to go back), and the suggestion offers "Use a basket instead"
+  when it finds the recording starts late or finds nothing. The picker then
+  sets a basket ("Set a basket you can see"): under the set row, where the
+  click was, grows "Find one of these baskets in the video and set it",
+  the first quarter's made baskets from the field in order (`q1Baskets`,
+  plays logged late left out), each with its score, its player, its clock and
+  how long after the tip-off it came, ‹ › to step through them. The first one
+  in the footage is the one to use. The tip-off is that much before
   it (`tipoffFromBasket`), before the recording if need be (a negative sync).
 - **The detector lines the graphic up with the feed** (`tipoff-detect.ts`,
   signal 5): given how long after the tip-off the feed has the first points

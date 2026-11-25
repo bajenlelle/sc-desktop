@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { describePlay, formatGameClock } from "@scoutable/shared/lib/events";
 import { footageStartFromCuts, q1Baskets, tipoffFromBasket, type BasketAnchor } from "@scoutable/shared/lib/sync-anchor";
 import type { AnchorCopy } from "@/components/sync-point-picker";
+import { AutoHeight } from "@/components/ui/auto-height";
 import { Button } from "@/components/ui/button";
 import { quietControl } from "@/components/ui/filter-button";
 import { trackEvent } from "@/lib/analytics";
+import { fadeVariants, useReducedMotionSafe } from "@/lib/motion";
 import { isLocalPath } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 import { findCuts } from "@/lib/video-frames";
@@ -13,7 +16,7 @@ import type { PlayByPlayEvent } from "@/types/match";
 
 /** The picker's words while the first basket is set in the tip-off's place. */
 const BASKET_COPY: AnchorCopy = {
-  title: "Set the first basket you can see",
+  title: "Set a basket you can see",
   instruction: "Find the frame where the ball goes in, then set it.",
   button: "Set basket here",
   confirmed: "Basket set at",
@@ -151,26 +154,56 @@ export function FirstBasketSwitch({ fb }: { fb: FirstBasket }) {
       Use the tip-off
     </Button>
   ) : (
-    <Button type="button" variant="ghost" data-sync="first-basket-link" title="Set the first basket you can see instead" onClick={() => fb.open("link")}>
+    <Button type="button" variant="ghost" data-sync="first-basket-link" title="Set a basket you can see instead" onClick={() => fb.open("link")}>
       Tip-off not in the video?
     </Button>
   );
 }
 
 /**
- * The basket to find, in the suggestion's place above the picker: what goes
- * up on the scoreboard, who scores and when, and steps to the next basket
- * when this one isn't in the footage either.
+ * The basket to find, under the set button that switched to it: the change
+ * shows where the click was (the words above the footage change too, but out
+ * of sight). It grows in there, and is scrolled into view when the row is at
+ * the bottom of the window. What goes up on the scoreboard, who scores and
+ * when, and steps to the next basket when this one isn't in the footage
+ * either.
  */
 export function FirstBasketPanel({ fb }: { fb: FirstBasket }) {
+  const reduced = useReducedMotionSafe();
   const b = fb.basket;
-  if (!b) return null;
+  return (
+    <AutoHeight>
+      <AnimatePresence initial={false}>
+        {b && (
+          <motion.div
+            key="basket"
+            variants={fadeVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="pt-3"
+            onAnimationStart={(def) => {
+              if (def !== "visible") return;
+              const el = document.querySelector('[data-sync="first-basket"]');
+              el?.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+            }}
+          >
+            <BasketRow fb={fb} b={b} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </AutoHeight>
+  );
+}
+
+function BasketRow({ fb, b }: { fb: FirstBasket; b: BasketAnchor<PlayByPlayEvent> }) {
   const e = b.event;
   // "9:39", not the feed's "09:39".
   const clock = e.gameClockTime ? formatGameClock(e.gameClockTime).replace(/^0(\d:)/, "$1") : null;
   return (
-    <div className="pb-3">
-      <div data-sync="first-basket" className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-fill-1 px-3 py-2.5 text-sm">
+    <div data-sync="first-basket" className="rounded-lg bg-fill-1 px-3 pt-2 pb-2.5 text-sm">
+      <p className="mb-1.5 text-footnote text-muted-foreground">Find one of these baskets in the video and set it. Step through them with ‹ ›.</p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {b.score && (
           <span data-sync="first-basket-score" className="shrink-0 rounded-md bg-background px-1.5 py-0.5 font-semibold nums shadow-xs ring-1 ring-separator">
             {b.score.home}–{b.score.away}

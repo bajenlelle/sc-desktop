@@ -746,9 +746,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
                         note={
                           activeRow?.anchor
                             ? `Look for ${activeRow.anchor.label}.`
-                            : firstBasket.active
-                              ? "The tip-off is worked out from it, even when it was before the recording started."
-                              : undefined
+                      : undefined
                         }
                         momentKey={activeRow?.period ?? (firstBasket.active ? `basket-${firstBasket.index}` : 1)}
                         confirmedSeconds={
@@ -763,11 +761,10 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
                         seekRequest={activeRow ? quarterSeek : newestRequest(quarterSeek, tipoffSuggestion.seekRequest)}
                         onUserAction={activeRow ? undefined : tipoffSuggestion.noteUserAction}
                         alternative={activeRow ? undefined : <FirstBasketSwitch fb={firstBasket} />}
+                        belowSet={activeRow ? undefined : <FirstBasketPanel fb={firstBasket} />}
                         hasPendingSuggestion={!activeRow && !firstBasket.active && isSuggestionPending(tipoffSuggestion.state)}
                         suggestionSlot={
-                          activeRow ? undefined : firstBasket.active ? (
-                            <FirstBasketPanel fb={firstBasket} />
-                          ) : (
+                          activeRow || firstBasket.active ? undefined : (
                             <>
                               <TipoffSuggestionStrip
                                 state={tipoffSuggestion.state}

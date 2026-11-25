@@ -91,7 +91,7 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel, onU
           {/* With nothing to use, the first basket is the way on: the main button. */}
           {basket && onUseBasket && (
             <Button type="button" size="sm" variant={seconds !== null ? "ghost" : "default"} onClick={onUseBasket}>
-              Use the first basket
+              Use a basket instead
             </Button>
           )}
           <Button type="button" variant="ghost" size="sm" onClick={onReject}>
@@ -205,7 +205,7 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel, onU
               <span className="min-w-0 flex-1 text-muted-foreground">No tip-off found automatically. Scrub to it below.</span>
               {onUseBasket && (
                 <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={onUseBasket}>
-                  Use the first basket
+                  Use a basket instead
                 </Button>
               )}
             </>,

@@ -39,7 +39,8 @@ test("the tip-off step can set the first basket instead, and works the tip-off o
   // Its hover fill covers the whole of it: the words don't run out of the button.
   expect(await link.evaluate((el) => el.scrollWidth - el.clientWidth), "the link's words fit inside it").toBeLessThanOrEqual(0);
   await link.click();
-  await expect(page.getByText("Set the first basket you can see", { exact: true })).toBeVisible();
+  await expect(page.getByText("Set a basket you can see", { exact: true })).toBeVisible();
+  await expect(panel(page), "any of them will do").toContainText("Find one of these baskets in the video and set it.");
   await expect(panel(page), "the basket is named by its score, its player and when it came").toContainText(/s after the tip-off/);
   await expect(panel(page).locator('[data-sync="first-basket-score"]')).toHaveText(/^\d+–\d+$/);
   await expect(panel(page)).toContainText(/^.*1 of \d+/);
@@ -79,6 +80,7 @@ test("a hard cut between the tip-off and the basket is where the game's footage 
   // The recording jumps into the game 12 s in (the warm-up before it, the tip-off lost).
   await page.evaluate(() => (window.__headlessCuts = [12]));
   await page.locator('[data-sync="first-basket-link"]').click();
+  await expect(panel(page)).toContainText(/s after the tip-off/);
   const after = Number((await panel(page).innerText()).match(/(\d+) s after the tip-off/)![1]);
   // The basket 30 s into the recording puts the tip-off before the cut (if the feed has it more than 18 s after).
   test.skip(after <= 20, "this game's first basket came too soon after the tip-off for the cut to lie between them");
