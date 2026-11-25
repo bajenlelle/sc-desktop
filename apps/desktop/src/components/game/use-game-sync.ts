@@ -614,6 +614,16 @@ export function useGameSync({
     const done = () => {
       if (mode.kind === "offer") backToPlay(mode.narrow.fixed);
     };
+    /** Done: out of the mode at once, from any step. What was answered is kept; a narrowing saves what it knows. */
+    const exit = async () => {
+      if (busy) return;
+      if ((mode.kind === "ask" || mode.kind === "find") && mode.narrow) return finishNarrow(mode.narrow);
+      if (mode.kind === "offer") return done();
+      if (mode.kind === "ask" && mode.purpose === "jump") return finishJumps();
+      if (mode.kind === "ask" && mode.purpose === "check") return finish();
+      video.pause();
+      setMode({ kind: "idle" });
+    };
     /** Return: the bar's main button. */
     const primary = () => {
       if (mode.kind === "ask") void looksRight();
@@ -628,7 +638,7 @@ export function useGameSync({
       else if (mode.kind === "confirm") back();
       else if (mode.kind === "offer") done();
     };
-    return { looksRight, itsOff, another, skip, replay, stop, here, cancel, back, moveOnlyThis, moveOn, checkEarlier, done, primary, escape };
+    return { looksRight, itsOff, another, skip, replay, stop, here, cancel, back, moveOnlyThis, moveOn, checkEarlier, done, primary, escape, exit };
   }, [mode, busy, video, match.events, plays, lead, seek, commit, advance, finish, enterFind, nextNarrow, finishNarrow, backToPlay, inFile, nextJump, finishJumps]);
 
   // A question plays its clip once: from before the play to a little after it.

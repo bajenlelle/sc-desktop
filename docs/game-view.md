@@ -543,11 +543,24 @@ Details sets it again.
 each unchecked part in turn, with its last made basket: the play's clip plays
 (6 s before to 4 s after), and over the footage the app's own score turns to
 the play's score, and lights up, at the moment the sync has the play at
-(`sync-cue.tsx`). The Now bar's place holds the question (`game-sync-bar.tsx`):
-the score change, the play in a sentence, and Skip, It's off, Looks right.
-The line under the timeline says what to look for, with Replay and Try
-another play. Looks right saves a check and moves on. The list stands back
-(inert) for as long as a play is being checked or found.
+(`sync-cue.tsx`). Looks right saves a check and moves on.
+
+Checking and fixing is a mode, and reads as one (NN/g on mode slips: a strong
+signal, the mode named, the way out in view; Apple's modal tasks end in Done).
+While it lasts (`game-sync-bar.tsx`):
+- **A panel over the footage**, tinted in the accent and in the Now bar's
+  stead: the mode's name ("Checking sync", "Checking the jumps", "Finding where
+  it starts", "Fixing sync"), the step ("Check 1 of 2 · Q1"), the score change,
+  the answers (Skip, It's off, Looks right), and **Done**, which leaves the mode
+  from any step and keeps what was answered. Its second line has the play in a
+  sentence and then what to do, in full (two lines are kept for it, so the
+  footage doesn't move as the words change), with Replay and Try another play.
+  In a column under 600 px the step and Done move to that line.
+- **A frame round the player's column**, which fades in with the mode.
+- **The list stands back** (inert, dimmed) with "Paused while you check the
+  sync" over it.
+The panel takes 52 px more than the Now bar did, so the footage is that much
+smaller while it shows.
 
 **Fix sync** (the Now bar, a row's menu, or It's off): the video stops where
 the sync has the play, and a close-up of the video around it takes the

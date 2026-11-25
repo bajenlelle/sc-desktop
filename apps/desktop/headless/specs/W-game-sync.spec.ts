@@ -121,6 +121,10 @@ test("Check sync asks about one play of each part of the game, on a sync row tha
 
   await status(page).click();
   await expect(parts(page), "one part a quarter").toHaveCount(2);
+  // A mode, not playback: the panel names it, the column has a frame, and the list says why it is paused.
+  await expect(bar(page).locator('[data-sync="mode-title"]')).toHaveAttribute("title", "Checking sync");
+  await expect(page.locator('[data-sync-frame="on"]')).toHaveCount(1);
+  await expect(page.locator('[data-sync="list-paused"]')).toHaveText("Paused while you check the sync");
   await expect(label(page), "the first part is asked about first").toHaveText("Check 1 of 2 · Q1");
   await expect(page.locator('[data-sync="hint"]'), "the first play says what a check is").toContainText("One play from each part of the game. Nothing moves unless one is off.");
   await expect(bar(page).locator('[data-sync="change"]'), "the play is named by what it does to the score").toBeVisible();
@@ -149,6 +153,7 @@ test("Check sync asks about one play of each part of the game, on a sync row tha
   await expect(parts(page), "the row goes with the check").toHaveCount(0);
   await expect(status(page)).toHaveText("Sync checked");
   await expect(page.locator("[inert]"), "the list is back").toHaveCount(0);
+  await expect(page.locator('[data-sync-frame="on"]'), "the frame goes with the mode").toHaveCount(0);
   await shot(page, `${browserName}-W-checked`);
 
   const events = (await tracked()).filter((e) => e.event.startsWith("sync_check"));
@@ -178,7 +183,8 @@ test("Escape ends a check where it stands, and a click on a part of the sync row
   await expect(label(page)).toHaveText("Check 2 of 2 · Q2");
   await bar(page).getByRole("button", { name: "Skip" }).click();
   await expect(label(page), "a part passed on is not asked about again; the other one is").toHaveText("Check 1 of 2 · Q1");
-  await page.getByRole("button", { name: "Stop checking" }).click();
+  // Done, in the panel's own place, leaves the mode.
+  await bar(page).getByRole("button", { name: "Done" }).click();
   await expect(bar(page)).toHaveCount(0);
 });
 
@@ -407,7 +413,7 @@ test("in a small window the sync's bar and its buttons stay inside the player's 
   };
 
   await status(page).click();
-  await expect(page.locator('[data-sync="hint"]'), "the label moves to the line under the timeline").toContainText("Check 1 of 2 · Q1");
+  await expect(bar(page).getByText("Check 1 of 2 · Q1", { exact: true }).last(), "the label moves to the panel's second line").toBeVisible();
   await expect(label(page)).toBeHidden();
   await fits("a question");
   await shot(page, `${browserName}-W-small-ask`);

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Timer } from "lucide-react";
 import { describeReach, describeShiftSeconds } from "@scoutable/shared/lib/sync-check";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -110,13 +111,27 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
   };
 }
 
+/** What the coach is doing, for the mode's badge: the whole of it, not the step (that is the label beside it). */
+function modeTitle(sync: GameSync): string {
+  const { mode } = sync;
+  if (mode.kind === "ask") return mode.purpose === "jump" ? "Checking the jumps" : mode.purpose === "narrow" ? "Finding where it starts" : "Checking sync";
+  if (mode.kind === "find") {
+    if (mode.jumpAt !== undefined) return "Checking the jumps";
+    if (mode.narrow) return "Finding where it starts";
+    return mode.origin === "check" ? "Checking sync" : "Fixing sync";
+  }
+  return "Fixing sync";
+}
+
 /**
- * The Now bar's place while the sync is being checked or fixed: what the
- * question is about, and the answers. The longer line of what to do is under
- * the timeline (`syncWords().hint`), where the game's facts otherwise are, so
- * the bar keeps the Now bar's height and the footage doesn't move.
+ * The sync's mode, over the footage, while a play is checked, found or fixed
+ * (docs/game-view.md, "Sync"): it reads as a mode and not as playback (NN/g on
+ * mode slips: a strong signal, the mode named, the way out in view). A tinted
+ * panel with the mode's name, the step, the play and the answers, and Done;
+ * under them, in full, what to do. It takes the Now bar's room under the
+ * footage, which is free while it shows, and a little more.
  */
-export function GameSyncBar({ sync }: { sync: GameSync }) {
+export function GameSyncBar({ sync, links }: { sync: GameSync; links?: ReactNode }) {
   const { mode, actions, busy } = sync;
   const words = syncWords(sync);
   if (mode.kind === "idle" || !words) return null;
@@ -179,11 +194,9 @@ export function GameSyncBar({ sync }: { sync: GameSync }) {
       </>
     );
   } else {
+    // Done, the panel's own, leaves it as the play stands.
     buttons = (
       <>
-        <Button variant="outline" size="sm" onClick={actions.done}>
-          Done
-        </Button>
         <Button size="sm" onClick={actions.checkEarlier}>
           Check earlier plays
           <ReturnKey />
@@ -192,27 +205,66 @@ export function GameSyncBar({ sync }: { sync: GameSync }) {
     );
   }
 
+  const done = (
+    <Button variant="ghost" size="sm" onClick={() => void actions.exit()} disabled={busy}>
+      Done
+    </Button>
+  );
+
   return (
-    <div role="group" aria-label="Sync" data-sync-mode={mode.kind} data-clip-start={sync.clip?.start.toFixed(2)} data-clip-end={sync.clip?.end.toFixed(2)} className="flex h-11 shrink-0 items-center gap-2.5 px-1">
-      {/* How far the play moved is the bar's news; every other label gives way in a narrow column, to the line under
-          the timeline (the game view repeats it there), so the play keeps its words. */}
-      <span data-sync="label" className={cn("shrink-0 text-callout font-medium text-muted-foreground nums", mode.kind !== "confirm" && "hidden @min-[600px]/player:inline")}>
-        {words.label}
-      </span>
-      {/* What to look for on the video's own scoreboard, ahead of the sentence: in a narrow bar the sentence gives way, not this. */}
-      {words.change && (
-        <span data-sync="change" aria-label={`${words.change.before} becomes ${words.change.after}`} className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-fill-2 px-1.5 text-callout font-semibold nums">
-          <span className="font-medium text-muted-foreground">{words.change.before}</span>
-          <span className="text-muted-foreground" aria-hidden>
-            →
-          </span>
-          {words.change.after}
+    <div
+      role="group"
+      aria-label="Sync"
+      data-sync-mode={mode.kind}
+      data-clip-start={sync.clip?.start.toFixed(2)}
+      data-clip-end={sync.clip?.end.toFixed(2)}
+      className="mb-3 shrink-0 rounded-xl bg-primary/8 px-3 pt-1.5 pb-2 ring-1 ring-primary/30"
+    >
+      <div className="flex h-9 items-center gap-2.5">
+        <span
+          data-sync="mode-title"
+          title={modeTitle(sync)}
+          className="flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2 text-footnote font-semibold text-primary-foreground"
+        >
+          <Timer className="size-3.5" aria-hidden />
+          <span className="hidden @min-[560px]/player:inline">{modeTitle(sync)}</span>
         </span>
-      )}
-      <span data-sync="main" title={words.main} aria-live="polite" className="min-w-0 flex-1 truncate text-callout font-medium">
-        {words.main}
-      </span>
-      <span className="ml-auto flex shrink-0 items-center gap-1.5">{buttons}</span>
+        {/* How far the play moved is the bar's news; every other label gives way in a narrow column, to the line
+            below, so the play keeps its words. */}
+        <span data-sync="label" className={cn("shrink-0 text-callout font-medium text-foreground nums", mode.kind !== "confirm" && "hidden @min-[600px]/player:inline")}>
+          {words.label}
+        </span>
+        {/* What to look for on the video's own scoreboard, ahead of the sentence: in a narrow bar the sentence gives way, not this. */}
+        {words.change && (
+          <span data-sync="change" aria-label={`${words.change.before} becomes ${words.change.after}`} className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-background/70 px-1.5 text-callout font-semibold nums">
+            <span className="font-medium text-muted-foreground">{words.change.before}</span>
+            <span className="text-muted-foreground" aria-hidden>
+              →
+            </span>
+            {words.change.after}
+          </span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">{buttons}</span>
+        {/* The way out of the mode, always in the same place: what was answered is kept. In a narrow column it
+            ends the line below, so the answers keep their room here. */}
+        <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-separator @min-[600px]/player:block" aria-hidden />
+        <span className="hidden shrink-0 @min-[600px]/player:inline-flex">{done}</span>
+      </div>
+      {/* What to do, in full and in the text's own colour: two lines are kept for it so the footage doesn't move. */}
+      <div className="mt-0.5 flex h-10 items-start gap-3 text-callout">
+        {mode.kind !== "confirm" && <span className="shrink-0 font-medium text-foreground @min-[600px]/player:hidden">{words.label}</span>}
+        {/* The play first, in full (it is what to look for), then what to do. */}
+        <p className="line-clamp-2 min-w-0 flex-1" title={`${words.main} ${words.hint}`.trim()}>
+          <span data-sync="main" aria-live="polite" className="font-medium text-foreground">
+            {words.main}
+          </span>{" "}
+          <span data-sync="hint" className="text-foreground/75">
+            {words.hint}
+          </span>
+        </p>
+        {links && <span className="flex shrink-0 items-center gap-3">{links}</span>}
+        <span className="-mt-1 shrink-0 @min-[600px]/player:hidden">{done}</span>
+      </div>
     </div>
   );
 }
