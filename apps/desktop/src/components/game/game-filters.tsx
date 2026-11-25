@@ -1,3 +1,4 @@
+import { NO_CLOCK_MOMENTS } from "@scoutable/shared/lib/events";
 import * as React from "react";
 import { Check, Plus } from "lucide-react";
 import type { PlayerGroup } from "@scoutable/shared/lib/clip-filters";
@@ -31,6 +32,7 @@ export function GameFilterBar({
   teams,
   momentCounts,
   timeouts,
+  clock = true,
   periods,
   players,
   labels,
@@ -52,6 +54,8 @@ export function GameFilterBar({
   momentCounts: Readonly<Record<GameMoment, number>>;
   /** Whether the game's timeouts are known: "ready", still being "read", or "none" on record. */
   timeouts: "ready" | "reading" | "none";
+  /** Whether the game has a game clock: the moments read off it are off without one. */
+  clock?: boolean;
   periods: readonly number[];
   /** The game's players by team, keyed by playerKey. */
   players: readonly PlayerGroup[];
@@ -76,6 +80,7 @@ export function GameFilterBar({
   const onePlayerName = onePlayer ? (players.flatMap((g) => g.players).find((p) => p.key === onePlayer)?.name ?? null) : null;
   const why: Partial<Record<GameMoment, string>> = {};
   if (timeouts !== "ready") why.after_timeout = timeouts === "reading" ? "Reading the game's timeouts…" : "This game has no timeouts on record.";
+  if (!clock) for (const m of NO_CLOCK_MOMENTS) why[m] = "This game has no game clock on record.";
 
   return (
     <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-3 pt-3 pb-1">

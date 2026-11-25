@@ -239,7 +239,42 @@ export function normalizeProfixioEvents(
       scoreAway: e.scoreAway,
     });
   }
-  return out;
+  return withCountdownClocks(out);
+}
+
+const clockSeconds = (t: string) => {
+  const m = t.match(/^(\d{2}):(\d{2})$/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+
+/**
+ * The app reads a game clock as a countdown (late plays, play order within a
+ * quarter, quarter starts and ends). A Profixio clock may count up, and
+ * which way it runs isn't documented; a period whose clock mostly rises
+ * through the game (by the wall clock, plays in order) keeps no clock, and is
+ * placed by the wall clock like a district game without one.
+ */
+export function withCountdownClocks(events: PlayByPlayEvent[]): PlayByPlayEvent[] {
+  const byPeriod = new Map<number, number[]>();
+  for (const e of events) {
+    const t = clockSeconds(e.gameClockTime);
+    if (t === null) continue;
+    const list = byPeriod.get(e.period) ?? [];
+    list.push(t);
+    byPeriod.set(e.period, list);
+  }
+  const rising = new Set<number>();
+  for (const [period, times] of byPeriod) {
+    let up = 0;
+    let down = 0;
+    for (let i = 1; i < times.length; i++) {
+      if (times[i] > times[i - 1]) up++;
+      else if (times[i] < times[i - 1]) down++;
+    }
+    if (up > down) rising.add(period);
+  }
+  if (rising.size === 0) return events;
+  return events.map((e) => (rising.has(e.period) && e.gameClockTime ? { ...e, gameClockTime: "" } : e));
 }
 
 export interface ProfixioSyncAnchor {

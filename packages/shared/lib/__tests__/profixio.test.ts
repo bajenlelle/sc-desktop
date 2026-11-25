@@ -17,7 +17,9 @@ import {
   resolveSides,
   sortProfixioEvents,
   splitName,
+  withCountdownClocks,
 } from "../profixio";
+import type { PlayByPlayEvent } from "../../types/match";
 import sample from "./fixtures/profixio-sample.json";
 
 // Anonymised Profixio match mapped to the wire shape (see the fixture's
@@ -304,5 +306,20 @@ describe("schedule rows and categories", () => {
       { id: "1172071", label: "Nivå 2A", categoryId: 1172071 },
       { id: "1172076", label: "Nivå 1", categoryId: 1172076 },
     ]);
+  });
+});
+
+describe("withCountdownClocks", () => {
+  const at = (eventId: number, period: number, gameClockTime: string) =>
+    ({ eventId, period, gameClockTime, type: "2pt", subType: "", realWorldTime: "", isSuccessful: 1, qualifiers: [] }) as PlayByPlayEvent;
+
+  it("keeps a clock that counts down", () => {
+    const events = [at(1, 1, "09:40"), at(2, 1, "08:12"), at(3, 1, "02:05")];
+    expect(withCountdownClocks(events)).toBe(events);
+  });
+
+  it("drops a period's clock that counts up, so the wall clock places its plays", () => {
+    const out = withCountdownClocks([at(1, 1, "00:20"), at(2, 1, "01:48"), at(3, 1, "07:55"), at(4, 2, "09:00"), at(5, 2, "03:00")]);
+    expect(out.map((e) => e.gameClockTime)).toEqual(["", "", "", "09:00", "03:00"]);
   });
 });

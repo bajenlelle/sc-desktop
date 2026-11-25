@@ -33,7 +33,10 @@ playlists, and share them with teams; players watch on web/mobile.
   after fixture refreshes and in the weekly season audit, and the league players with
   their photos (`league_players`, photos copied to R2; `docs/scouting-reports.md`); its
   fixtures carry each game's group (`phaseName`, `poolNumber`) for the Teams pages
-  (`docs/teams.md`); `tipoff-detect` — reads
+  (`docs/teams.md`); `profixio` — the district-basketball and youth SM
+  provider, read through Profixio's documented API with `PROFIXIO_API_SECRET`
+  (only the tournaments that key may view), four cache tables; the desktop
+  imports through it (`docs/profixio.md`); `tipoff-detect` — reads
   scoreboard clocks from video stills with Claude for the automatic tip-off
   suggestion; `ANTHROPIC_API_KEY`, kill switch `app_config.tipoff_detect_enabled`).
   Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`
@@ -184,6 +187,9 @@ playlists, and share them with teams; players watch on web/mobile.
   team's plays across the coach's own games, counted beside the season, played
   on from one game into the next and collected as in the game view; and the
   sidebar's Open teams, the teams visited, a click apart.
+- `docs/profixio.md`: importing Profixio games (district leagues, youth SM): the
+  catalogue, a game synced on its first basket, its players keyed apart from
+  Genius's, and what its protocol doesn't record.
 - `docs/search.md`: the desktop's search over a space (⌘K): what it finds, how it
   orders it, what it reads and when.
 - `docs/maintenance.md`: the bug pipeline, and every secret: where it lives

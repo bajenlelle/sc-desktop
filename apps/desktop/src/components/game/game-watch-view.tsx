@@ -6,7 +6,7 @@ import { teamPath } from "@/components/entity-link";
 import { useLeagues } from "@/lib/use-leagues";
 import { useGameTeams } from "./use-game-teams";
 import { Check, Play, Tag, VideoOff } from "lucide-react";
-import { eventLabel, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
+import { eventLabel, formatGameClock, hasGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, afterTimeoutPlays, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
 import { playerKey, playersByTeam } from "@scoutable/shared/lib/clip-filters";
@@ -203,6 +203,7 @@ export function GameWatchView({
     [teams, match.homeTeam.color, match.awayTeam.color],
   );
 
+  const hasClock = useMemo(() => hasGameClock(match.events), [match.events]);
   const people = useMemo(() => {
     const byId = new Map<number, GamePerson>();
     for (const e of match.events) {
@@ -1115,6 +1116,7 @@ export function GameWatchView({
               teams={teams}
               momentCounts={momentCounts}
               timeouts={marks && marks.timeouts.length > 0 ? "ready" : readingMarks ? "reading" : "none"}
+              clock={hasClock}
               periods={timeline.bands.map((b) => b.period)}
               players={playerGroups}
               labels={labels.labels}

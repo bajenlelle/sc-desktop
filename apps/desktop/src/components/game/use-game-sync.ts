@@ -5,10 +5,9 @@ import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { scoreAfter, scoreBefore, type GameFlow } from "@scoutable/shared/lib/game-flow";
 import type { GameTimeline } from "@scoutable/shared/lib/game-timeline";
 import { projectedSync, sameSyncPoint } from "@scoutable/shared/lib/period-sync";
-import { defaultPreRoll } from "@scoutable/shared/lib/provider";
+import { defaultPreRoll, matchProvider } from "@scoutable/shared/lib/provider";
 import {
-  CHECK_LEAD_SECONDS,
-  CHECK_TAIL_SECONDS,
+  checkWindow,
   SAME_PLACE_SECONDS,
   checkCandidate,
   describeShiftSeconds,
@@ -130,6 +129,9 @@ export function useGameSync({
 }) {
   const [mode, setMode] = useState<SyncMode>({ kind: "idle" });
   const [busy, setBusy] = useState(false);
+  // A Profixio table types plays in late: its checks start further back (sync-check.ts checkWindow).
+  const provider = matchProvider(match);
+  const { lead: CHECK_LEAD, tail: CHECK_TAIL } = checkWindow(provider);
   // The sync as last saved: a step that follows a save reads it before the page has drawn the game again.
   const syncRef = useRef(match.syncPoint);
   useEffect(() => {
@@ -234,10 +236,10 @@ export function useGameSync({
       const at = sync ? computeVideoTime(event, sync) : null;
       if (at === null) return false;
       setMode({ kind: "ask", purpose, event, at, part, partName, total, narrow, first, jumpAt });
-      seek(Math.max(0, at - CHECK_LEAD_SECONDS), true);
+      seek(Math.max(0, at - CHECK_LEAD), true);
       return true;
     },
-    [seek],
+    [seek, CHECK_LEAD],
   );
 
   /** The next part to check: the first one with no check that wasn't passed on and has a play to ask about. */
@@ -502,7 +504,7 @@ export function useGameSync({
       advance();
     };
     const replay = () => {
-      if (mode.kind === "ask") seek(Math.max(0, mode.at - CHECK_LEAD_SECONDS), true);
+      if (mode.kind === "ask") seek(Math.max(0, mode.at - CHECK_LEAD), true);
     };
     const stop = () => {
       if (mode.kind === "ask" && mode.narrow) void finishNarrow(mode.narrow);
@@ -646,14 +648,14 @@ export function useGameSync({
   const askKey = mode.kind === "ask" ? mode.event.eventId : null;
   useEffect(() => {
     if (askAt === null) return;
-    const end = askAt + CHECK_TAIL_SECONDS;
+    const end = askAt + CHECK_TAIL;
     const stop = () => {
       // Only playback running into the clip's end stops there; the coach is free to scrub past it.
       if (!video.paused && video.currentTime >= end && video.currentTime < end + 1.5) video.pause();
     };
     video.addEventListener("timeupdate", stop);
     return () => video.removeEventListener("timeupdate", stop);
-  }, [video, askAt, askKey]);
+  }, [video, askAt, askKey, CHECK_TAIL]);
 
   const active = mode.kind !== "idle";
   const event = mode.kind === "idle" ? null : mode.kind === "offer" ? mode.narrow.fixed : mode.event;
@@ -673,7 +675,9 @@ export function useGameSync({
     event,
     cue,
     /** The clip a question plays, for the player's scrubber. */
-    clip: mode.kind === "ask" ? { start: Math.max(0, mode.at - CHECK_LEAD_SECONDS), end: mode.at + CHECK_TAIL_SECONDS, mark: mode.at } : null,
+    clip: mode.kind === "ask" ? { start: Math.max(0, mode.at - CHECK_LEAD), end: mode.at + CHECK_TAIL, mark: mode.at } : null,
+    /** The game's plays are typed in late by the table (Profixio): "right" is a looser call. */
+    loggedLate: provider === "profixio",
     startCheck,
     fixPlay,
     /** The recording's jumps inside the game, the ones left to look at, and the way to check them. */

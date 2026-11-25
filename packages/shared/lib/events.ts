@@ -200,6 +200,14 @@ export function personKey(e: Pick<PlayByPlayEvent, "player">): string | null {
   return e.player.source === "profixio" ? `px:${e.player.playerId}` : String(e.player.playerId);
 }
 
+/** Whether any of the plays has a game clock: district leagues (Profixio) run none, so moments by the clock can't be told. */
+export function hasGameClock(events: readonly Pick<PlayByPlayEvent, "gameClockTime">[]): boolean {
+  return events.some((e) => !!e.gameClockTime);
+}
+
+/** Why the moments read off the game clock are off for plays without one. */
+export const NO_CLOCK_MOMENTS = ["quarter_start", "quarter_end", "clutch"] as const;
+
 export function playerName(e: PlayByPlayEvent): string {
   if (!e.player) return "—";
   return `${e.player.firstName} ${e.player.familyName}`.trim();

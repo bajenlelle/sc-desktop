@@ -1,3 +1,4 @@
+import { matchProvider } from "@scoutable/shared/lib/provider";
 import { useMemo, useState } from "react";
 import { gameLineups, LINEUP_MIN_SECONDS, LINEUPS_SHOWN, type Lineup } from "@scoutable/shared/lib/game-lineups";
 import type { StoredMatch } from "@scoutable/shared/types/match";
@@ -23,7 +24,9 @@ export function LineupsSection({ match, hasFives, people, onOpen }: { match: Sto
       <GroupHeader title="Lineups" />
       {!hasFives ? (
         <p className="rounded-window bg-card px-4 py-3 text-subheadline text-muted-foreground ring-1 ring-separator">
-          Lineups come with games imported since September 2026.
+          {matchProvider(match) === "profixio"
+            ? "This league doesn’t record who is on the court."
+            : "Lineups come with games imported since September 2026."}
         </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">

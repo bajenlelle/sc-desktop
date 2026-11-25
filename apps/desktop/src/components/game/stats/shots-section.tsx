@@ -1,3 +1,4 @@
+import { matchProvider } from "@scoutable/shared/lib/provider";
 import { useMemo, useState } from "react";
 import { eventLabel, playClock } from "@scoutable/shared/lib/events";
 import { SHOT_ZONES, zoneCells, type ChartShot, type gameShots, type ShotZone } from "@scoutable/shared/lib/game-shots";
@@ -41,7 +42,9 @@ export function ShotsSection({
       <GroupHeader title="Shots" />
       {!shots.hasPositions ? (
         <p className="rounded-window bg-card px-4 py-3 text-subheadline text-muted-foreground ring-1 ring-separator">
-          Shot positions come with games imported since September 2026.
+          {matchProvider(match) === "profixio"
+            ? "This league doesn’t record where shots are taken."
+            : "Shot positions come with games imported since September 2026."}
         </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">

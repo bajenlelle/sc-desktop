@@ -1,3 +1,4 @@
+import { hasGameClock, NO_CLOCK_MOMENTS } from "@scoutable/shared/lib/events";
 import { useMemo } from "react";
 import { resolveGameMarks } from "@scoutable/shared/lib/game-marks";
 import { GAME_MOMENTS, type GameMoment } from "@scoutable/shared/lib/game-flow";
@@ -22,15 +23,20 @@ export function usePlayMoments(games: readonly MomentGame[]) {
     const byGame = new Map<string, Map<number, ReadonlySet<GameMoment>>>();
     const counts = Object.fromEntries(GAME_MOMENTS.map((m) => [m, 0])) as Record<GameMoment, number>;
     let timeouts = false;
+    let clock = false;
     for (const g of games) {
       const marks = resolveGameMarks({ gameMarks: g.gameMarks, events: g.events });
       if (marks && marks.timeouts.length > 0) timeouts = true;
+      if (hasGameClock(g.events)) clock = true;
       const moments = momentsOfGame(g.events, marks);
       byGame.set(g.gameId, moments);
       for (const set of moments.values()) for (const m of set) counts[m]++;
     }
     const why: Partial<Record<GameMoment, string>> = {};
     if (!timeouts) why.after_timeout = games.length === 1 ? "This game has no timeouts on record." : "These games have no timeouts on record.";
+    if (!clock && games.length > 0) {
+      for (const m of NO_CLOCK_MOMENTS) why[m] = games.length === 1 ? "This game has no game clock on record." : "These games have no game clock on record.";
+    }
     const momentsOf = (gameId: string, eventId: number) => byGame.get(gameId)?.get(eventId);
     return { counts, why, momentsOf };
   }, [games]);

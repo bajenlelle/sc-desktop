@@ -37,6 +37,16 @@ export const SMALL_FIX_SECONDS = 3;
 export const CHECK_LEAD_SECONDS = 6;
 export const CHECK_TAIL_SECONDS = 4;
 
+/**
+ * How long a check plays before and after the play, by how the game's plays
+ * are timed. A Profixio table types a play in after it happens (measured
+ * from 12 s before to 4 s after its stamp, 30 s at worst), so its check
+ * starts well before the stamp; a league feed is to the second.
+ */
+export function checkWindow(provider: "genius" | "profixio"): { lead: number; tail: number } {
+  return provider === "profixio" ? { lead: 20, tail: 5 } : { lead: CHECK_LEAD_SECONDS, tail: CHECK_TAIL_SECONDS };
+}
+
 const msOf = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() : Number.NaN);
 /** Two places in the video this near are the same place. */
 const moved = (a: number | null, b: number | null) => a !== null && b !== null && Math.abs(a - b) > 0.05;
