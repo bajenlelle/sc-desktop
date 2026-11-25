@@ -77,11 +77,23 @@ export function syncParts(sync: SyncPoint, events: readonly CheckEvent[]): SyncP
       parts.push({ index: parts.length, period: span.period, cut: s.cut, start: s.at, end: next ? next.at : Math.max(span.end, s.at), name, checks: [] });
     });
   }
-  for (const check of sync.checks ?? []) {
+  for (const check of standingChecks(sync)) {
     const part = partOf(parts, check);
     if (part) part.checks.push(check);
   }
   return parts;
+}
+
+/**
+ * The checks that still hold: the sync has the play where it was when the
+ * coach confirmed it. One the sync has since moved (a tip-off changed in
+ * Details, a fix from a playlist, an older desktop) says nothing any more.
+ */
+export function standingChecks(sync: SyncPoint): SyncCheck[] {
+  return (sync.checks ?? []).filter((c) => {
+    const at = computeVideoTime(c, sync);
+    return at !== null && !moved(at, c.videoTime);
+  });
 }
 
 /** The part a play is in: its quarter's, and of a divided quarter the one whose stretch holds the play's time. */
@@ -173,10 +185,16 @@ export function narrowStepsLeft(open: number): number {
   return open <= 0 ? 0 : Math.ceil(Math.log2(open + 1));
 }
 
-/** The sync with `event` checked (once, in time order). */
+/**
+ * The sync with `event` checked where the sync has it now (once, in time
+ * order). Checks that no longer hold are dropped as it goes. A play the sync
+ * can't place is not checked.
+ */
 export function withCheck(sync: SyncPoint, event: { eventId: number; period: number; realWorldTime: string }): SyncPoint {
-  const others = (sync.checks ?? []).filter((c) => c.eventId !== event.eventId);
-  const checks = [...others, { period: event.period, eventId: event.eventId, realWorldTime: event.realWorldTime }].sort(
+  const videoTime = computeVideoTime(event, sync);
+  const others = standingChecks(sync).filter((c) => c.eventId !== event.eventId);
+  if (videoTime === null) return filterChecks(sync, (c) => others.includes(c));
+  const checks = [...others, { period: event.period, eventId: event.eventId, realWorldTime: event.realWorldTime, videoTime }].sort(
     (a, b) => msOf(a.realWorldTime) - msOf(b.realWorldTime),
   );
   return { ...sync, checks };
@@ -265,7 +283,7 @@ export function planFix<E extends CheckEvent>(
     const play = byId.get(check.eventId);
     return !!play && moved(computeVideoTime(play, base), computeVideoTime(play, next));
   };
-  const held = [...(base.checks ?? [])]
+  const held = standingChecks(base)
     .sort((a, b) => msOf(a.realWorldTime) - msOf(b.realWorldTime))
     .find((c) => c.eventId !== event.eventId && msOf(c.realWorldTime) > at && reached(c));
   if (held) {
@@ -276,7 +294,7 @@ export function planFix<E extends CheckEvent>(
   next = filterChecks(next, (c) => c.eventId === event.eventId || !reached(c));
   next = withCheck(next, { eventId: event.eventId, period: event.period, realWorldTime: event.realWorldTime });
 
-  return { next, delta, reach: fixReach(base, next, events, sync.checks ?? []) };
+  return { next, delta, reach: fixReach(base, next, events, standingChecks(sync)) };
 }
 
 /** What moved between two syncs, in the words' terms. */
@@ -326,4 +344,56 @@ export function describeShiftSeconds(deltaSeconds: number): string {
   const amount =
     a < 10 ? `${Math.round(a * 10) / 10} s` : a < 60 ? `${Math.round(a)} s` : `${Math.floor(Math.round(a) / 60)}:${String(Math.round(a) % 60).padStart(2, "0")}`;
   return `${amount} ${deltaSeconds < 0 ? "earlier" : "later"}`;
+}
+
+/** A play in words a coach can find in the footage, and what it does to the score when it scores. */
+export interface PlayCue {
+  /** "#7 Anna Stoltz (KFU) scores a layup.", the team's code only when the feed has one. */
+  sentence: string;
+  /** The score before and after, home first, when the play changes it. */
+  score: { before: { home: number; away: number }; after: { home: number; away: number } } | null;
+}
+
+function cueVerb(e: Pick<PlayByPlayEvent, "type" | "subType" | "isSuccessful">): string {
+  const made = e.isSuccessful === 1;
+  const sub = e.subType?.toLowerCase() ?? "";
+  switch (e.type) {
+    case "2pt":
+      if (!made) return "misses a two";
+      return sub.includes("dunk") ? "dunks" : sub.includes("layup") ? "scores a layup" : "scores a two";
+    case "3pt":
+      return made ? "makes a three" : "misses a three";
+    case "freethrow":
+      return made ? "makes a free throw" : "misses a free throw";
+    case "rebound":
+      return sub.includes("off") ? "grabs the offensive rebound" : "grabs the rebound";
+    case "turnover":
+      return "turns the ball over";
+    case "steal":
+      return "steals the ball";
+    case "foul":
+      return "commits a foul";
+    case "foulon":
+      return "is fouled";
+    case "block":
+      return "blocks the shot";
+    case "assist":
+      return "gets the assist";
+    default:
+      return e.type;
+  }
+}
+
+/** The words for a play being checked or found, with its score change (`before` and `after` from the game's flow). */
+export function playCue(
+  e: Pick<PlayByPlayEvent, "type" | "subType" | "isSuccessful" | "player" | "eventTeam">,
+  before: { home: number; away: number } | null,
+  after: { home: number; away: number } | null,
+): PlayCue {
+  // A player is named with the team's code when the feed has one; a play with no player on it, by its team.
+  const code = e.eventTeam?.teamCode?.trim() || "";
+  const name = e.player ? `${e.player.firstName} ${e.player.familyName}`.trim() : "";
+  const who = name ? `${e.player?.pno ? `#${e.player.pno} ` : ""}${name}${code ? ` (${code})` : ""}` : e.eventTeam?.teamName?.trim() || code || "The team";
+  const changed = !!before && !!after && (before.home !== after.home || before.away !== after.away);
+  return { sentence: `${who} ${cueVerb(e)}.`, score: changed ? { before: before!, after: after! } : null };
 }

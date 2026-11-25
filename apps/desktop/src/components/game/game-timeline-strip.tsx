@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { animate, motion, useMotionValue } from "framer-motion";
 import { describePlay, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { flowChart, scoreAfter, type CourtStint, type GameFlow, type GameMoment } from "@scoutable/shared/lib/game-flow";
@@ -38,7 +38,9 @@ const Y = {
   stintH: 3,
   lane: 93,
   laneH: 11,
-  height: 104,
+  sync: 108,
+  syncH: 10,
+  height: 120,
 } as const;
 
 /** The middle of the lane under the graph: home's play marks stand above it, away's below, the playlist's dots on it. */
@@ -46,8 +48,37 @@ const LANE_MID = Y.lane + Y.laneH / 2;
 /** A play's mark in the lane. */
 const MARK_H = 5;
 
+/** The middle of the sync row, the strip's last: which stretches of the game the coach has checked. */
+const SYNC_MID = Y.sync + Y.syncH / 2;
+
+/** The track's own height: what stands in for it (the find strip, while a play is being found) is as tall. */
+export const GAME_TRACK_HEIGHT = Y.height;
 /** Everything the timeline takes under the Now bar: its track, the line of facts and zoom under it, and the air below. */
 export const GAME_TIMELINE_HEIGHT = Y.height + 44;
+
+/**
+ * One stretch of the game that is placed as a whole (lib/sync-check.ts), for
+ * the strip's sync row: a quarter, or a part of one that a cut divides.
+ */
+export interface StripSyncPart {
+  index: number;
+  period: number;
+  /** Where the part starts in the video when a cut starts it; null when it starts with its quarter. */
+  cutAt: number | null;
+  name: string;
+  /** "open": no play in it checked yet. "current": the one being checked or fixed. */
+  state: "open" | "checked" | "current";
+  /** The checked plays' places in the video. */
+  checks: readonly number[];
+}
+
+/** A sync part on the strip: where it is drawn. */
+interface PlacedPart extends StripSyncPart {
+  x0: number;
+  x1: number;
+  /** A cut starts it: the row breaks there. */
+  cutX: number | null;
+}
 
 /** How near (px) the pointer must be to a play for a click to mean that play. */
 const SNAP_PX = 4;
@@ -171,6 +202,7 @@ const StripDrawing = memo(function StripDrawing({
   clutch,
   zoomed,
   patternId,
+  syncParts,
 }: {
   scale: GameScale;
   timeline: GameTimeline;
@@ -191,6 +223,8 @@ const StripDrawing = memo(function StripDrawing({
   /** Settled on one quarter (not the whole game, and not on the way between the two). */
   zoomed: boolean;
   patternId: string;
+  /** The sync row's parts, where they are; null when the game has no sync to check. */
+  syncParts: readonly PlacedPart[] | null;
 }) {
   const width = scale.width;
   const xOfEvent = (eventId: number) => {
@@ -469,6 +503,65 @@ const StripDrawing = memo(function StripDrawing({
             </g>
           );
         })}
+
+        {/* The sync row: each stretch of the game that is placed as a whole. Dotted until a play in it has been
+            seen in the right place, then a line with a tick where that play is. Where a cut divides a quarter the
+            row breaks, as the video does there. */}
+        {(syncParts ?? []).map((part) => {
+          const w = part.x1 - part.x0;
+          if (w < 3) return null;
+          const from = part.x0 + (part.cutX !== null ? 6 : 1.5);
+          const to = part.x1 - 1.5;
+          const color = part.state === "checked" ? "var(--success)" : part.state === "current" ? "var(--foreground)" : "var(--muted-foreground)";
+          return (
+            <g key={part.index} data-strip="sync-part" data-state={part.state} data-index={part.index}>
+              {part.cutX !== null && (
+                <path
+                  data-strip="sync-cut"
+                  d={`M${part.cutX - 3} ${SYNC_MID + 4} l3 -8 M${part.cutX + 1} ${SYNC_MID + 4} l3 -8`}
+                  fill="none"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  style={{ stroke: "var(--muted-foreground)" }}
+                />
+              )}
+              {to > from && (
+                <line
+                  x1={from}
+                  x2={to}
+                  y1={SYNC_MID}
+                  y2={SYNC_MID}
+                  strokeWidth={part.state === "open" ? 2 : 3}
+                  strokeLinecap="round"
+                  strokeDasharray={part.state === "open" ? "0.1 5" : undefined}
+                  strokeOpacity={part.state === "open" ? 0.7 : 1}
+                  style={{ stroke: color }}
+                />
+              )}
+              {part.state !== "open" &&
+                w >= (part.cutX !== null ? 22 : 14) &&
+                part.checks.map((t, i) => {
+                  // Clear of the row's ends, and of the break a cut makes at its start.
+                  const least = part.x0 + (part.cutX !== null ? 14 : 6);
+                  const x = clamp(scale.xOf(t), least, Math.max(least, part.x1 - 6));
+                  return (
+                    <g key={i} data-strip="sync-check">
+                      <circle cx={x} cy={SYNC_MID} r="5.5" style={{ fill: "var(--background)" }} />
+                      <circle cx={x} cy={SYNC_MID} r="4.5" style={{ fill: "var(--success)" }} />
+                      <path
+                        d={`M${x - 2.1} ${SYNC_MID + 0.1} l1.5 1.6 l2.8 -3.2`}
+                        fill="none"
+                        strokeWidth="1.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ stroke: "var(--background)" }}
+                      />
+                    </g>
+                  );
+                })}
+            </g>
+          );
+        })}
       </g>
 
       {/* Who is above and who is below: the graph's legend, on the graph, starting where the first quarter does
@@ -505,6 +598,8 @@ interface Hover {
   play: TimedPlay | null;
   time: number;
   segment: ScaleSegment | null;
+  /** The sync part the pointer is on, in the sync row; null anywhere else. */
+  part: number | null;
 }
 
 /** A run (by its first basket's event) or a timeout (by its event) on the strip. */
@@ -557,6 +652,9 @@ export function GameTimelineStrip({
   landmarkTime,
   onScrubEnd,
   hint,
+  syncParts,
+  onCheckPart,
+  syncControl,
   className,
   handleRef,
 }: {
@@ -585,8 +683,14 @@ export function GameTimelineStrip({
   landmarkTime: (landmark: StripLandmark) => number | null;
   /** The timeline moved the video, said once: a drag let go, a swipe come to rest, or a click on a second (a click on a play's mark is `onPlay`, on a run or a timeout `onLandmark`). */
   onScrubEnd?: (via: "timeline" | "timeline_drag" | "wheel") => void;
-  /** A first-visit line under the track, in the game facts' place; gone after the first use. */
-  hint: string | null;
+  /** A line under the track, in the game facts' place: how the timeline works on a first visit, what to do while the sync is checked. */
+  hint: ReactNode | null;
+  /** The game's parts for the sync row (lib/sync-check.ts); none when there is no sync to check. */
+  syncParts?: readonly StripSyncPart[];
+  /** A click on a part of the sync row that has no check yet. */
+  onCheckPart?: (index: number) => void;
+  /** Beside the zoom, under the track: the sync's state and the way to check it. */
+  syncControl?: ReactNode;
   className?: string;
   handleRef?: Ref<GameTimelineHandle>;
 }) {
@@ -669,6 +773,19 @@ export function GameTimelineStrip({
       }),
     [marks, timeline, scale, width],
   );
+
+  // The sync row's parts on the strip: a quarter's first part starts with its band, each later one at its cut.
+  const placedParts = useMemo<PlacedPart[] | null>(() => {
+    if (!syncParts || syncParts.length === 0 || timeline.axis !== "video") return null;
+    const out: PlacedPart[] = [];
+    for (const seg of scale.segments) {
+      if (seg.kind !== "period" || seg.period === undefined) continue;
+      const mine = syncParts.filter((p) => p.period === seg.period);
+      const starts = mine.map((p, i) => (i === 0 || p.cutAt === null ? seg.x0 : clamp(scale.xOf(p.cutAt), seg.x0, seg.x1)));
+      mine.forEach((p, i) => out.push({ ...p, x0: starts[i], x1: i + 1 < mine.length ? starts[i + 1] : seg.x1, cutX: i > 0 && p.cutAt !== null ? starts[i] : null }));
+    }
+    return out;
+  }, [syncParts, scale, timeline.axis]);
 
   const clutch = useMemo(() => {
     let from = Infinity;
@@ -770,7 +887,8 @@ export function GameTimelineStrip({
       const i = playIndexAt(timeline.plays, timeline.byTime, time);
       play = i >= 0 ? timeline.plays[timeline.byTime[i]] : null;
     }
-    return { x: at, target, play, time, segment };
+    const part = y >= Y.sync - 3 && segment?.kind === "period" ? (placedParts?.find((p) => at >= p.x0 && at <= p.x1)?.index ?? null) : null;
+    return { x: at, target: part !== null ? { kind: "time" } : target, play: part !== null ? null : play, time, segment, part };
   }
 
   /** Moves the held playhead to the pointer: 1:1 inside the strip, resisting past its ends. */
@@ -818,7 +936,8 @@ export function GameTimelineStrip({
     // pointer is dragged (it then follows it). Taking it to the pointer first gave it two places to go to, the
     // second asked for while the first was under way, and WebKit now and then keeps the first: the timeout's row
     // came up in the list and the video played from the pointer.
-    if (at.target.kind === "time") takeHold(s, x, !onPlayhead);
+    // On the sync row a click asks to check that part: the video is left alone unless the pointer is dragged.
+    if (at.target.kind === "time" && at.part === null) takeHold(s, x, !onPlayhead);
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -861,6 +980,12 @@ export function GameTimelineStrip({
     // A click, on what the press was on. Both clicks of a double-click land here, on the same spot, before the
     // zoom: the second is the same visit, so it asks for nothing again and is not reported again.
     const at = s.at;
+    if (at.part !== null) {
+      const part = placedParts?.find((p) => p.index === at.part);
+      if (part && part.state === "open") onCheckPart?.(part.index);
+      if (s.wasPlaying) video?.play().catch(() => {});
+      return;
+    }
     const what = at.target.kind === "time" ? "time" : at.target.kind === "play" ? `play:${at.target.key}` : `${at.target.kind}:${at.target.id}`;
     const now = performance.now();
     const was = lastClick.current;
@@ -944,6 +1069,17 @@ export function GameTimelineStrip({
   // What the tooltip says: the score first, then where and what.
   const tip = useMemo(() => {
     if (!hover) return null;
+    if (hover.part !== null) {
+      const part = placedParts?.find((p) => p.index === hover.part);
+      if (!part) return null;
+      return {
+        head: part.name,
+        name: null,
+        where: null,
+        what: part.state === "checked" ? "Sync checked" : part.state === "current" ? "Being checked" : "Sync not checked yet",
+        extra: part.state === "open" && onCheckPart ? "Click to check it" : null,
+      };
+    }
     const target = hover.target;
     if (target.kind === "timeout") {
       const t = marks?.timeouts.find((x) => x.eventId === target.id);
@@ -1000,7 +1136,7 @@ export function GameTimelineStrip({
       what: describePlay(e),
       extra: extra || null,
     };
-  }, [hover, flow, marks, moments, teams, stints, stintName]);
+  }, [hover, flow, marks, moments, teams, stints, stintName, placedParts, onCheckPart]);
 
   const final = flow.final;
   const lead = flow.largestLead.home && (!flow.largestLead.away || flow.largestLead.home.lead >= flow.largestLead.away.lead)
@@ -1089,6 +1225,7 @@ export function GameTimelineStrip({
             clutch={clutch}
             zoomed={zoomedIn}
             patternId={patternId}
+            syncParts={placedParts}
           />
         )}
 
@@ -1129,7 +1266,7 @@ export function GameTimelineStrip({
             {tip.where && <span data-readout="where" className="shrink-0 text-muted-foreground">{tip.where}</span>}
             {tip.what && <span data-readout="what" className={tip.name ? "shrink-0" : "min-w-0 truncate"}>{tip.what}</span>}
             {tip.extra && <span data-readout="extra" className="min-w-0 shrink-[4] truncate text-muted-foreground">{tip.extra}</span>}
-            {timeline.axis === "video" && video && hover.segment?.kind === "period" && (
+            {timeline.axis === "video" && video && hover.segment?.kind === "period" && hover.part === null && (
               <span data-readout="time" className="shrink-0 text-muted-foreground">{formatVideoTime(hoverVideoTime(hover))} in the video</span>
             )}
           </div>
@@ -1138,9 +1275,15 @@ export function GameTimelineStrip({
 
       {/* Under the track, as a chart's legend is: the game in a line (on a first visit, how the timeline works, in the same place) and the zoom. */}
       <div className="mt-1 flex h-7 items-center gap-3">
-        {(hint || facts.length > 0) && <p className="min-w-0 truncate text-subheadline text-muted-foreground nums">{hint ?? facts.join(" · ")}</p>}
-        {timeline.bands.length > 1 && (
-          <span ref={zoomRef} className="ml-auto shrink-0">
+        {hint && typeof hint !== "string" ? (
+          hint
+        ) : (
+          (hint || facts.length > 0) && <p className="min-w-0 truncate text-subheadline text-muted-foreground nums">{hint ?? facts.join(" · ")}</p>
+        )}
+        {(syncControl || timeline.bands.length > 1) && (
+          <span ref={zoomRef} className="ml-auto flex shrink-0 items-center gap-1">
+            {syncControl}
+            {timeline.bands.length > 1 && (
             <PopUpButton
               aria-label="Timeline zoom"
               size="sm"
@@ -1149,6 +1292,7 @@ export function GameTimelineStrip({
               onValueChange={(v) => onZoom(v === "all" ? null : Number(v))}
               options={zoomOptions}
             />
+            )}
           </span>
         )}
       </div>

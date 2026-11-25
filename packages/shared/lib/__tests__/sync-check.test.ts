@@ -11,6 +11,7 @@ import {
   partChecked,
   partOf,
   planFix,
+  standingChecks,
   suggestedScope,
   syncParts,
   syncProgress,
@@ -234,11 +235,12 @@ describe("what is stored", () => {
       ...sync,
       playTimes: { "12": 40.5, x: 3, "13": "9" },
       checks: [
-        { period: 2, eventId: 30, realWorldTime: T("18:00:00") },
-        { period: 1, eventId: 5, realWorldTime: T("17:40:00") },
-        { period: 1, eventId: 5, realWorldTime: T("17:41:00") },
-        { period: 0, eventId: 6, realWorldTime: T("17:41:00") },
-        { period: 1, eventId: 7, realWorldTime: "soon" },
+        { period: 2, eventId: 30, realWorldTime: T("18:00:00"), videoTime: 1842 },
+        { period: 1, eventId: 5, realWorldTime: T("17:40:00"), videoTime: 642 },
+        { period: 1, eventId: 5, realWorldTime: T("17:41:00"), videoTime: 702 },
+        { period: 0, eventId: 6, realWorldTime: T("17:41:00"), videoTime: 702 },
+        { period: 1, eventId: 7, realWorldTime: "soon", videoTime: 1 },
+        { period: 1, eventId: 8, realWorldTime: T("17:42:00") },
       ],
     } as unknown as SyncPoint;
     const n = normalizeSyncPoint(raw);
@@ -249,6 +251,30 @@ describe("what is stored", () => {
     expect(sameSyncPoint(sync, withOwnTime(sync, { eventId: 3 }, 9))).toBe(false);
     expect(sameSyncPoint(sync, withCheck(sync, baskets(1)[0]))).toBe(false);
     expect(sameSyncPoint(withCheck(sync, baskets(1)[0]), withCheck(sync, baskets(1)[0]))).toBe(true);
+  });
+});
+
+describe("a check holds only while its play is where it was confirmed", () => {
+  const last = baskets(1)[9];
+  const checked = withCheck(sync, last);
+  it("records where the play was", () => {
+    expect(checked.checks).toEqual([{ period: 1, eventId: last.eventId, realWorldTime: last.realWorldTime, videoTime: at(last) }]);
+    expect(standingChecks(checked)).toHaveLength(1);
+  });
+  it("a sync changed some other way (the tip-off moved in Details) leaves the part unchecked again", () => {
+    const moved: SyncPoint = { ...checked, syncVideoTime: checked.syncVideoTime + 12 };
+    expect(standingChecks(moved)).toHaveLength(0);
+    expect(syncParts(moved, events).map(partChecked)).toEqual([false, false, false, false]);
+    // And the next check written clears it away.
+    expect(withCheck(moved, baskets(2)[9]).checks?.map((c) => c.eventId)).toEqual([baskets(2)[9].eventId]);
+  });
+  it("a check that no longer holds doesn't stop a fix", () => {
+    const later = withCheck(sync, baskets(2)[9]);
+    const moved: SyncPoint = { ...later, syncVideoTime: later.syncVideoTime + 12 };
+    const fifth = baskets(1)[4];
+    const plan = planFix(moved, events, fifth, at(fifth, moved) - 20, LEAD, "play")!;
+    expect(plan.reach.to).toEqual({ kind: "game" });
+    expect(at(baskets(2)[9], plan.next)).toBe(at(baskets(2)[9], moved) - 20);
   });
 });
 

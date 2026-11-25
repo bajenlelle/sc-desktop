@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode, Ref } from "react";
-import { Check, Plus, Tag } from "lucide-react";
+import { Check, Plus, Tag, Timer } from "lucide-react";
 import { eventColors, eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import type { Score } from "@scoutable/shared/lib/game-flow";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
@@ -72,6 +72,7 @@ export function GameNowBar({
   addRef,
   onAdd,
   onSkip,
+  onFixSync,
 }: {
   play: TimedPlay | null;
   /** Footage is playing: the play is "now". Without it, the play is only selected. */
@@ -96,6 +97,8 @@ export function GameNowBar({
   onAdd: () => void;
   /** Past the stretch with no basketball in it: to tip-off, or to the next period. */
   onSkip: (() => void) | null;
+  /** Fix sync on the play on screen: find where it really happens. Absent when the play can't be found here (no footage, or it is outside the video). */
+  onFixSync?: () => void;
 }) {
   const scoreText = (s: Score | null) => (s ? `${s.home}–${s.away}` : null);
 
@@ -154,6 +157,18 @@ export function GameNowBar({
               </Button>
             </TooltipTrigger>
             <TooltipContent>Label this play {lastLabel.name} again</TooltipContent>
+          </Tooltip>
+        )}
+        {/* The play is in the wrong place: fixed here, on this video. Its words give way before the name does. */}
+        {onFixSync && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" className="px-2" onClick={onFixSync} aria-label="Fix sync">
+                <Timer />
+                <span className="hidden @min-[680px]/now:inline">Fix sync</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Is this play in the wrong place? Find where it happens.</TooltipContent>
           </Tooltip>
         )}
         {labelButton(

@@ -81,11 +81,11 @@ export function normalizeSyncPoint(raw: SyncPoint): SyncPoint {
     const checks = (Array.isArray(raw.checks) ? raw.checks : [])
       .filter(
         (c): c is SyncCheck =>
-          !!c && Number.isInteger(c.period) && c.period >= 1 && Number.isInteger(c.eventId) && isTime(c.realWorldTime),
+          !!c && Number.isInteger(c.period) && c.period >= 1 && Number.isInteger(c.eventId) && isTime(c.realWorldTime) && isSeconds(c.videoTime),
       )
       // One check a play, the first stored.
       .filter((c) => !seen.has(c.eventId) && !!seen.add(c.eventId))
-      .map((c) => ({ period: c.period, eventId: c.eventId, realWorldTime: c.realWorldTime }));
+      .map((c) => ({ period: c.period, eventId: c.eventId, realWorldTime: c.realWorldTime, videoTime: c.videoTime }));
     if (checks.length > 0) out.checks = checks.sort((a, b) => timeOf(a.realWorldTime) - timeOf(b.realWorldTime));
     else delete out.checks;
   }
@@ -101,7 +101,7 @@ function editedParts(sync: SyncPoint | undefined): unknown {
     .map(([k, ps]) => [k, ps.syncVideoTime, ps.syncRealWorldTime]);
   const cuts = (n.cuts ?? []).map((c) => [c.period, c.syncVideoTime, c.syncRealWorldTime, c.eventId ?? null]);
   const playTimes = Object.entries(n.playTimes ?? {}).sort(([a], [b]) => Number(a) - Number(b));
-  const checks = (n.checks ?? []).map((c) => c.eventId);
+  const checks = (n.checks ?? []).map((c) => [c.eventId, c.videoTime]);
   return [n.syncVideoTime, n.syncRealWorldTime, n.breaksCut ?? null, periods, cuts, playTimes, checks];
 }
 
@@ -562,8 +562,8 @@ export function shiftStretch(
  * A re-import's new sync, keeping what the coach already fixed on the same
  * video: each quarter's own sync (one set again during the re-import wins,
  * and none when the coach now says the video holds the whole game), the
- * cuts, the plays with a place of their own, and the cut answer; the checked
- * plays too when the re-import moved nothing. Another video starts over.
+ * cuts, the plays with a place of their own, the checked plays, and the cut
+ * answer. Another video starts over.
  */
 export function carrySyncOver(previous: SyncPoint | undefined, next: SyncPoint, sameVideo: boolean): SyncPoint {
   if (!previous || !sameVideo) return next;
@@ -573,11 +573,10 @@ export function carrySyncOver(previous: SyncPoint | undefined, next: SyncPoint, 
   if (Object.keys(periods).length > 0) out.periods = periods;
   if (!next.cuts && previous.cuts?.length) out.cuts = previous.cuts;
   if (next.breaksCut === undefined && previous.breaksCut !== undefined) out.breaksCut = previous.breaksCut;
-  // A play found in this video is still there; one seen in the right place is only still right if nothing moved.
+  // A play found in this video is still there.
   if (!next.playTimes && previous.playTimes) out.playTimes = previous.playTimes;
-  if (!next.checks && previous.checks?.length && sameSyncPoint({ ...previous, checks: undefined }, { ...out, checks: undefined })) {
-    out.checks = previous.checks;
-  }
+  // A check whose play the re-import moved no longer counts (lib/sync-check.ts reads only the ones that still hold).
+  if (!next.checks && previous.checks?.length) out.checks = previous.checks;
   return out;
 }
 

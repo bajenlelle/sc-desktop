@@ -1,4 +1,5 @@
 import { memo, type ReactNode } from "react";
+import { History, MapPin } from "lucide-react";
 import { SITUATION_OPTIONS } from "@scoutable/shared/lib/clip-filters";
 import type { GameFlow, Score } from "@scoutable/shared/lib/game-flow";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
@@ -34,7 +35,21 @@ export function playDetails(play: TimedPlay, flow: GameFlow): string[] {
   else if (flow.ties.includes(e.eventId) && point) out.push(`Tied at ${point.home}`);
   const reach = reachWords(play);
   if (reach) out.push(reach);
+  // The row's own mark says the rest (placedWords).
+  if (play.own) out.push("Placed by you");
+  else if (play.event.loggedAt) out.push("Logged late");
   return out;
+}
+
+/**
+ * How a play got its place when the sync alone didn't give it: placed by the
+ * coach ("Only this play" in Fix sync), or logged late at the scorer's table
+ * and placed by its game clock (lib/late-plays.ts). Null for every other play.
+ */
+export function placedWords(play: TimedPlay): string | null {
+  if (play.own) return "Placed by you";
+  if (play.event.loggedAt) return "Logged late, placed by its game clock";
+  return null;
 }
 
 /**
@@ -92,6 +107,7 @@ export const GamePlayRow = memo(function GamePlayRow({
   onLabel: (play: TimedPlay) => void;
 }) {
   const outside = reachWords(play);
+  const placed = placedWords(play);
   return (
     <div
       {...pressable(() => onPress(play, { shift: false, toggle: false }), { space: false })}
@@ -117,6 +133,15 @@ export const GamePlayRow = memo(function GamePlayRow({
         labels={labels}
         score={score && scored ? { home: score.home, away: score.away, scored } : null}
         dim={outside !== null}
+        marks={
+          placed && (
+            <RowTip label={placed}>
+              <span data-row="placed" className="flex size-5 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
+                {play.own ? <MapPin aria-label={placed} /> : <History aria-label={placed} />}
+              </span>
+            </RowTip>
+          )
+        }
         check={{ on: selected, onToggle: (shift) => onPress(play, { shift, toggle: !shift }) }}
         actions={
           <>

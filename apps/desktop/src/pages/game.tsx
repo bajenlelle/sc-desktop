@@ -284,6 +284,15 @@ export function GamePage() {
       // A number in Stats was clicked to watch its plays; a reload or a link opens paused.
       autoPlay={handoff !== null && handoff.eventId !== null}
       onOpenDetails={(opts) => show("details", opts)}
+      // A sync changed in the Game view is this visit's game from then on, here and after a tab switch.
+      onSyncChange={(syncPoint) =>
+        setLoaded((was) => {
+          if (!was) return was;
+          const next = { ...was, match: { ...was.match, syncPoint } };
+          rememberLoadedGame(matchId, next);
+          return next;
+        })
+      }
     />
   );
 }

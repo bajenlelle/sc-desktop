@@ -203,12 +203,16 @@ export interface SyncCut {
 /**
  * A play the coach confirmed in the video (the game view's Check sync, or a
  * Fix sync made on it): the stretch of the game it is in is placed right. A
- * later fix elsewhere never moves it (lib/sync-check.ts).
+ * later fix in the game view never moves it (lib/sync-check.ts). `videoTime`
+ * is where the play was when it was confirmed: a sync changed some other way
+ * (Details, a playlist's Fix sync, an older desktop) that puts the play
+ * somewhere else leaves the check standing for nothing, and it is not read.
  */
 export interface SyncCheck {
   period: number;
   eventId: number;
   realWorldTime: string;
+  videoTime: number;
 }
 
 export interface SyncPoint {

@@ -58,9 +58,13 @@ export type AnalyticsEvent =
   | "period_sync_set" // surface, period, anchor_kind, predicted_delta_s
   | "period_sync_skipped" // surface, period
   | "period_sync_cleared" // surface, period (all = every quarter)
-  | "sync_fix_opened" // entry (clip_menu | this_clip | banner)
-  | "sync_fix_applied" // scope (quarter | play | game | clip), period, delta_s
-  | "sync_fix_undone" // scope: the toast's Undo put the sync back
+  | "sync_fix_opened" // entry (clip_menu | this_clip | banner; in the game view game_now_bar | game_row_menu | game_check: Check sync's "It's off")
+  | "sync_fix_applied" // scope (quarter | play | game | clip; in the game view play_only: the play alone, on the game | play: from the play on | start: its whole stretch), period, delta_s; from the game view also surface (game_view), suggested (the app proposed that scope), plays (how many moved), late (the play was logged late), narrowed (the start was found by looking at earlier plays)
+  | "sync_fix_undone" // scope: the toast's Undo put the sync back; surface (game_view) from the game view
+  // Check sync in the game view (desktop): one play of each part of the game, right or off
+  | "sync_check_started" // entry (button | lane: a click on a part of the timeline's sync row | banner), parts, left (parts without a check)
+  | "sync_check_answered" // answer (right | off | another | skip), purpose (check | narrow: finding where a shift starts), period
+  | "sync_check_finished" // left
   | "sync_fix_peeked" // period: another quarter's play looked at inside Fix sync
   | "sync_cut_removed" // surface: a "From this play on" fix removed
   | "sync_hint_shown" // reason (past_end | looks_cut), clips

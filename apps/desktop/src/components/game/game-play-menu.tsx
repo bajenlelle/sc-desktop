@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
@@ -26,6 +26,7 @@ export function GamePlayMenuContent({
   moment,
   anchor,
   onDone,
+  onFixSync,
 }: {
   plays: readonly TimedPlay[];
   collect: Collect;
@@ -34,6 +35,8 @@ export function GamePlayMenuContent({
   anchor: HTMLElement;
   /** Called after an add, e.g. to clear the selection the plays came from. */
   onDone?: () => void;
+  /** Fix sync on the one play the menu is about; absent for a selection, or where the play can't be found in the video. */
+  onFixSync?: () => void;
 }): ReactElement {
   const n = plays.length;
   const { target, candidates, loading, suggestedName } = collect;
@@ -101,6 +104,15 @@ export function GamePlayMenuContent({
           )}
         </ContextMenuSubContent>
       </ContextMenuSub>
+      {onFixSync && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={onFixSync}>
+            <Timer />
+            Fix sync…
+          </ContextMenuItem>
+        </>
+      )}
     </ContextMenuContent>
   );
 }
