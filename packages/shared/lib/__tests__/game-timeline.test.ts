@@ -102,6 +102,31 @@ describe("buildGameTimeline, placing plays", () => {
     expect(build([ev(1, 1, 0), ev(2, 1, 600), ev(3, 2, 1500)]).overlaps).toBe(false);
   });
 
+  it("doesn't flag a late stop press over a cut break, and ends that quarter's band where the next starts", () => {
+    // KFUM Central vs Lidingö (Profixio, 2026-09-27): the video skips 4:46 of half time, the table pressed
+    // "stop period" 71 s after Q2's last play and "start period" 1:47 before Q3's first basket. By each
+    // quarter's own sync the stop lands 29 s after the start; the plays themselves are 42 s apart.
+    const q2Basket = 1500;
+    const q3Basket = q2Basket + 1415;
+    const cut: SyncPoint = {
+      ...sync,
+      breaksCut: true,
+      periods: {
+        "2": { syncVideoTime: 1190.4, syncRealWorldTime: at(q2Basket) },
+        "3": { syncVideoTime: 2319.8, syncRealWorldTime: at(q3Basket) },
+      },
+      marks: {
+        "2": { startRealWorldTime: at(q2Basket - 71), endRealWorldTime: at(q2Basket + 1051), anchor: { realWorldTime: at(q2Basket), kind: "first_basket", label: "" } },
+        "3": { startRealWorldTime: at(q3Basket - 107), endRealWorldTime: at(q3Basket + 890), anchor: { realWorldTime: at(q3Basket), kind: "first_basket", label: "" } },
+      },
+    };
+    const tl = build([ev(1, 1, 0), ev(2, 2, q2Basket), ev(3, 2, q2Basket + 980), ev(4, 3, q3Basket), ev(5, 3, q3Basket + 800)], { sync: cut });
+    expect(tl.overlaps).toBe(false);
+    const [q2, q3] = [tl.bands.find((b) => b.period === 2)!, tl.bands.find((b) => b.period === 3)!];
+    expect(q3.start).toBeCloseTo(2212.8);
+    expect(q2.end).toBeCloseTo(q3.start);
+  });
+
   it("uses the wall clock from the first period's start when the game has no sync", () => {
     const marks: GameMarks = { v: 1, source: "genius", periods: { "1": { startRealWorldTime: at(-10), endRealWorldTime: at(700) } }, timeouts: [] };
     const tl = buildGameTimeline({ matchId: "m", events: [ev(1, 1, 5), ev(2, 1, 600)], marks });
