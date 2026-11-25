@@ -143,7 +143,7 @@ export function FirstBasketLink({ fb }: { fb: FirstBasket }) {
   if (!fb.available || fb.active) return null;
   return (
     <div className="-mt-1 pb-3">
-      <button type="button" data-sync="first-basket-link" className={cn(quietControl, "-ml-2 h-7 text-callout text-muted-foreground")} onClick={() => fb.open("link")}>
+      <button type="button" data-sync="first-basket-link" className={cn(quietControl, "-ml-2 h-7 max-w-none text-callout text-muted-foreground")} onClick={() => fb.open("link")}>
         Tip-off not in the video? Set the first basket you can see
       </button>
     </div>

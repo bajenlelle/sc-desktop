@@ -32,6 +32,8 @@ test("the tip-off step can set the first basket instead, and works the tip-off o
 
   const link = page.locator('[data-sync="first-basket-link"]');
   await expect(link).toHaveText("Tip-off not in the video? Set the first basket you can see");
+  // Its hover fill covers the whole of it: the words don't run out of the button.
+  expect(await link.evaluate((el) => el.scrollWidth - el.clientWidth), "the link's words fit inside it").toBeLessThanOrEqual(0);
   await link.click();
   await expect(page.getByText("Set the first basket you can see", { exact: true })).toBeVisible();
   await expect(panel(page), "the basket is named by its score, its player and when it came").toContainText(/s after the tip-off/);
