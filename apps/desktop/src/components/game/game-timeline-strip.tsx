@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { animate, motion, useMotionValue } from "framer-motion";
+import { ChevronLeft } from "lucide-react";
 import { describePlay, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { flowChart, scoreAfter, type CourtStint, type GameFlow, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import {
@@ -23,7 +24,6 @@ import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
 import { swipeTime } from "@scoutable/shared/lib/wheel-scrub";
 import type { GameMarks } from "@scoutable/shared/types/game-marks";
 import { useFrameSeek } from "@/components/editor/use-frame-seek";
-import { PopUpButton } from "@/components/ui/pop-up-button";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { teamTints, type TeamTints } from "./team-tints";
@@ -612,6 +612,8 @@ interface Hover {
   part: number | null;
   /** The part whose cut the pointer is on, in the sync row: the break is what the line under the track describes. */
   cut: number | null;
+  /** The pointer is on a quarter's band: what the line under the track describes is the zoom. */
+  band: boolean;
 }
 
 /** A run (by its first basket's event) or a timeout (by its event) on the strip. */
@@ -667,7 +669,6 @@ export function GameTimelineStrip({
   syncParts,
   onCheckPart,
   syncControl,
-  zoomHidden = false,
   className,
   handleRef,
 }: {
@@ -702,10 +703,8 @@ export function GameTimelineStrip({
   syncParts?: readonly StripSyncPart[];
   /** A click on a part of the sync row that has no check yet. */
   onCheckPart?: (index: number) => void;
-  /** Beside the zoom, under the track: the sync's state and the way to check it. */
+  /** At the end of the line under the track: the sync's state, its fixes and the way to check it. */
   syncControl?: ReactNode;
-  /** The zoom control is left out (the row is needed for something else for a while); the zoom itself stays as it is. */
-  zoomHidden?: boolean;
   className?: string;
   handleRef?: Ref<GameTimelineHandle>;
 }) {
@@ -905,7 +904,8 @@ export function GameTimelineStrip({
     const onRow = y >= Y.sync - 3 && segment?.kind === "period";
     const part = onRow ? (placedParts?.find((p) => at >= p.x0 && at <= p.x1)?.index ?? null) : null;
     const cut = onRow ? (placedParts?.find((p) => p.cutX !== null && Math.abs(at - p.cutX) <= CUT_HIT)?.index ?? null) : null;
-    return { x: at, target: part !== null ? { kind: "time" } : target, play: part !== null ? null : play, time, segment, part, cut };
+    const band = zoneOf(y) === "band" && segment?.kind === "period" && part === null;
+    return { x: at, target: part !== null ? { kind: "time" } : target, play: part !== null ? null : play, time, segment, part, cut, band };
   }
 
   /** Moves the held playhead to the pointer: 1:1 inside the strip, resisting past its ends. */
@@ -1063,7 +1063,7 @@ export function GameTimelineStrip({
   useLayoutEffect(() => {
     const el = readoutRef.current;
     if (!el || !hover) return;
-    // Up to the zoom, which shares the row: the line never lies over it.
+    // Up to the sync's control, which shares the row: the line never lies over it.
     const room = Math.max(0, width - (zoomRef.current ? zoomRef.current.offsetWidth + 8 : 0));
     el.style.maxWidth = `${room}px`;
     // In a column too narrow for the line even with the team's name cut short, the time in the video is left
@@ -1108,6 +1108,18 @@ export function GameTimelineStrip({
         where: null,
         what: part.state === "checked" ? "Sync checked" : part.state === "current" ? "Being checked" : "Sync not checked yet",
         extra: part.state === "open" && onCheckPart ? "Click to check it" : null,
+      };
+    }
+    // On a quarter's band: the quarter, and how to zoom (a double-click is the only way in: the band is the control).
+    if (hover.band && hover.segment?.period !== undefined && timeline.bands.length > 1) {
+      const period = hover.segment.period;
+      const score = flow.periods.find((p) => p.period === period);
+      return {
+        head: periodLabel(period),
+        name: null,
+        where: score ? `${score.home}–${score.away}` : null,
+        what: zoomPeriod === null ? "Double-click to zoom in" : "Double-click for the whole game",
+        extra: null,
       };
     }
     const target = hover.target;
@@ -1166,7 +1178,7 @@ export function GameTimelineStrip({
       what: describePlay(e),
       extra: extra || null,
     };
-  }, [hover, flow, marks, moments, teams, stints, stintName, placedParts, onCheckPart]);
+  }, [hover, flow, marks, moments, teams, stints, stintName, placedParts, onCheckPart, zoomPeriod, timeline.bands.length]);
 
   const final = flow.final;
   const lead = flow.largestLead.home && (!flow.largestLead.away || flow.largestLead.home.lead >= flow.largestLead.away.lead)
@@ -1198,10 +1210,6 @@ export function GameTimelineStrip({
     return h.x;
   };
 
-  const zoomOptions = [
-    { value: "all", label: "Whole game" },
-    ...timeline.bands.map((b) => ({ value: String(b.period), label: b.label })),
-  ];
 
   const valueText = activePlay
     ? `${[periodLabel(activePlay.event.period), activePlay.event.gameClockTime && formatGameClock(activePlay.event.gameClockTime)].filter(Boolean).join(" ")}${(() => {
@@ -1211,7 +1219,11 @@ export function GameTimelineStrip({
     : "Before the first play";
 
   return (
-    <section aria-label="Game timeline" className={cn("relative z-10 shrink-0 pb-3 select-none", className)}>
+    <section
+      aria-label="Game timeline"
+      data-zoom={zoomPeriod === null ? "Whole game" : periodLabel(zoomPeriod)}
+      className={cn("relative z-10 shrink-0 pb-3 select-none", className)}
+    >
       <div
         ref={trackRef}
         role="slider"
@@ -1297,33 +1309,36 @@ export function GameTimelineStrip({
             {tip.where && <span data-readout="where" className="shrink-0 text-muted-foreground">{tip.where}</span>}
             {tip.what && <span data-readout="what" className={tip.name ? "shrink-0" : "min-w-0 truncate"}>{tip.what}</span>}
             {tip.extra && <span data-readout="extra" className="min-w-0 shrink-[4] truncate text-muted-foreground">{tip.extra}</span>}
-            {timeline.axis === "video" && video && hover.segment?.kind === "period" && hover.part === null && (
+            {timeline.axis === "video" && video && hover.segment?.kind === "period" && hover.part === null && !hover.band && (
               <span data-readout="time" className="shrink-0 text-muted-foreground">{formatVideoTime(hoverVideoTime(hover))} in the video</span>
             )}
           </div>
         )}
       </div>
 
-      {/* Under the track, as a chart's legend is: the game in a line (on a first visit, how the timeline works, in the same place) and the zoom. */}
+      {/* Zoomed into a quarter, the way back sits on the band row, where the zoom was asked for: the band is the zoom. */}
+      {zoomPeriod !== null && timeline.bands.length > 1 && (
+        <button
+          type="button"
+          data-strip="zoom-out"
+          onClick={() => onZoom(null)}
+          className="absolute top-0 left-0 z-20 flex h-[18px] items-center gap-0.5 rounded-md pr-1.5 pl-0.5 text-footnote font-medium text-muted-foreground transition-colors duration-100 outline-none hover:bg-fill-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-selection active:scale-[0.97]"
+        >
+          <ChevronLeft className="size-3.5" aria-hidden />
+          Whole game
+        </button>
+      )}
+
+      {/* Under the track, as a chart's legend is: the game in a line (on a first visit, how the timeline works, in the same place) and the sync's control. */}
       <div className="mt-1 flex h-7 items-center gap-3">
         {hint && typeof hint !== "string" ? (
           hint
         ) : (
           (hint || facts.length > 0) && <p className="min-w-0 truncate text-subheadline text-muted-foreground nums">{hint ?? facts.join(" · ")}</p>
         )}
-        {(syncControl || (timeline.bands.length > 1 && !zoomHidden)) && (
+        {syncControl && (
           <span ref={zoomRef} className="ml-auto flex shrink-0 items-center gap-1">
             {syncControl}
-            {timeline.bands.length > 1 && !zoomHidden && (
-            <PopUpButton
-              aria-label="Timeline zoom"
-              size="sm"
-              align="end"
-              value={zoomPeriod === null ? "all" : String(zoomPeriod)}
-              onValueChange={(v) => onZoom(v === "all" ? null : Number(v))}
-              options={zoomOptions}
-            />
-            )}
           </span>
         )}
       </div>

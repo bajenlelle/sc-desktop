@@ -30,7 +30,8 @@ const tab = (page: Page, title: string) => tablist(page).getByRole("button", { n
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
 const plays = (page: Page) => page.getByRole("list", { name: "Plays" });
 const teamRadios = (page: Page) => page.getByRole("radiogroup", { name: "Team" }).getByRole("radio");
-const zoom = (page: Page) => page.getByRole("button", { name: "Timeline zoom" });
+/** The strip, which says what it is zoomed to (data-zoom: "Whole game", "Q3"). */
+const zoom = (page: Page) => page.getByRole("region", { name: "Game timeline" });
 
 /**
  * Switches by the game's tab and waits for that game's page. The URL changes on
@@ -89,7 +90,7 @@ async function startSampling(page: Page, title: string, ms: number): Promise<voi
             adding: !!document.querySelector(`[aria-label="Adding to ${target}. Change playlist"]`),
             chips: [...list.querySelectorAll("span")].filter((s) => s.textContent === label && s.children.length === 0).length,
             team: document.querySelector('[role="radiogroup"][aria-label="Team"] [aria-checked="true"]')?.textContent ?? null,
-            zoom: document.querySelector('[aria-label="Timeline zoom"]')?.textContent ?? null,
+            zoom: document.querySelector('[aria-label="Game timeline"]')?.getAttribute("data-zoom") ?? null,
           });
         }
         if (performance.now() < until) requestAnimationFrame(tick);
@@ -147,9 +148,9 @@ test("a game comes back by its tab as it was left", { tag: "@alone" }, async ({ 
   const q3Key = (await q3Play.getAttribute("data-row-key"))!;
   await q3Play.click();
   await expect(q3Play).toHaveAttribute("aria-current", "true");
-  await zoom(page).click();
-  await page.getByRole("menuitemradio", { name: "Q3", exact: true }).click();
-  await expect(zoom(page)).toHaveText("Q3");
+  // The quarter's band is the zoom: a double-click on it.
+  await zoom(page).locator("svg rect[rx='4']").nth(2).dblclick({ force: true });
+  await expect(zoom(page)).toHaveAttribute("data-zoom", "Q3");
   await page.waitForTimeout(800); // past the list's own-scroll grace after the click
   await plays(page).evaluate((el) => el.scrollTo({ top: 600 }));
   await expect(page.getByRole("button", { name: "Jump to now" })).toBeVisible();
@@ -197,7 +198,7 @@ test("a game comes back by its tab as it was left", { tag: "@alone" }, async ({ 
   await expect(heading(page)).toHaveText(a.title);
   await expect(page.getByRole("radio", { name: "Game" })).toHaveAttribute("aria-checked", "true");
   await expect(teamRadios(page).nth(0)).toHaveAttribute("aria-checked", "true");
-  await expect(zoom(page)).toHaveText("Whole game");
+  await expect(zoom(page)).toHaveAttribute("data-zoom", "Whole game");
   // Every play listed (no team, no moment), and the list not put back where A's last visit left it.
   await expect(playRows(page)).toHaveCount(allPlays);
   await expect(plays(page).locator(`[data-row-key="${q3Key}"]`)).toBeAttached();

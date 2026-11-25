@@ -135,6 +135,52 @@ export function cutShiftSeconds(sync: SyncPoint, cut: SyncCut): number | null {
 }
 
 /**
+ * A fix made in the game view that can be taken back on its own: a cut
+ * ("From this play on", the row's //) or a play's own place ("Only this
+ * play"). A fix that moved a whole quarter changed that quarter's sync and
+ * is not one of these: Details sets that again.
+ */
+export type SyncFix =
+  | { kind: "cut"; period: number; realWorldTime: string; eventId: number | null; name: string; shift: number | null }
+  | { kind: "own"; period: number; realWorldTime: string; eventId: number };
+
+/** The game's fixes, in game order. `name` is the stretch a cut starts ("Q2 from 6:14"). */
+export function syncFixes(sync: SyncPoint, events: readonly CheckEvent[]): SyncFix[] {
+  const parts = syncParts(sync, events);
+  const out: SyncFix[] = [];
+  for (const cut of sync.cuts ?? []) {
+    const part = parts.find((p) => p.cut === cut);
+    out.push({
+      kind: "cut",
+      period: cut.period,
+      realWorldTime: cut.syncRealWorldTime,
+      eventId: cut.eventId ?? null,
+      name: part?.name ?? periodLabel(cut.period),
+      shift: cutShiftSeconds(sync, cut),
+    });
+  }
+  const byId = new Map(events.map((e) => [e.eventId, e]));
+  for (const id of Object.keys(sync.playTimes ?? {})) {
+    const e = byId.get(Number(id));
+    if (e) out.push({ kind: "own", period: e.period, realWorldTime: e.realWorldTime, eventId: e.eventId });
+  }
+  return out.sort((a, b) => a.period - b.period || msOf(a.realWorldTime) - msOf(b.realWorldTime));
+}
+
+/** The sync without one fix: a cut's plays follow the sync before it again, an own-placed play follows the sync. */
+export function withoutFix(sync: SyncPoint, fix: SyncFix): SyncPoint {
+  return fix.kind === "cut" ? clearSyncCut(sync, fix.realWorldTime) : withoutOwnTime(sync, { eventId: fix.eventId });
+}
+
+/** The sync without any of the game view's fixes: each quarter is placed by its own sync alone. */
+export function withoutFixes(sync: SyncPoint): SyncPoint {
+  const next: SyncPoint = { ...sync };
+  delete next.cuts;
+  delete next.playTimes;
+  return next;
+}
+
+/**
  * Whether a play can be the one a coach is asked about: a made basket from
  * the field (the scoreboard changes, and the ball going in is one frame), with
  * a time, not logged late, and placed by the sync.

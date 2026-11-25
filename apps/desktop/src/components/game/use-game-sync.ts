@@ -23,10 +23,14 @@ import {
   playsMoved,
   suggestedScope,
   syncParts,
+  syncFixes,
   syncProgress,
   withCheck,
   withOwnTime,
+  withoutFix,
+  withoutFixes,
   type FixPlan,
+  type SyncFix,
   type NarrowGap,
   type PlayCue,
   type SyncPart,
@@ -296,6 +300,23 @@ export function useGameSync({
     [video, duration, match.events, seek],
   );
 
+  // ---- Taking fixes back -----------------------------------------------------------
+  /** The fixes made in the game view that can be taken back one at a time (lib/sync-check.ts, SyncFix). */
+  const fixes = useMemo(() => (match.syncPoint && footage ? syncFixes(match.syncPoint, plays) : []), [match.syncPoint, plays, footage]);
+
+  /** Takes back one fix, or all of them: the plays it moved follow the sync again. The toast's Undo puts it back. */
+  const removeFix = useCallback(
+    async (fix: SyncFix | "all") => {
+      const sync = syncRef.current;
+      if (!sync || busy) return;
+      const next = fix === "all" ? withoutFixes(sync) : withoutFix(sync, fix);
+      if (sameSyncPoint(next, sync)) return;
+      trackEvent("sync_fix_removed", { kind: fix === "all" ? "all" : fix.kind, surface: "game_view" });
+      await commit(next, { moved: true, message: fix === "all" ? "Fixes removed" : "Fix removed", undoTo: sync, scope: "remove" });
+    },
+    [busy, commit],
+  );
+
   /** Fix sync on a play, from the Now bar or a row's menu. */
   const fixPlay = useCallback(
     (event: PlayByPlayEvent, origin: "now_bar" | "menu") => {
@@ -537,6 +558,9 @@ export function useGameSync({
     clip: mode.kind === "ask" ? { start: Math.max(0, mode.at - CHECK_LEAD_SECONDS), end: mode.at + CHECK_TAIL_SECONDS, mark: mode.at } : null,
     startCheck,
     fixPlay,
+    /** The game view's fixes, and taking one or all of them back. */
+    fixes,
+    removeFix,
     actions,
   };
 }

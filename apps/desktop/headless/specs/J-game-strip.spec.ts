@@ -83,15 +83,20 @@ const bandWidths = (page: Page) =>
 
 /** Gives the strip to one quarter, or to the whole game again, and waits for the zoom to come to rest. */
 async function zoomTo(page: Page, option: string): Promise<void> {
-  await page.getByRole("button", { name: "Timeline zoom" }).click();
-  await page.getByRole("menuitemradio", { name: option, exact: true }).or(page.getByRole("menuitem", { name: option, exact: true })).click();
+  // The bands are the zoom: a double-click on a quarter's band goes into it, Whole game on the band row comes out.
+  const out = page.locator('[data-strip="zoom-out"]');
+  if (option === "Whole game") await out.click();
+  else {
+    // From one quarter to another by way of the whole game, where every band is there to be double-clicked.
+    if (await out.count()) await zoomTo(page, "Whole game");
+    await page.getByRole("region", { name: "Game timeline" }).locator("svg rect[rx='4']").nth(Number(option.slice(1)) - 1).dblclick({ force: true });
+  }
   // The zoom is a spring: at rest the strip shows one band, or all of them, and they have stopped changing.
   const one = option !== "Whole game";
   let last = "";
   await expect
     .poll(
       async () => {
-        // (While the zoom's menu is open the rest of the page is hidden from roles, and the strip isn't found.)
         const widths = (await bandWidths(page)).join(",");
         const still = widths !== "" && widths === last && (one ? !widths.includes(",") : widths.includes(","));
         last = widths;
@@ -138,9 +143,8 @@ test("the whole game shows its story: quarters, runs with their score, timeouts,
     }
   }
   expect(await timeline(page).locator("pattern[id$='-notch']").count(), "the breaks are gaps, not hatched fields").toBe(0);
-  // The track is 104 px, and 16 more for a game whose sync can be checked here: the sync row (W-game-sync).
-  const syncRow = (await drawn(page, "sync-part").count()) > 0 ? 16 : 0;
-  expect((await boxOf(track(page), "the timeline's track")).height, "the strip keeps its height").toBe(104 + syncRow);
+  // The track is 104 px; the sync row (W-game-sync) adds 16 only while the sync is being checked.
+  expect((await boxOf(track(page), "the timeline's track")).height, "the strip keeps its height").toBe(104);
 
   for (const scheme of ["dark", "light"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -377,17 +381,19 @@ test("the line under the track says where a click on a run will go, and a double
   expect(jumps.length, "the two clicks of a double-click are one jump").toBe(1);
 });
 
-test("the line under the track keeps clear of the zoom", async ({ page }) => {
+test("the line under the track keeps inside the track", async ({ page }) => {
   await openLeagueGame(page);
   const t = await boxOf(track(page), "the timeline's track");
-  const zoom = await boxOf(page.getByRole("button", { name: "Timeline zoom" }), "the zoom");
+  // The line ends where the row's own control starts, when there is one, else at the track's end.
+  const control = page.locator('[data-sync="status"]');
+  const zoom = (await control.count()) ? await boxOf(control, "the sync's control") : { x: t.x + t.width };
   const run = await boxOf(drawn(page, "run").first(), "the graph");
   for (const at of [0.9, 0.97, 0.995]) {
     await page.mouse.move(t.x + t.width * at - 10, run.y + run.height / 2);
     await page.mouse.move(t.x + t.width * at, run.y + run.height / 2);
     await expect(readout(page)).toBeVisible();
     const r = await boxOf(readout(page), "the line under the track");
-    expect(r.x + r.width, `pointing ${at} of the way along, the line ends before the zoom`).toBeLessThanOrEqual(zoom.x);
+    expect(r.x + r.width, `pointing ${at} of the way along, the line ends before the row's end`).toBeLessThanOrEqual(zoom.x + 0.5);
   }
 });
 
@@ -460,6 +466,8 @@ test("zoomed into a quarter, a click at its left edge is a click on that second,
   const tracked = await recordAnalytics(page);
   await openLeagueGame(page);
   await zoomTo(page, "Q2");
+  // The double-click that zoomed was on the band, a second in the game: the moves counted are the ones after it.
+  const zoomed = (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.via === "timeline").length;
   const t = await boxOf(track(page), "the timeline's track");
   const lane = await boxOf(drawn(page, "play-mark").nth(3), "a play's mark");
   // Two pixels in: the quarter before ended just left of here, and its last play has no mark on this strip.
@@ -469,11 +477,11 @@ test("zoomed into a quarter, a click at its left edge is a click on that second,
   test.skip(firstMark.x - t.x < 7, "this game's second quarter has a play of its own at the edge");
   await page.mouse.click(t.x + 2, lane.y + 2);
   await expect
-    .poll(async () => (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.via === "timeline").map((e) => String(e.properties?.kind)), {
+    .poll(async () => (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.via === "timeline").slice(zoomed).map((e) => String(e.properties?.kind)), {
       message: "the click is a move to a second",
     })
     .toEqual(["time"]);
-  await expect(page.getByRole("button", { name: "Timeline zoom" }), "the strip is still the second quarter's").toContainText("Q2");
+  await expect(page.getByRole("region", { name: "Game timeline" }), "the strip is still the second quarter's").toHaveAttribute("data-zoom", "Q2");
 });
 
 test("after a double-click has zoomed the strip, the line under the track is about what is under the pointer now", async ({ page }) => {
@@ -507,7 +515,9 @@ test("the line under the track keeps its words inside itself, in the smallest wi
   await page.mouse.up();
   await page.waitForTimeout(400);
   expect((await boxOf(page.getByRole("separator").first(), "the divider")).x, "the drag narrowed the footage's column").toBeGreaterThan(divider.x);
-  const zoom = await boxOf(page.getByRole("button", { name: "Timeline zoom" }), "the zoom");
+  const strip = await boxOf(track(page), "the timeline's track");
+  const control = page.locator('[data-sync="status"]');
+  const zoom = (await control.count()) ? await boxOf(control, "the sync's control") : { x: strip.x + strip.width };
   const run = await boxOf(drawn(page, "run").last(), "a run's stretch");
   const timeout = await boxOf(drawn(page, "timeout").last(), "a timeout's mark");
   for (const [what, x] of [["a run", run.x + run.width / 2], ["a timeout", timeout.x + timeout.width / 2]] as const) {
@@ -522,7 +532,7 @@ test("the line under the track keeps its words inside itself, in the smallest wi
         .map((c) => ({ part: c.getAttribute("data-readout") ?? "", right: c.getBoundingClientRect().right, cut: c.scrollWidth - c.clientWidth, width: c.getBoundingClientRect().width }));
       return { right: box.right, parts };
     });
-    expect(line.right, `${what}: the line ends before the zoom`).toBeLessThanOrEqual(zoom.x);
+    expect(line.right, `${what}: the line ends before the row's end`).toBeLessThanOrEqual(zoom.x + 0.5);
     expect(line.parts.filter((p) => p.right > line.right + 0.5).map((p) => p.part), `${what}: none of its words lie outside it`).toEqual([]);
     // What gives way is the team's name (and the time in the video, left out whole when there is no room for
     // it): what the line is about, its score, its quarter and clock stay whole.
@@ -547,6 +557,7 @@ test("a play with no team side has its mark on the lane's middle, and is the pla
   await patchGameReads(page, { teamless: 3 });
   await openLeagueGame(page);
   await zoomTo(page, "Q2");
+  const zoomed = (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.via === "timeline").length;
   const inQuarter = await list(page)
     .locator("[data-row-key]")
     .evaluateAll((rows, playRow) => {
@@ -566,7 +577,7 @@ test("a play with no team side has its mark on the lane's middle, and is the pla
   await expect(readout(page), "the line under the track names it").toBeVisible();
   await page.mouse.click(middle.x + middle.width / 2, middle.y + middle.height / 2);
   await expect
-    .poll(async () => (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.via === "timeline").map((e) => String(e.properties?.kind)), { message: "the click chooses a play" })
+    .poll(async () => (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.via === "timeline").slice(zoomed).map((e) => String(e.properties?.kind)), { message: "the click chooses a play" })
     .toEqual(["play"]);
 });
 

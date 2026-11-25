@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { Plus, Timer } from "lucide-react";
+import { Plus, Timer, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
@@ -27,6 +27,7 @@ export function GamePlayMenuContent({
   anchor,
   onDone,
   onFixSync,
+  onPutBack,
 }: {
   plays: readonly TimedPlay[];
   collect: Collect;
@@ -37,6 +38,8 @@ export function GamePlayMenuContent({
   onDone?: () => void;
   /** Fix sync on the one play the menu is about; absent for a selection, or where the play can't be found in the video. */
   onFixSync?: () => void;
+  /** Takes back the play's own place ("Only this play"): it follows the sync again. Only for a play placed by hand. */
+  onPutBack?: () => void;
 }): ReactElement {
   const n = plays.length;
   const { target, candidates, loading, suggestedName } = collect;
@@ -104,14 +107,18 @@ export function GamePlayMenuContent({
           )}
         </ContextMenuSubContent>
       </ContextMenuSub>
+      {(onFixSync || onPutBack) && <ContextMenuSeparator />}
       {onFixSync && (
-        <>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={onFixSync}>
-            <Timer />
-            Fix sync…
-          </ContextMenuItem>
-        </>
+        <ContextMenuItem onSelect={onFixSync}>
+          <Timer />
+          Fix sync…
+        </ContextMenuItem>
+      )}
+      {onPutBack && (
+        <ContextMenuItem onSelect={onPutBack}>
+          <Undo2 />
+          Put back with the others
+        </ContextMenuItem>
       )}
     </ContextMenuContent>
   );

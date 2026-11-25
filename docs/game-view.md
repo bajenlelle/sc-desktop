@@ -183,7 +183,7 @@ lead to it, as references in the text, not new buttons:
   Show in Game finds everything where it was.
 - **One unit, in the right column** (`game-watch-view.tsx`): the footage, the
   Now bar, the game's timeline, and under the track one line with the game's
-  facts and the zoom. The timeline is as wide as the footage and sits 44 px
+  facts and the sync's control. The timeline is as wide as the footage and sits 44 px
   under it, so the control is by what it moves; the play list has the other
   column's whole height. The stage is as large as its column allows once the
   Now bar and the timeline have their room (`UNDER_STAGE`, `useStageFit` in
@@ -405,11 +405,14 @@ released app lists each row there as a clip.
   click targets: the quarter before ends at the left edge, and its last play
   is not there to be clicked. Double-click a
   quarter to zoom: the strip springs from the scale on screen to the
-  quarter's. The second click of a double-click, on anything, is the
+  quarter's. The quarters' bands are the zoom, with no control of its own (a
+  menu beside the sync's control read as part of the sync): the band's line
+  under the pointer says how, and zoomed in, "Whole game" at the start of the
+  band row (or another double-click) goes back. The second click of a double-click, on anything, is the
   same visit: it asks for nothing again and is reported once. What the
   pointer is on is said in one line
   in the row under the track, by the pointer, inside the strip and clear of
-  the zoom beside it: above the track is the footage, and when the footage
+  the sync's control beside it: above the track is the footage, and when the footage
   is as tall as the window allows there is no room for more below. For a run
   it gives the score and the clocks it went from and to (both quarters named
   when it crossed a break), and the time in the video is where a click would
@@ -507,8 +510,9 @@ stretch every play is off by the same amount or by none, so one play seen in
 the right place near the end of a stretch says the stretch is right. That
 play is a check (`SyncPoint.checks`, with where it was when it was confirmed:
 a check holds only while the sync still has the play there, so a tip-off moved
-in Details or a save from an older desktop unchecks what it moved). The
-timeline's last row draws the parts: dotted until checked, then a green line
+in Details or a save from an older desktop unchecks what it moved). While a
+play is being checked or fixed the timeline has one more row, which draws the
+parts (out of the way the rest of the time: the footage gives it its 16 px): dotted until checked, then a green line
 with a tick where the checked play is; a cut breaks the row. The row's line
 under the pointer says which part it is and whether it is checked, and a
 click on an unchecked part checks it. On a break it says what the fix there
@@ -516,14 +520,22 @@ did, as a move ("Plays after this were moved 8 s later in the video",
 `cutShiftSeconds`: the cut's own moment against where the sync before it had
 that moment); "8 s later" alone read as the plays running late.
 
-The control beside the zoom names what is left: "Check sync" before anything
+The control at the end of the line under the track names what is left: "Check sync" before anything
 is checked, the part itself when one is left ("Check sync · Q1 to 6:14"),
 else how many parts ("Check sync · 3 parts left"), and on hover what a part
 is. The first play a check asks about says what a check is: one play from
 each part, and nothing moves unless one is off. The game is placed by its
 sync whether or not it is checked; a check only says someone has seen it.
 
-**Check sync** (the control beside the zoom, or a part of the row) asks about
+**Fixes** (`sync-fixes-menu.tsx`, beside Check sync for a game that has any)
+lists the cuts and the plays placed on their own (`syncFixes`), each with what
+it did, and takes one back, or all: the plays follow the sync before it again
+(`withoutFix`, `withoutFixes`), with the toast's Undo and no confirmation. A
+play placed on its own also has "Put back with the others" in its row's menu.
+A fix that moved a whole quarter changed that quarter's sync and isn't listed:
+Details sets it again.
+
+**Check sync** (the control under the track, or a part of the row while a check is on) asks about
 each unchecked part in turn, with its last made basket: the play's clip plays
 (6 s before to 4 s after), and over the footage the app's own score turns to
 the play's score, and lights up, at the moment the sync has the play at

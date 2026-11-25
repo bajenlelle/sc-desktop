@@ -54,6 +54,7 @@ import { GamePlayMenuContent } from "./game-play-menu";
 import { GAME_SYNC_ROW_HEIGHT, GAME_TIMELINE_HEIGHT, GameTimelineStrip, type GameTimelineHandle, type StripLandmark, type StripSyncPart } from "./game-timeline-strip";
 import { SyncCue } from "./sync-cue";
 import { SyncFindStrip } from "./sync-find-strip";
+import { SyncFixesMenu } from "./sync-fixes-menu";
 import { useCollect, type CollectScope } from "./use-collect";
 import { useGamePlayback } from "./use-game-playback";
 import { useGameSync } from "./use-game-sync";
@@ -907,7 +908,7 @@ export function GameWatchView({
 
   // ---- The stage's size: as large as the column allows, 16:9 --------------------
   // A game whose sync can be checked has the sync row under its timeline.
-  const { ref: stageBoxRef, width: stageWidth } = useStageFit(UNDER_STAGE + (sync.parts.length > 0 ? GAME_SYNC_ROW_HEIGHT : 0));
+  const { ref: stageBoxRef, width: stageWidth } = useStageFit(UNDER_STAGE + (sync.active && sync.parts.length > 0 ? GAME_SYNC_ROW_HEIGHT : 0));
 
   // ---- What stands in the way of the footage, and of its timing -----------------
   const fileName = match.videoUrl ? videoBasename(match.videoUrl) : null;
@@ -1000,27 +1001,32 @@ export function GameWatchView({
     <button type="button" className={cn(quietControl, "h-6 px-1.5 text-callout text-foreground")} onClick={sync.actions.escape}>
       Stop checking
     </button>
-  ) : sync.active ? null : sync.progress.left === 0 ? (
-    <span data-sync="status" className="flex h-6 items-center gap-1 px-1.5 text-callout text-muted-foreground">
-      <Check className="size-3.5 text-success" aria-hidden />
-      Sync checked
-    </span>
-  ) : (
-    <button
-      type="button"
-      data-sync="status"
-      className={cn(quietControl, "h-6 px-1.5 text-callout text-foreground")}
-      onClick={() => sync.startCheck("button")}
-      title="Look at one play in each part of the game: a quarter, or the stretch of one between two fixes. Nothing moves unless a play is off."
-    >
-      <span className="size-2 rounded-full border border-dashed border-muted-foreground" aria-hidden />
-      {/* Once some of the game is checked, what is left is named: a count alone said nothing of what a part is. */}
-      {sync.progress.checked === 0
-        ? "Check sync"
-        : sync.progress.left === 1
-          ? `Check sync · ${sync.parts.find((p) => !partChecked(p))?.name ?? "1 part left"}`
-          : `Check sync · ${sync.progress.left} parts left`}
-    </button>
+  ) : sync.active ? null : (
+    <>
+      <SyncFixesMenu fixes={sync.fixes} playOf={(id) => playByEvent.get(id)?.event} onRemove={(fix) => void sync.removeFix(fix)} disabled={sync.busy} />
+      {sync.progress.left === 0 ? (
+        <span data-sync="status" className="flex h-6 items-center gap-1 px-1.5 text-callout text-muted-foreground">
+          <Check className="size-3.5 text-success" aria-hidden />
+          Sync checked
+        </span>
+      ) : (
+        <button
+          type="button"
+          data-sync="status"
+          className={cn(quietControl, "h-6 px-1.5 text-callout text-foreground")}
+          onClick={() => sync.startCheck("button")}
+          title="Look at one play in each part of the game: a quarter, or the stretch of one between two fixes. Nothing moves unless a play is off."
+        >
+          <span className="size-2 rounded-full border border-dashed border-muted-foreground" aria-hidden />
+          {/* Once some of the game is checked, what is left is named: a count alone said nothing of what a part is. */}
+          {sync.progress.checked === 0
+            ? "Check sync"
+            : sync.progress.left === 1
+              ? `Check sync · ${sync.parts.find((p) => !partChecked(p))?.name ?? "1 part left"}`
+              : `Check sync · ${sync.progress.left} parts left`}
+        </button>
+      )}
+    </>
   );
 
   // ---- The Now bar's words ---------------------------------------------------------
@@ -1133,6 +1139,11 @@ export function GameWatchView({
                   anchor={anchor}
                   onDone={selected.has(play.key) ? clearSelection : undefined}
                   onFixSync={footage && play.reach === "in" && !selected.has(play.key) ? () => sync.fixPlay(play.event, "menu") : undefined}
+                  onPutBack={
+                    play.own && !selected.has(play.key)
+                      ? () => void sync.removeFix({ kind: "own", period: play.event.period, realWorldTime: play.event.realWorldTime, eventId: play.event.eventId })
+                      : undefined
+                  }
                 />
               )}
               selecting={selected.size > 0}
@@ -1293,11 +1304,10 @@ export function GameWatchView({
                   onScrubEnd={(via) => trackSeek(via, "time", null)}
                   handleRef={timelineHandle}
                   hint={syncHint ?? (tipSeen || timeline.plays.length === 0 ? null : "Drag the timeline to move through the game. Double-click a quarter to zoom in.")}
-                  syncParts={stripSyncParts}
-                  onCheckPart={sync.active ? undefined : (index) => sync.startCheck("lane", index)}
+                  // The sync row is for checking and fixing: it is there while that goes on, and out of the way otherwise.
+                  syncParts={sync.active ? stripSyncParts : undefined}
+                  onCheckPart={sync.mode.kind === "ask" && sync.mode.purpose === "check" ? (index) => sync.startCheck("lane", index) : undefined}
                   syncControl={syncControl}
-                  // While a play is checked the line under the track is for what to look for: the zoom waits.
-                  zoomHidden={sync.active}
                 />
                 )}
               </div>

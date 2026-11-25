@@ -19,6 +19,9 @@ import {
   planFix,
   standingChecks,
   suggestedScope,
+  syncFixes,
+  withoutFix,
+  withoutFixes,
   syncParts,
   syncProgress,
   withCheck,
@@ -391,6 +394,29 @@ describe("the words", () => {
     expect(two.cuts).toHaveLength(2);
     expect(cutShiftSeconds(two, two.cuts![0])).toBeCloseTo(-20);
     expect(cutShiftSeconds(two, two.cuts![1])).toBeCloseTo(8);
+  });
+  it("syncFixes lists the cuts and own places in game order, and each can be taken back on its own", () => {
+    const fifth = baskets(1)[4];
+    const late = baskets(2)[3];
+    const cut = planFix(sync, events, fifth, at(fifth) - 20, LEAD, "play")!.next;
+    const both = withOwnTime(cut, late, at(late, cut) + 4);
+    const fixes = syncFixes(both, events);
+    expect(fixes.map((f) => f.kind)).toEqual(["cut", "own"]);
+    expect(fixes[0]).toMatchObject({ kind: "cut", period: 1, name: "Q1 from 05:30", eventId: fifth.eventId });
+    expect((fixes[0] as { shift: number }).shift).toBeCloseTo(-20);
+    expect(fixes[1]).toMatchObject({ kind: "own", period: 2, eventId: late.eventId });
+
+    const noCut = withoutFix(both, fixes[0]);
+    expect(noCut.cuts).toBeUndefined();
+    expect(at(fifth, noCut)).toBeCloseTo(at(fifth));
+    expect(at(late, noCut), "the other fix stays").toBeCloseTo(at(late, cut) + 4);
+    const noOwn = withoutFix(both, fixes[1]);
+    expect(noOwn.playTimes).toBeUndefined();
+    expect(noOwn.cuts).toHaveLength(1);
+
+    const none = withoutFixes(both);
+    expect(syncFixes(none, events)).toEqual([]);
+    expect(at(late, none)).toBeCloseTo(at(late));
   });
   it("describeShiftSeconds", () => {
     expect(describeShiftSeconds(-22.2)).toBe("22 s earlier");

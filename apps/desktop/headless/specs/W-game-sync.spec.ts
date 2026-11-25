@@ -98,17 +98,17 @@ async function step(page: Page, key: "ArrowLeft" | "ArrowRight", times: number):
   return videoTime(page);
 }
 
-test("the timeline has a sync row of the game's parts, and Check sync asks about one play of each", { tag: "@smoke" }, async ({ page, browserName }) => {
+test("Check sync asks about one play of each part of the game, on a sync row that is there while it does", { tag: "@smoke" }, async ({ page, browserName }) => {
   const tracked = await recordAnalytics(page);
   const saved = await twoQuarterGame(page);
   await openSampleGame(page);
 
-  await expect(parts(page), "one part a quarter").toHaveCount(2);
-  expect(await states(page), "nothing is checked yet").toEqual(["open", "open"]);
   await expect(status(page)).toHaveText("Check sync");
+  await expect(parts(page), "the sync row is out of the way until a check").toHaveCount(0);
   await shot(page, `${browserName}-W-sync-row`);
 
   await status(page).click();
+  await expect(parts(page), "one part a quarter").toHaveCount(2);
   await expect(label(page), "the first part is asked about first").toHaveText("Check 1 of 2 · Q1");
   await expect(page.locator('[data-sync="hint"]'), "the first play says what a check is").toContainText("One play from each part of the game. Nothing moves unless one is off.");
   await expect(bar(page).locator('[data-sync="change"]'), "the play is named by what it does to the score").toBeVisible();
@@ -134,7 +134,7 @@ test("the timeline has a sync row of the game's parts, and Check sync asks about
   await expect(toastWith(page, "Sync checked")).toBeVisible();
   expect(saved[1].checks?.map((c) => c.period)).toEqual([1, 2]);
   expect(saved[1].cuts, "a check moves nothing").toBeUndefined();
-  expect(await states(page)).toEqual(["checked", "checked"]);
+  await expect(parts(page), "the row goes with the check").toHaveCount(0);
   await expect(status(page)).toHaveText("Sync checked");
   await expect(page.locator("[inert]"), "the list is back").toHaveCount(0);
   await shot(page, `${browserName}-W-checked`);
@@ -155,7 +155,9 @@ test("Escape ends a check where it stands, and a click on a part of the sync row
   expect(saved, "nothing was answered, so nothing is saved").toHaveLength(0);
   await expect(status(page)).toHaveText("Check sync");
 
-  // The second part's stretch of the row.
+  // The second part's stretch of the row, while a check is on.
+  await status(page).click();
+  await expect(label(page)).toHaveText("Check 1 of 2 · Q1");
   const box = await parts(page).nth(1).locator("line").boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
@@ -228,7 +230,7 @@ test("a play that is off is found on the game's own video, the plays after it mo
   expect(whole.periods?.["2"], "the quarter has its own sync").toBeDefined();
   expect(whole.checks?.map((c) => c.period)).toEqual([1, 2]);
   expect(whole.syncVideoTime, "the first quarter, checked, stays").toBe(saved[0].syncVideoTime);
-  expect(await states(page)).toEqual(["checked", "checked"]);
+  await expect(parts(page), "the row goes when the check is done").toHaveCount(0);
   await expect(toastWith(page, "Sync checked")).toBeVisible();
   await expect(toastWith(page, /earlier plays moved too/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Undo" }), "the move can still be undone").toBeVisible();
@@ -239,9 +241,11 @@ test("a play that is off is found on the game's own video, the plays after it mo
   expect(applied[1]).toMatchObject({ scope: "narrowed", surface: "game_view" });
 });
 
-test("narrowing down keeps the earlier plays seen right, and Stop here saves what is known", async ({ page }) => {
+test("narrowing down keeps the earlier plays seen right, Stop here saves what is known, and a fix can be taken back", async ({ page, browserName }) => {
+  const tracked = await recordAnalytics(page);
   const saved = await twoQuarterGame(page);
   await openSampleGame(page);
+  await status(page).click();
   const box = await parts(page).nth(1).locator("line").boundingBox();
   await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await expect(label(page)).toHaveText("Check 2 of 2 · Q2");
@@ -260,15 +264,8 @@ test("narrowing down keeps the earlier plays seen right, and Stop here saves wha
   await bar(page).getByRole("button", { name: "Stop here" }).click();
   // The check goes on with the part that hasn't been asked about; the quarter is two parts now, either side of the cut.
   await expect(label(page)).toHaveText("Check 1 of 3 · Q1");
-  await page.keyboard.press("Escape");
-  await expect(bar(page)).toHaveCount(0);
-  const last = saved.at(-1)!;
-  expect(last.cuts, "the move still starts at the found play").toHaveLength(1);
-  expect(last.cuts![0].eventId).toBe(fixed);
-  expect(last.checks, "the play seen right is a check, with the found one").toHaveLength(2);
   expect(await parts(page).count()).toBe(3);
-  expect(await states(page)).toEqual(["open", "checked", "checked"]);
-  await expect(status(page), "the one part left is named").toHaveText("Check sync · Q1");
+  expect(await states(page)).toEqual(["current", "checked", "checked"]);
 
   // On the break in the row: what the fix did there, said as a move.
   const cutBox = await page.locator('[data-strip="sync-cut"]').boundingBox();
@@ -276,6 +273,31 @@ test("narrowing down keeps the earlier plays seen right, and Stop here saves wha
   await page.mouse.move(cutBox!.x + cutBox!.width / 2, cutBox!.y + cutBox!.height / 2);
   await expect(page.locator('[data-readout="head"]')).toHaveText("Sync changes here");
   await expect(page.locator('[data-readout="what"]')).toHaveText(/^Plays after this were moved [\d.]+ s later in the video$/);
+  await page.keyboard.press("Escape");
+  await expect(bar(page)).toHaveCount(0);
+  const last = saved.at(-1)!;
+  expect(last.cuts, "the move still starts at the found play").toHaveLength(1);
+  expect(last.cuts![0].eventId).toBe(fixed);
+  expect(last.checks, "the play seen right is a check, with the found one").toHaveLength(2);
+  await expect(status(page), "the one part left is named").toHaveText("Check sync · Q1");
+
+  // The fix is listed beside Check sync, and taken back from there: its plays follow the sync again, with Undo.
+  const fixes = page.locator('[data-sync="fixes"]');
+  await expect(fixes).toHaveText("1 fix");
+  await fixes.click();
+  const item = page.getByRole("menuitem").filter({ hasText: "Q2 from" });
+  await expect(item).toContainText(/Moved [\d.]+ s later/);
+  await page.waitForTimeout(300); // the menu's fade in
+  await shot(page, `${browserName}-W-fixes-menu`);
+  await item.click();
+  await expect(toastWith(page, "Fix removed")).toBeVisible();
+  expect(saved.at(-1)!.cuts, "the cut is gone").toBeUndefined();
+  await expect(fixes, "no fix is left to list").toHaveCount(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(toastWith(page, "Moved back")).toBeVisible();
+  expect(saved.at(-1)!.cuts, "Undo puts the cut back").toHaveLength(1);
+  await expect(fixes).toHaveText("1 fix");
+  expect((await tracked()).find((e) => e.event === "sync_fix_removed")?.properties).toMatchObject({ kind: "cut", surface: "game_view" });
 });
 
 test("Fix sync on the play on screen: a small shift moves that play alone, on the game, and Undo puts it back", async ({ page, browserName }) => {
@@ -307,6 +329,18 @@ test("Fix sync on the play on screen: a small shift moves that play alone, on th
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(toastWith(page, "Moved back")).toBeVisible();
   expect(saved.at(-1)!.playTimes).toBeUndefined();
+
+  // Placed again, and put back from the row's menu: the play follows the sync again.
+  await nowBarFix(page).click();
+  await step(page, "ArrowRight", 2);
+  await bar(page).getByRole("button", { name: "The play is here" }).click();
+  await bar(page).getByRole("button", { name: "Only this play" }).click();
+  await expect(toastWith(page, "This play moved 2 s later")).toBeVisible();
+  expect(Object.keys(saved.at(-1)!.playTimes ?? {})).toHaveLength(1);
+  await playRows(page).filter({ has: page.locator('[data-row="placed"] [aria-label="Placed by you"]') }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Put back with the others" }).click();
+  await expect(toastWith(page, "Fix removed")).toBeVisible();
+  expect(saved.at(-1)!.playTimes, "the play's own place is gone").toBeUndefined();
   const names = (await tracked()).map((e) => e.event);
   expect(names).toContain("sync_fix_opened");
   expect(names).toContain("sync_fix_undone");
