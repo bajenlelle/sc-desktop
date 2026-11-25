@@ -7,6 +7,7 @@ import { ActiveRowPill, LIST_GROUP, listSelecting, PLAY_ROW_HEIGHT, PlayRowCells
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { pressable } from "@/lib/pressable";
 import { useListWindow } from "@/lib/use-list-window";
+import { useScrollMemory } from "@/lib/page-memory";
 import { cn } from "@/lib/utils";
 import { playedDay } from "./dates";
 
@@ -171,6 +172,8 @@ export function TeamPlayList({
   /** The play the menu is open on, and its row: one menu for the whole list, as the game view's. */
   const [menuFor, setMenuFor] = useState<{ key: string; anchor: HTMLElement } | null>(null);
   const { scrollRef, range, reveal } = useListWindow({ count: rows.length, rowHeight: PLAY_ROW_HEIGHT });
+  // Back to these plays comes back to where the list was scrolled.
+  useScrollMemory(scrollRef, "team-plays-list");
   const indexByKey = useMemo(() => new Map(rows.flatMap((r, i) => (r.kind === "play" ? [[r.key, i] as const] : []))), [rows]);
   // The play on screen stays in view as it changes (a run on into the next game, ↑ ↓).
   useEffect(() => {

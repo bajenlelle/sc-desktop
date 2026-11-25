@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { useScrollMemory } from "@/lib/page-memory";
 
 /**
  * A content-column page: a `Toolbar` floats over the top of a `PageContent`
@@ -42,15 +43,20 @@ const WIDTHS = {
 export function PageContent({
   width = "wide",
   className,
+  scrollSlot = "content",
   children,
 }: {
   width?: keyof typeof WIDTHS;
   className?: string;
+  /** Names this scroller's kept position, for a page with more than one (lib/page-memory.ts). */
+  scrollSlot?: string;
   children: React.ReactNode;
 }) {
   const { setScrolled } = usePageScroll();
   const scrollerRef = React.useRef<HTMLDivElement>(null);
   const sentinelRef = React.useRef<HTMLDivElement>(null);
+  // Back to this page comes back to where it was scrolled.
+  useScrollMemory(scrollerRef, scrollSlot);
 
   React.useEffect(() => {
     const scroller = scrollerRef.current;

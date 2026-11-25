@@ -36,6 +36,16 @@ import { PlaysCountLine } from "@/components/plays/plays-count-line";
 import { PlaysSelectionBar } from "@/components/plays/plays-selection-bar";
 import { usePlayMoments } from "@/components/plays/use-play-moments";
 import { trackEvent } from "@/lib/analytics";
+import { useRecalled, useRememberPage } from "@/lib/page-memory";
+
+/** What Plays keeps of how it was left, per history entry (lib/page-memory.ts). */
+interface PlaysKept {
+  filters: PlayFilters;
+  unticked: ReadonlySet<string>;
+  selected: ReadonlySet<string>;
+  current: string | null;
+}
+const PLAYS_KEPT = "team-plays";
 
 /** No labels: one set, so the stage's memo of the play shown holds. */
 const EMPTY_LABELS: ReadonlySet<string> = new Set();
@@ -81,11 +91,13 @@ export function TeamPlaysView({
   /** Plays is the view shown: it owns the keys, and nothing plays while it is hidden. */
   active: boolean;
 }) {
-  const [filters, setFiltersState] = useState<PlayFilters>(EMPTY_PLAY_FILTERS);
+  // Back to these plays (from a game opened here, say) finds them as they were left (lib/page-memory.ts).
+  const kept = useRecalled<PlaysKept>(PLAYS_KEPT);
+  const [filters, setFiltersState] = useState<PlayFilters>(() => kept?.filters ?? EMPTY_PLAY_FILTERS);
   const setFilters = (change: (f: PlayFilters) => PlayFilters) => setFiltersState(change);
   const [filterOpen, setFilterOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const [unticked, setUnticked] = useState<ReadonlySet<string>>(new Set());
+  const [unticked, setUnticked] = useState<ReadonlySet<string>>(() => kept?.unticked ?? new Set());
   const presets = useFilterPresets(orgId, "team_plays");
   const labelIds = useMemo(() => labels.map((l) => l.id), [labels]);
   const applyPreset = (p: FilterPreset) => {
@@ -158,8 +170,22 @@ export function TeamPlaysView({
   if (!active && !video.paused) video.pause();
 
   // ---- Selection: ⌘-click toggles, Shift-click a range, ⌘A every listed play, Esc lets go ----
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => kept?.selected ?? new Set());
   const anchor = useRef<string | null>(null);
+
+  // How the plays are left, for the way back; and on the way back, the play that was on the stage, shown again
+  // where it starts, paused, once its row is listed.
+  const currentKey = playback.currentKey;
+  const leftAs = useMemo<PlaysKept>(() => ({ filters, unticked, selected, current: currentKey }), [filters, unticked, selected, currentKey]);
+  useRememberPage(PLAYS_KEPT, leftAs);
+  const cueOnReturn = useRef(kept?.current ?? null);
+  const cue = playback.cue;
+  useEffect(() => {
+    const key = cueOnReturn.current;
+    if (!key || !active || !playRows.some((r) => r.key === key)) return;
+    cueOnReturn.current = null;
+    cue(key);
+  }, [playRows, active, cue]);
   const onRowClick = useCallback(
     (key: string, how: RowClick) => {
       // The click is on the list now: a control that still has the keyboard (the toolbar's Season | Plays, whose

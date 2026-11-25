@@ -42,8 +42,8 @@ export function useCrossGamePlayback({
   const currentRef = useRef(currentKey);
   currentRef.current = currentKey;
   const clipEndRef = useRef<number | undefined>(undefined);
-  /** A play waiting for its game's file to load. */
-  const pendingRef = useRef<PlayRow | null>(null);
+  /** A play waiting for its game's file to load, and whether it plays once there (or is only shown, `cue`). */
+  const pendingRef = useRef<{ row: PlayRow; run: boolean } | null>(null);
   /** Which game's file the element holds. */
   const loadedRef = useRef<string | null>(null);
 
@@ -64,9 +64,9 @@ export function useCrossGamePlayback({
     loadedRef.current = src ? gameId : null;
   }, [src, gameId]);
 
-  /** Pause, seek to the play's pre-roll, play to its post-roll. */
+  /** Pause, seek to the play's pre-roll, play to its post-roll (`run`), or stay there paused. */
   const seek = useCallback(
-    (event: PlayByPlayEvent, id: string) => {
+    (event: PlayByPlayEvent, id: string, run = true) => {
       const m = matchesRef.current.get(id);
       if (!m?.syncPoint) return;
       const t = computeVideoTime(event, m.syncPoint);
@@ -80,6 +80,7 @@ export function useCrossGamePlayback({
           video.addEventListener("seeked", onSeeked, { once: true });
           return;
         }
+        if (!run) return;
         clipEndRef.current = t + rollRef.current.postRoll;
         video.play().catch(() => {});
       };
@@ -104,12 +105,29 @@ export function useCrossGamePlayback({
       }
       setRunning(true);
       if (loadedRef.current === r.game.gameId) seek(r.event, r.game.gameId);
-      else pendingRef.current = r;
+      else pendingRef.current = { row: r, run: true };
     },
     [rowOf, seek, video],
   );
   const playRef = useRef(play);
   playRef.current = play;
+
+  /** The play shown on the stage at its start, paused: the play a page left on, shown again on the way back. */
+  const cue = useCallback(
+    (key: string) => {
+      const r = rowOf(key);
+      if (!r) return;
+      setCurrentKey(key);
+      currentRef.current = key;
+      clipEndRef.current = undefined;
+      setRunning(false);
+      video.pause();
+      if (!playableRef.current(r.game.gameId)) return;
+      if (loadedRef.current === r.game.gameId) seek(r.event, r.game.gameId, false);
+      else pendingRef.current = { row: r, run: false };
+    },
+    [rowOf, seek, video],
+  );
 
   const stop = useCallback(() => {
     clipEndRef.current = undefined;
@@ -139,9 +157,9 @@ export function useCrossGamePlayback({
   // The seek waiting for another game's file, once the stage has loaded it.
   useEffect(() => {
     const pending = pendingRef.current;
-    if (!pending || !src || pending.game.gameId !== gameId) return;
+    if (!pending || !src || pending.row.game.gameId !== gameId) return;
     pendingRef.current = null;
-    const go = () => seek(pending.event, pending.game.gameId);
+    const go = () => seek(pending.row.event, pending.row.game.gameId, pending.run);
     if (video.readyState >= 1) go();
     else video.addEventListener("loadedmetadata", go, { once: true });
   }, [src, gameId, seek, video]);
@@ -174,5 +192,5 @@ export function useCrossGamePlayback({
     return t === null ? null : clipBounds(t, preRoll, postRoll);
   }, [current, matches, preRoll, postRoll]);
 
-  return { currentKey, current, src, running, play, next, previous, replay, stop, playAll, clipWindow };
+  return { currentKey, current, src, running, play, cue, next, previous, replay, stop, playAll, clipWindow };
 }
