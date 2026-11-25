@@ -33,7 +33,7 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
         label: mode.partName,
         change,
         main: cue.sentence,
-        hint: `${mode.first ? "The video jumps where the stream dropped: is the game still in step after it? " : ""}${
+        hint: `${mode.first ? "The video has a jump here: is the game still in step after it? " : ""}${
           change ? `Right if the ball goes in as the score over the video turns ${change.after}, give or take a second.` : "Right if it happens as its name lights up over the video, give or take a second."
         }`,
       };
@@ -62,8 +62,8 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
       change,
       main: cue.sentence,
       hint: change
-        ? `Scrub to where the ball goes in and the score becomes ${change.after}: likely earlier, by what the stream lost.`
-        : "Scrub to where it happens: likely earlier, by what the stream lost.",
+        ? `Scrub to where the ball goes in and the score becomes ${change.after}: likely earlier, by what the jump left out.`
+        : "Scrub to where it happens: likely earlier, by what the jump left out.",
     };
   }
   if (mode.kind === "find" && mode.narrow) {

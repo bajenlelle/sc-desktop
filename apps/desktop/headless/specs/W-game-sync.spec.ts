@@ -439,7 +439,7 @@ test("in a small window the sync's bar and its buttons stay inside the player's 
 test("a recording that jumps into the game after the tip-off: the plays before have no footage, and that can be taken back", async ({ page }) => {
   const saved = await twoQuarterGame(page, { footageStartAfterTipoff: 25 });
   await openSampleGame(page);
-  await expect(page.getByText(/The video jumps into the game after the tip-off: the first \d+ plays? (isn’t|aren’t) in it\./)).toBeVisible();
+  await expect(page.getByText(/The start of the game isn’t in the video: the first \d+ plays? (isn’t|aren’t) in it\./)).toBeVisible();
 
   // Listed among the fixes, first, with what it leaves out; the × takes it back.
   const fixes = page.locator('[data-sync="fixes"]');
@@ -450,7 +450,7 @@ test("a recording that jumps into the game after the tip-off: the plays before h
   await start.getByRole("menuitem", { name: /^Remove fix: Game footage starts/ }).click();
   await expect(toastWith(page, "Fix removed")).toBeVisible();
   expect((saved.at(-1) as { footageStart?: number }).footageStart, "the footage starts with the recording again").toBeUndefined();
-  await expect(page.getByText(/The video jumps into the game/)).toHaveCount(0);
+  await expect(page.getByText(/The start of the game isn’t in the video/)).toHaveCount(0);
 });
 
 test("a jump in the video is found, warned about, and checked: the fix starts at the jump itself", async ({ page, browserName }) => {
@@ -462,12 +462,12 @@ test("a jump in the video is found, warned about, and checked: the fix starts at
   await openSampleGame(page);
   const jump = tip + 150;
 
-  const banner = page.getByText(/^The video jumps once where the stream dropped \(Q1 \d+:\d\d\)\. Plays after a jump may be off\.$/);
+  const banner = page.getByText(/^The video has a jump in it \(Q1 \d+:\d\d\)\. Plays after it may be off\.$/);
   await expect(banner).toBeVisible();
   await shot(page, `${browserName}-W-jump-banner`);
   await page.getByRole("button", { name: "Check the jumps" }).click();
   await expect(label(page)).toHaveText(/^Jump · Q1 \d+:\d\d$/);
-  await expect(page.locator('[data-sync="hint"]')).toContainText("The video jumps where the stream dropped");
+  await expect(page.locator('[data-sync="hint"]')).toContainText("The video has a jump here");
   await expect.poll(() => inClip(page), { message: "the basket after the jump plays" }).toBe(true);
 
   // Off: the stream lost five seconds, so the basket is five seconds earlier than the sync has it.

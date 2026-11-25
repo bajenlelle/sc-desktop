@@ -535,7 +535,7 @@ export function useGameSync({
           const b = computeVideoTime(e, next);
           return a !== null && b !== null && Math.abs(a - b) > 0.05;
         }).length;
-        const message = `${plural(moved, "play")} moved ${describeShiftSeconds(delta)}${lost > 0 ? ` · ${plural(lost, "play")} lost in the jump` : ""}`;
+        const message = `${plural(moved, "play")} moved ${describeShiftSeconds(delta)}${lost > 0 ? ` · ${plural(lost, "play")} missing at the jump` : ""}`;
         video.pause();
         if (!(await commit(next, { moved: true, message, undoTo: sync, scope: "jump" }))) return;
         trackEvent("sync_fix_applied", { scope: "jump", period: mode.event.period, delta_s: Math.round(delta * 10) / 10, surface: "game_view", plays: moved, lost });

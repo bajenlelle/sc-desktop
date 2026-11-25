@@ -106,14 +106,16 @@ function StagePanel({ title, body, action }: { title: string; body: string; acti
  * labelled.
  */
 
-/** "The video jumps twice where the stream dropped (Q1 6:58, Q2 1:10). Plays after a jump may be off." */
+/** "The video has 2 jumps in it (Q1 6:58, Q2 1:10). Plays after a jump may be off." */
 function jumpWords(jumps: readonly VideoJump<PlayByPlayEvent>[]): string {
   const where = jumps
     .slice(0, 3)
     .map((j) => [periodLabel(j.period), j.after.gameClockTime ? formatGameClock(j.after.gameClockTime).replace(/^0(\d:)/, "$1") : null].filter(Boolean).join(" "))
     .join(", ");
-  const times = jumps.length === 1 ? "once" : jumps.length === 2 ? "twice" : `${jumps.length} times`;
-  return `The video jumps ${times} where the stream dropped (${where}${jumps.length > 3 ? ", …" : ""}). Plays after a jump may be off.`;
+  const more = jumps.length > 3 ? ", …" : "";
+  return jumps.length === 1
+    ? `The video has a jump in it (${where}). Plays after it may be off.`
+    : `The video has ${jumps.length} jumps in it (${where}${more}). Plays after a jump may be off.`;
 }
 
 export function GameWatchView({
@@ -977,7 +979,7 @@ export function GameWatchView({
     </Callout>
   ) : timeline.beforeStart > 0 ? (
     <Callout>
-      {match.syncPoint?.footageStart !== undefined ? "The video jumps into the game after the tip-off" : "The recording starts after tip-off"}: the first{" "}
+      {match.syncPoint?.footageStart !== undefined ? "The start of the game isn’t in the video" : "The recording starts after tip-off"}: the first{" "}
       {timeline.beforeStart} {timeline.beforeStart === 1 ? "play isn’t" : "plays aren’t"} in it.
     </Callout>
   ) : null;

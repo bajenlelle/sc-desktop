@@ -655,7 +655,7 @@ starts after the tip-off.
   (`footageStartFromCuts`). Before it the recording shows something else, so
   the plays the sync puts there are "Not in the video" like plays before the
   recording: grey in the list, no clip, never asked about by Check sync. The
-  banner says "The video jumps into the game after the tip-off". It is the
+  banner says "The start of the game isn't in the video". It is the
   first entry in the Fixes menu ("Game footage starts at 1:25 · 4 plays not in
   the video"), with its ×. A re-import onto the same video keeps it.
 - Not done: other surfaces (Add clips, the editor, players' apps) still clip a
@@ -687,18 +687,18 @@ at 1:25, 6:26 and 41:11.
   is a cut with no other within 30 s, inside a quarter's play by the sync
   (not before the tip-off, in a break or after the final play), after where
   the game's footage starts.
-- **The warning**: "The video jumps twice where the stream dropped (Q1 6:58,
-  Q2 1:10). Plays after a jump may be off." with **Check the jumps**, while a
+- **The warning**: "The video has 2 jumps in it (Q1 6:58, Q2 1:10).
+  Plays after a jump may be off." with **Check the jumps**, while a
   jump is unanswered. A jump is answered by a fix within 30 s of it or a play
   after it seen in the right place.
 - **Check the jumps** asks about a made basket at least 45 s after each jump
   (the plays just after it may be in what was lost), as Check sync does:
   Looks right saves a check; It's off finds the basket ("After the jump",
-  likely earlier by what the stream lost), and The play is here saves the fix
+  likely earlier by what the jump left out), and The play is here saves the fix
   at once, starting at the jump itself (`syncFromJump`, `SyncCut.jump`): no
   scope to choose and nothing to narrow down, since the jump is known to the
   frame. The plays the old sync put after the jump that came before the new
-  sync starts were lost: they read "Lost where the video jumps" (reach
+  sync starts were lost: they read "Missing at a jump in the video" (reach
   "lost") and are not asked about. The toast says how many plays moved and
   how many were lost, with Undo.
 - Not done: the editor, Add clips and the players' apps don't read lost
