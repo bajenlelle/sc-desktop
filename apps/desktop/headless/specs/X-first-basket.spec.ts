@@ -33,9 +33,16 @@ test("the tip-off step can set the first basket instead, and works the tip-off o
   const link = page.locator('[data-sync="first-basket-link"]');
   await expect(link).toHaveText("Tip-off not in the video?");
   // Beside the button that sets the tip-off: where the coach decides.
-  const set = await page.locator('[data-tour="tipoff-set"]').boundingBox();
-  const at = await link.boundingBox();
-  expect(Math.abs(at!.y + at!.height / 2 - (set!.y + set!.height / 2)), "on the set button's row").toBeLessThan(2);
+  await expect
+    .poll(
+      async () => {
+        const set = await page.locator('[data-tour="tipoff-set"]').boundingBox();
+        const at = await link.boundingBox();
+        return set && at ? Math.abs(at.y + at.height / 2 - (set.y + set.height / 2)) : Infinity;
+      },
+      { message: "on the set button's row, once the strip above has settled" },
+    )
+    .toBeLessThan(2);
   // Its hover fill covers the whole of it: the words don't run out of the button.
   expect(await link.evaluate((el) => el.scrollWidth - el.clientWidth), "the link's words fit inside it").toBeLessThanOrEqual(0);
   await link.click();

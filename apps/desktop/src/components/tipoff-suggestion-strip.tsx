@@ -26,10 +26,18 @@ export function isSuggestionPending(state: TipoffSuggestionState): boolean {
   return state.kind === "hint_found" || state.kind === "suggested" || state.kind === "starts_after_tipoff";
 }
 
-/** The tip-off the strip offers, as seconds into the video; null when it offers none. */
+/**
+ * A scoreboard graphic is typed in by hand and runs behind the play (3–18 s on
+ * a replay measured, 2026-11-25): a tip-off worked out from its first points is
+ * this much late at most, so a basket is looked for from that much earlier.
+ */
+const SCORE_GRAPHIC_LATE_S = 15;
+
+/** Where the tip-off is thought to be, as seconds into the video, for putting the picker by a basket; null when nothing says. */
 export function offeredSeconds(state: TipoffSuggestionState): number | null {
-  if (state.kind === "hint_found" || state.kind === "suggested") return state.seconds;
-  if (state.kind === "starts_after_tipoff") return state.estimateS;
+  if (state.kind === "hint_found") return state.seconds;
+  if (state.kind === "suggested") return state.basis === "first_score" ? state.seconds - SCORE_GRAPHIC_LATE_S : state.seconds;
+  if (state.kind === "starts_after_tipoff") return state.estimateS === null ? null : state.firstClock ? state.estimateS : state.estimateS - SCORE_GRAPHIC_LATE_S;
   return null;
 }
 
@@ -91,7 +99,7 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel, onU
           {/* With nothing to use, the first basket is the way on: the main button. */}
           {basket && onUseBasket && (
             <Button type="button" size="sm" variant={seconds !== null ? "ghost" : "default"} onClick={onUseBasket}>
-              Use a basket instead
+              {seconds !== null ? "Use a basket instead" : "Set a basket"}
             </Button>
           )}
           <Button type="button" variant="ghost" size="sm" onClick={onReject}>
@@ -176,10 +184,11 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel, onU
       case "suggested":
         return {
           key: "suggested",
-          node: offer(
-            state.basis === "first_score"
-              ? `Tip-off worked out from the first points on the scoreboard: ${formatMSSd(state.seconds)}.`
-              : state.previewed
+          // The graphic's points say roughly where the game starts, not when: the way on is a basket the coach sees.
+          node: state.basis === "first_score"
+            ? offer("The game starts around here by the scoreboard graphic, which is typed in by hand and often late. Set a basket you can see to place it.", null, true)
+            : offer(
+            state.previewed
                 ? `Is this the tip-off? The game clock starts at ${formatMSSd(state.seconds)}.`
                 : `Tip-off found: the game clock starts at ${formatMSSd(state.seconds)}.`,
             state.seconds,
@@ -189,10 +198,11 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel, onU
         return {
           key: "starts_after_tipoff",
           node: offer(
-            state.estimateS !== null && state.estimateS < 0 && !state.firstClock
-              ? `The recording starts after the tip-off: by the first points, ${formatMSSd(-state.estimateS)} before it.`
-              : `The recording starts after the tip-off${state.firstClock ? `: the game clock already reads ${state.firstClock} in the first frame` : ""}.`,
-            state.estimateS,
+            state.firstClock
+              ? `The recording starts after the tip-off: the game clock already reads ${state.firstClock} in the first frame.`
+              : "The recording seems to start after the tip-off. Set a basket you can see to place the game.",
+            // Without a game clock the estimate comes from the score graphic, too rough to set: a basket places it.
+            state.firstClock ? state.estimateS : null,
             true,
           ),
         };

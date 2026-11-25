@@ -626,9 +626,12 @@ starts after the tip-off.
 - **The detector lines the graphic up with the feed** (`tipoff-detect.ts`,
   signal 5): given how long after the tip-off the feed has the first points
   (`firstScoreAfterS`), the moment a clockless graphic leaves 0-0 (read twice a
-  second) places the tip-off without looking at the court ("Tip-off worked out
-  from the first points on the scoreboard"); too soon for the recording, it is
-  a late start by that much. Play seen starting on a hard cut (`find_cuts`,
+  second) says roughly where the game starts. Only roughly: the graphic is
+  typed in by hand, and on the replay measured it ran 3–18 s behind the feed.
+  So the suggestion offers "Set a basket", the picker looks for one from 15 s
+  before the graphic's estimate, and the estimate is never offered as a tip-off
+  or saved as a shared hint (a wrong hint from an earlier import put the
+  picker 16 s out on the same replay). Play seen starting on a hard cut (`find_cuts`,
   ffmpeg's scene score, a fraction of a second for the first minutes) is a jump
   into the game, not the tip-off, and is reported as a late start.
 - **Where the game's footage starts** (`SyncPoint.footageStart`): setting the
