@@ -110,6 +110,15 @@ playlists, and share them with teams; players watch on web/mobile.
   (`fillGameMarks`, through the `genius` function's cache: no import
   allowance), never as a sweep over a library, and the game view is the only
   writer. Everything that reads them works without them.
+- **Sync**: plays are placed in the video by the league's wall-clock stamps
+  and `matches.sync_point` (`packages/shared/lib/clip-timing.ts`): the tip-off,
+  a quarter's own sync, cuts inside a quarter, and since the game view's Fix
+  sync a play's own place (`playTimes`) and the plays the coach has seen in the
+  right place (`checks`, `lib/sync-check.ts`). Plays the scorer's table logged
+  late are placed by game clock on read (`lib/late-plays.ts`), never in the
+  table. Every released desktop reads `sync_point` and keeps the fields it
+  doesn't know; add fields, don't change the meaning of one (`docs/game-view.md`,
+  "Sync").
 - **Archived games**: matches.archived_at hides a game from the desktop's
   Games page (behind the Archived group's Show button) and Add clips, and nothing
   else. Playlists, shares, the editor's matchLookup, web

@@ -11,17 +11,23 @@ import {
   SAME_PLACE_SECONDS,
   checkCandidate,
   describeShiftSeconds,
-  narrowCandidate,
+  gapCandidate,
+  gapShift,
+  narrowClose,
+  narrowFound,
+  narrowRight,
   partChecked,
   partOf,
   planFix,
   playCue,
+  playsMoved,
   suggestedScope,
   syncParts,
   syncProgress,
   withCheck,
   withOwnTime,
   type FixPlan,
+  type NarrowGap,
   type PlayCue,
   type SyncPart,
 } from "@scoutable/shared/lib/sync-check";
@@ -35,19 +41,18 @@ import type { PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 export type SyncOrigin = "check" | "now_bar" | "menu";
 
 /**
- * Narrowing down where a shift starts. The play `fixed` was found `delta`
- * seconds from where the sync (`base`, as it was before the fix) had it; `lo`
- * is the last earlier play seen in the right place, `hi` the earliest play
- * known to be off. `part` is the stretch they are in, as `base` divides the game.
+ * Narrowing down where a shift starts (lib/sync-check.ts, NarrowGap). The fix
+ * that began it is saved; what the looks at earlier plays change is kept in
+ * `work` and saved once, when no play is left in doubt or the coach stops.
+ * `undoTo` is the sync before the fix, `fixed` the play it was made on,
+ * `partName` the stretch it was in then.
  */
 interface Narrow {
-  base: SyncPoint;
-  part: SyncPart;
+  undoTo: SyncPoint;
+  work: SyncPoint;
+  gaps: NarrowGap<PlayByPlayEvent>[];
   fixed: PlayByPlayEvent;
-  found: number;
-  delta: number;
-  lo: PlayByPlayEvent | null;
-  hi: PlayByPlayEvent;
+  partName: string;
   origin: SyncOrigin;
 }
 
@@ -55,9 +60,9 @@ interface Narrow {
 export type SyncMode =
   | { kind: "idle" }
   /** A play is played with the moment the sync has it at marked: is it right? Checking a part, or narrowing a shift down. */
-  | { kind: "ask"; purpose: "check" | "narrow"; event: PlayByPlayEvent; at: number; part: SyncPart; total: number; narrow: Narrow | null }
-  /** The coach scrubs to where the play really happens. */
-  | { kind: "find"; event: PlayByPlayEvent; mapped: number; origin: SyncOrigin }
+  | { kind: "ask"; purpose: "check" | "narrow"; event: PlayByPlayEvent; at: number; part: SyncPart | null; partName: string; total: number; narrow: Narrow | null }
+  /** The coach scrubs to where the play really happens. While narrowing, the video starts where the shift would put the play. */
+  | { kind: "find"; event: PlayByPlayEvent; mapped: number; origin: SyncOrigin; narrow: Narrow | null }
   /** The play is found: how far it moved, and what moves with it. */
   | { kind: "confirm"; event: PlayByPlayEvent; mapped: number; found: number; plan: FixPlan; suggested: "play" | "on"; origin: SyncOrigin }
   /** A fix made from a play is saved: the plays before it may be off too. */
@@ -129,7 +134,8 @@ export function useGameSync({
       const before = syncRef.current;
       setBusy(true);
       try {
-        await updateSyncPoint(match.id, next);
+        // A check alone places every play where it was: no clip that players have is touched.
+        await updateSyncPoint(match.id, next, { moved: opts.moved });
       } catch (e) {
         Sentry.captureException(e);
         toast.error("Couldn’t save the sync", { id: TOAST, description: "Check the connection and try again.", action: undefined });
@@ -189,11 +195,12 @@ export function useGameSync({
 
   // ---- Asking about a play ---------------------------------------------------------
   const ask = useCallback(
-    (purpose: "check" | "narrow", event: PlayByPlayEvent, part: SyncPart, total: number, narrow: Narrow | null) => {
-      const sync = syncRef.current;
+    (purpose: "check" | "narrow", event: PlayByPlayEvent, part: SyncPart | null, partName: string, total: number, narrow: Narrow | null) => {
+      // A play asked about while narrowing is where the work in hand has it.
+      const sync = narrow ? narrow.work : syncRef.current;
       const at = sync ? computeVideoTime(event, sync) : null;
       if (at === null) return false;
-      setMode({ kind: "ask", purpose, event, at, part, total, narrow });
+      setMode({ kind: "ask", purpose, event, at, part, partName, total, narrow });
       seek(Math.max(0, at - CHECK_LEAD_SECONDS), true);
       return true;
     },
@@ -229,7 +236,7 @@ export function useGameSync({
 
   const advance = useCallback(() => {
     const next = nextCheck();
-    if (!next || !ask("check", next.event, next.part, next.total, null)) finish();
+    if (!next || !ask("check", next.event, next.part, next.part.name, next.total, null)) finish();
   }, [nextCheck, ask, finish]);
 
   /** Check sync: from the first part without a check, or from `partIndex` (a click on that part of the timeline). */
@@ -240,7 +247,7 @@ export function useGameSync({
       skipped.current = new Set();
       const next = nextCheck(partIndex);
       trackEvent("sync_check_started", { entry, parts: progress.total, left: progress.left });
-      if (!next || !ask("check", next.event, next.part, next.total, null)) {
+      if (!next || !ask("check", next.event, next.part, next.part.name, next.total, null)) {
         toast(progress.left === 0 ? "Sync is already checked" : "No play to check with", {
           id: TOAST,
           description: progress.left === 0 ? "Use Fix sync on a play that looks off." : "The parts left have no made basket inside the video. Use Fix sync on a play instead.",
@@ -253,19 +260,24 @@ export function useGameSync({
 
   // ---- Finding a play --------------------------------------------------------------
   const enterFind = useCallback(
-    (event: PlayByPlayEvent, origin: SyncOrigin) => {
-      const sync = syncRef.current;
+    (event: PlayByPlayEvent, origin: SyncOrigin, narrow: Narrow | null = null) => {
+      const sync = narrow ? narrow.work : syncRef.current;
       const mapped = sync ? computeVideoTime(event, sync) : null;
       if (!sync || mapped === null) {
         toast("This play has no time in the feed, so it can’t be placed", { id: TOAST, action: undefined });
         return;
       }
       // Open where the play is set now; when that isn't in the video at all (a later quarter of a video that skips
-      // the breaks), where it should be if the breaks are cut.
+      // the breaks), where it should be if the breaks are cut. While narrowing: where the shift would put it, so a
+      // play that has the same shift is already on screen.
       const shown = mapped >= 0 && (duration === null || mapped < duration);
-      const start = shown ? mapped : (computeVideoTime(event, projectedSync(sync, match.events)) ?? mapped);
+      const start = narrow?.gaps[0]
+        ? mapped + gapShift(sync, narrow.gaps[0].b)
+        : shown
+          ? mapped
+          : (computeVideoTime(event, projectedSync(sync, match.events)) ?? mapped);
       video.pause();
-      setMode({ kind: "find", event, mapped, origin });
+      setMode({ kind: "find", event, mapped, origin, narrow });
       seek(Math.max(0, duration === null ? start : Math.min(start, duration - 1)), false);
     },
     [video, duration, match.events, seek],
@@ -293,53 +305,45 @@ export function useGameSync({
   );
 
   // ---- Narrowing down where a shift starts -----------------------------------------
+  /** Saves what the narrowing has worked out, and goes on: with the check, or back to the play the fix was made on. */
   const finishNarrow = useCallback(
     async (n: Narrow) => {
       const current = syncRef.current;
-      if (!current) return;
-      let next = current;
-      let plan: FixPlan | null = null;
-      if (n.hi.eventId !== n.fixed.eventId) {
-        // An earlier play is off too: the move starts there, or with the whole stretch when no play in it was right.
-        const mapped = computeVideoTime(n.hi, n.base);
-        plan =
-          n.lo === null
-            ? planFix(n.base, match.events, n.fixed, n.found, lead, "start")
-            : mapped === null
-              ? null
-              : planFix(n.base, match.events, n.hi, mapped + n.delta, lead, "play");
-        if (plan) {
-          next = plan.next;
-          // The check belongs on the play that was found, not on the one taken to be off by as much.
-          if (n.lo !== null) next = withCheck({ ...next, checks: (next.checks ?? []).filter((c) => c.eventId !== n.hi.eventId) }, n.fixed);
-        }
-      }
-      // The last play seen right says the stretch before the shift is right.
-      if (n.lo !== null) next = withCheck(next, n.lo);
-      if (!sameSyncPoint(next, current)) {
-        const saved = await commit(next, {
-          moved: plan !== null,
-          message: plan ? `${plural(plan.reach.plays, "play")} moved ${describeShiftSeconds(n.delta)}` : undefined,
-          undoTo: plan ? n.base : undefined,
-          scope: n.lo === null ? "start" : "play",
+      if (current && !sameSyncPoint(n.work, current)) {
+        const moved = playsMoved(current, n.work, match.events);
+        const saved = await commit(n.work, {
+          moved: moved > 0,
+          // The fix's own toast said how far; this one says what the looks at earlier plays added.
+          message: moved > 0 ? `${plural(moved, "earlier play")} moved too` : undefined,
+          undoTo: moved > 0 ? n.undoTo : undefined,
+          scope: "play",
         });
         if (!saved) return;
-        if (plan) trackEvent("sync_fix_applied", { scope: n.lo === null ? "start" : "play", period: n.fixed.period, delta_s: Math.round(n.delta * 10) / 10, surface: "game_view", narrowed: true });
+        if (moved > 0) trackEvent("sync_fix_applied", { scope: "narrowed", period: n.fixed.period, surface: "game_view", plays: moved });
       }
       if (n.origin === "check") advance();
       else backToPlay(n.fixed);
     },
-    [match.events, lead, commit, advance, backToPlay],
+    [match.events, commit, advance, backToPlay],
   );
 
+  /** The next play to look at: in the first gap that has one. A gap with none left is closed on the way. */
   const nextNarrow = useCallback(
     (n: Narrow) => {
-      const all = syncParts(n.base, plays);
-      const part = partOf(all, n.fixed);
-      const event = part ? narrowCandidate(part, all, plays.filter((e) => inFile(e, n.base)), n.base, n.lo, n.hi) : null;
-      if (!event || !part || !ask("narrow", event, part, all.length, n)) void finishNarrow(n);
+      let work = n.work;
+      const gaps = [...n.gaps];
+      while (gaps.length > 0) {
+        const event = gapCandidate(work, plays.filter((e) => inFile(e, work)), gaps[0]);
+        if (event) {
+          if (ask("narrow", event, null, n.partName, 0, { ...n, work, gaps })) return;
+          break;
+        }
+        work = narrowClose(work, match.events, gaps[0]);
+        gaps.shift();
+      }
+      void finishNarrow({ ...n, work, gaps: [] });
     },
-    [plays, inFile, ask, finishNarrow],
+    [plays, inFile, match.events, ask, finishNarrow],
   );
 
   // ---- What the bar's buttons do -----------------------------------------------------
@@ -347,14 +351,19 @@ export function useGameSync({
     const looksRight = async () => {
       if (mode.kind !== "ask" || busy) return;
       trackEvent("sync_check_answered", { answer: "right", purpose: mode.purpose, period: mode.event.period });
-      if (mode.purpose === "narrow" && mode.narrow) return nextNarrow({ ...mode.narrow, lo: mode.event });
+      if (mode.purpose === "narrow" && mode.narrow) {
+        const n = mode.narrow;
+        const step = narrowRight(n.work, n.gaps[0], mode.event);
+        return nextNarrow({ ...n, work: step.sync, gaps: [...step.gaps, ...n.gaps.slice(1)] });
+      }
       const sync = syncRef.current;
       if (sync && (await commit(withCheck(sync, mode.event)))) advance();
     };
     const itsOff = () => {
       if (mode.kind !== "ask" || busy) return;
       trackEvent("sync_check_answered", { answer: "off", purpose: mode.purpose, period: mode.event.period });
-      if (mode.purpose === "narrow" && mode.narrow) return nextNarrow({ ...mode.narrow, hi: mode.event });
+      // Off while narrowing: looked for where the shift would put it.
+      if (mode.purpose === "narrow" && mode.narrow) return enterFind(mode.event, mode.narrow.origin, mode.narrow);
       trackEvent("sync_fix_opened", { entry: "game_check" });
       enterFind(mode.event, "check");
     };
@@ -367,7 +376,7 @@ export function useGameSync({
     const skip = () => {
       if (mode.kind !== "ask" || mode.purpose !== "check") return;
       trackEvent("sync_check_answered", { answer: "skip", purpose: "check", period: mode.event.period });
-      skipped.current.add(partKey(mode.part));
+      if (mode.part) skipped.current.add(partKey(mode.part));
       advance();
     };
     const replay = () => {
@@ -382,6 +391,13 @@ export function useGameSync({
       const sync = syncRef.current;
       if (!sync) return;
       const found = video.currentTime;
+      if (mode.narrow) {
+        // No question of how far it reaches here: the play settles where the shift starts, or gets a fix of its own.
+        const n = mode.narrow;
+        const step = narrowFound(n.work, match.events, n.gaps[0], mode.event, found, lead);
+        trackEvent("sync_check_answered", { answer: step.outcome, purpose: "narrow", period: mode.event.period });
+        return nextNarrow({ ...n, work: step.sync, gaps: [...step.gaps, ...n.gaps.slice(1)] });
+      }
       const delta = found - mode.mapped;
       if (Math.abs(delta) < SAME_PLACE_SECONDS) {
         if (mode.origin === "check") {
@@ -400,11 +416,12 @@ export function useGameSync({
     const cancel = () => {
       if (mode.kind !== "find") return;
       // Back to the question the search came from.
-      if (mode.origin === "check") advance();
+      if (mode.narrow) nextNarrow(mode.narrow);
+      else if (mode.origin === "check") advance();
       else setMode({ kind: "idle" });
     };
     const back = () => {
-      if (mode.kind === "confirm") setMode({ kind: "find", event: mode.event, mapped: mode.mapped, origin: mode.origin });
+      if (mode.kind === "confirm") setMode({ kind: "find", event: mode.event, mapped: mode.mapped, origin: mode.origin, narrow: null });
     };
     const moveOnlyThis = async () => {
       if (mode.kind !== "confirm" || busy) return;
@@ -439,15 +456,14 @@ export function useGameSync({
       });
       if (!saved) return;
       trackEvent("sync_fix_applied", { scope: "play", period: mode.event.period, delta_s: Math.round(plan.delta * 10) / 10, surface: "game_view", suggested: mode.suggested === "on", plays: plan.reach.plays });
-      // The plays before this one, back to the last one seen right, may be off by as much.
-      const all = syncParts(base, plays);
-      const part = partOf(all, mode.event);
+      // The plays before this one, back to the last one seen right, may be off too.
+      const part = partOf(syncParts(base, plays), mode.event);
       const at = msOf(mode.event.realWorldTime);
       const lastRight = part?.checks.filter((c) => msOf(c.realWorldTime) < at && c.eventId !== mode.event.eventId).at(-1);
-      const lo = lastRight ? (match.events.find((e) => e.eventId === lastRight.eventId) ?? null) : null;
-      const narrow: Narrow | null = part ? { base, part, fixed: mode.event, found: mode.found, delta: plan.delta, lo, hi: mode.event, origin: mode.origin } : null;
-      const open = narrow && part ? narrowCandidate(part, all, plays.filter((e) => inFile(e, base)), base, lo, mode.event) : null;
-      if (!narrow || !open) {
+      const a = lastRight ? (match.events.find((e) => e.eventId === lastRight.eventId) ?? null) : null;
+      const narrow: Narrow = { undoTo: base, work: plan.next, gaps: [{ a, b: mode.event }], fixed: mode.event, partName: part?.name ?? "", origin: mode.origin };
+      const open = gapCandidate(plan.next, plays.filter((e) => inFile(e, plan.next)), narrow.gaps[0]);
+      if (!open) {
         if (mode.origin === "check") advance();
         else backToPlay(mode.event);
       } else if (mode.origin === "check") nextNarrow(narrow);
@@ -475,6 +491,9 @@ export function useGameSync({
     };
     return { looksRight, itsOff, another, skip, replay, stop, here, cancel, back, moveOnlyThis, moveOn, checkEarlier, done, primary, escape };
   }, [mode, busy, video, match.events, plays, lead, seek, commit, advance, finish, enterFind, nextNarrow, finishNarrow, backToPlay, inFile]);
+
+  // The work in hand while narrowing: what the timeline's sync row shows is the saved sync, the play asked about
+  // is where the work has it.
 
   // A question plays its clip once: from before the play to a little after it.
   const askAt = mode.kind === "ask" ? mode.at : null;

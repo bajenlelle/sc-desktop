@@ -7,7 +7,12 @@ import {
   checkCandidate,
   describeReach,
   describeShiftSeconds,
-  narrowCandidate,
+  gapCandidate,
+  gapShift,
+  narrowClose,
+  narrowFound,
+  narrowRight,
+  playsMoved,
   partChecked,
   partOf,
   planFix,
@@ -183,21 +188,111 @@ describe("planFix", () => {
   });
 });
 
-describe("narrowCandidate", () => {
-  const parts = syncParts(sync, events);
+describe("narrowing down where a shift starts", () => {
   const q1 = baskets(1);
-  it("asks about the part's first basket first: off there too means the whole part is off", () => {
-    expect(narrowCandidate(parts[0], parts, events, sync, null, q1[9])).toBe(q1[0]);
+  const fifth = q1[4];
+  // The fifth basket of Q1 was found 20 s earlier, and the video was cut there.
+  const fixed = planFix(sync, events, fifth, at(fifth) - 20, LEAD, "play")!.next;
+  const gap = { a: null, b: fifth };
+
+  it("the gap's shift is how far its cut moves the plays after it", () => {
+    expect(gapShift(fixed, fifth)).toBe(-20);
+    expect(gapShift(sync, fifth)).toBe(0);
   });
-  it("then halves the plays in doubt", () => {
-    // Right at the first, off at the tenth: eight baskets between them.
-    expect(narrowCandidate(parts[0], parts, events, sync, q1[0], q1[9])).toBe(q1[5]);
-    expect(narrowCandidate(parts[0], parts, events, sync, q1[5], q1[9])).toBe(q1[7]);
-    expect(narrowCandidate(parts[0], parts, events, sync, q1[5], q1[7])).toBe(q1[6]);
+
+  it("asks about the stretch's first basket first, then halves the plays in doubt", () => {
+    expect(gapCandidate(fixed, events, gap)).toBe(q1[0]);
+    // Right at the first: three baskets are left between it and the cut.
+    expect(gapCandidate(fixed, events, { a: q1[0], b: fifth })).toBe(q1[2]);
+    expect(gapCandidate(fixed, events, { a: q1[2], b: fifth })).toBe(q1[3]);
+    expect(gapCandidate(fixed, events, { a: q1[3], b: fifth })).toBeNull();
+    expect(gapCandidate(sync, events, gap), "no cut, nothing to narrow").toBeNull();
   });
-  it("is null when no basket is left between the last one right and the first one off", () => {
-    expect(narrowCandidate(parts[0], parts, events, sync, q1[5], q1[6])).toBeNull();
-    expect(narrowCandidate(parts[0], parts, events, sync, null, q1[0])).toBeNull();
+
+  it("with no basket left between the two, it ends on a missed shot, a turnover or a foul", () => {
+    // Between the fourth basket and the cut: a turnover and a missed three, and the rebound that is in the game anyway.
+    const turnover = { ...play(1, "17:37:40", "turnover", "06:20"), eventId: 9001 };
+    const miss = { ...play(1, "17:38:20", "3pt", "05:50"), eventId: 9002 };
+    const more = [...events, turnover, miss];
+    expect(gapCandidate(fixed, more, { a: q1[3], b: fifth })).toBe(miss);
+    expect(gapCandidate(fixed, more, { a: q1[3], b: { ...fifth } }), "the gap's own ends are never asked about").toBe(miss);
+    expect(gapCandidate(fixed, more, { a: miss, b: fifth })).toBeNull();
+    expect(gapCandidate(fixed, more, { a: turnover, b: fifth })).toBe(miss);
+  });
+
+  it("a play that looks right is a check, and the shift starts after it", () => {
+    const step = narrowRight(fixed, gap, q1[0]);
+    expect(step.gaps).toEqual([{ a: q1[0], b: fifth }]);
+    expect(step.sync.checks?.map((c) => c.eventId)).toEqual([q1[0].eventId, fifth.eventId]);
+  });
+
+  it("a play found where the shift would put it: the cut moves back to it, and nothing after it moves", () => {
+    const step = narrowFound(fixed, events, { a: q1[0], b: fifth }, q1[2], at(q1[2]) - 20.4, LEAD);
+    expect(step.outcome).toBe("same");
+    expect(step.gaps).toEqual([{ a: q1[0], b: q1[2] }]);
+    expect(step.sync.cuts).toHaveLength(1);
+    expect(step.sync.cuts![0].eventId).toBe(q1[2].eventId);
+    expect(at(q1[1], step.sync)).toBe(at(q1[1]));
+    expect(at(q1[2], step.sync)).toBe(at(q1[2]) - 20);
+    expect(at(q1[3], step.sync)).toBe(at(q1[3]) - 20);
+    expect(at(fifth, step.sync)).toBe(at(fifth) - 20);
+    expect(standingChecks(step.sync).map((c) => c.eventId), "the found play is still a check").toEqual([fifth.eventId]);
+  });
+
+  it("a play found where it already was is right after all", () => {
+    const step = narrowFound(fixed, events, { a: q1[0], b: fifth }, q1[2], at(q1[2]) + 0.3, LEAD);
+    expect(step.outcome).toBe("right");
+    expect(step.gaps).toEqual([{ a: q1[2], b: fifth }]);
+    expect(step.sync.cuts).toEqual(fixed.cuts);
+  });
+
+  it("a first basket with an error of its own moves the stretch from its start, and leaves the gap after it", () => {
+    // The quarter's own sync is 12 s off the other way; the cut made from the fifth basket stays where it is.
+    const step = narrowFound(fixed, events, gap, q1[0], at(q1[0]) + 12, LEAD);
+    expect(step.outcome).toBe("own");
+    expect(step.gaps).toEqual([{ a: q1[0], b: fifth }]);
+    expect(at(q1[0], step.sync)).toBe(at(q1[0]) + 12);
+    expect(at(q1[3], step.sync)).toBe(at(q1[3]) + 12);
+    expect(at(fifth, step.sync)).toBe(at(fifth) - 20);
+    expect(gapShift(step.sync, fifth)).toBe(-32);
+    expect(standingChecks(step.sync).map((c) => c.eventId)).toEqual([q1[0].eventId, fifth.eventId]);
+  });
+
+  it("a later play with an error of its own is cut on its own, with a gap on either side", () => {
+    const step = narrowFound(fixed, events, { a: q1[0], b: fifth }, q1[2], at(q1[2]) + 5, LEAD);
+    expect(step.outcome).toBe("own");
+    expect(step.gaps).toEqual([
+      { a: q1[0], b: q1[2] },
+      { a: q1[2], b: fifth },
+    ]);
+    expect(at(q1[1], step.sync)).toBe(at(q1[1]));
+    expect(at(q1[2], step.sync)).toBe(at(q1[2]) + 5);
+    expect(at(q1[3], step.sync)).toBe(at(q1[3]) + 5);
+    expect(at(fifth, step.sync)).toBe(at(fifth) - 20);
+  });
+
+  it("no play left in doubt and none seen right: the whole stretch was off, and moves from its start", () => {
+    // Off at the first basket too, by as much: the cut moved back to it, and nothing is before it.
+    const back = narrowFound(fixed, events, gap, q1[0], at(q1[0]) - 20, LEAD);
+    expect(gapCandidate(back.sync, events, back.gaps[0])).toBeNull();
+    const closed = narrowClose(back.sync, events, back.gaps[0]);
+    expect(closed.cuts).toBeUndefined();
+    expect(closed.syncVideoTime).toBe(sync.syncVideoTime - 20);
+    expect(at(q1[0], closed)).toBe(at(q1[0]) - 20);
+    expect(at(fifth, closed)).toBe(at(fifth) - 20);
+    expect(playsMoved(sync, closed, events)).toBe(events.length);
+  });
+
+  it("with a play seen right before it, closing the gap changes nothing: the cut is where the shift starts", () => {
+    expect(narrowClose(fixed, events, { a: q1[3], b: fifth })).toBe(fixed);
+  });
+
+  it("a cut never starts so early that it takes the last play seen right with it", () => {
+    // The rebound a minute before the third basket was seen right; a cut 90 s ahead of the basket would reach past it.
+    const rebound = events.find((e) => e.period === 1 && e.type === "rebound" && e.realWorldTime === T("17:34:00"))!;
+    const step = narrowFound(fixed, events, { a: rebound, b: fifth }, q1[2], at(q1[2]) - 20, 90);
+    expect(at(rebound, step.sync)).toBe(at(rebound));
+    expect(at(q1[2], step.sync)).toBe(at(q1[2]) - 20);
   });
 });
 

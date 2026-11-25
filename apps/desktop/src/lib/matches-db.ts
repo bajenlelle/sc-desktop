@@ -38,8 +38,8 @@ export const listEventsForMatchesChecked = (matchIds: string[], opts?: { require
 // Announced so open pages (playlists' matchLookup, Library badges) pick up
 // the new sync point without a remount. Returns the shared-clip invalidation
 // count so callers can tell the coach a re-upload is due.
-export const updateSyncPoint = async (matchId: string, syncPoint: SyncPoint | null) => {
-  const result = await db.updateSyncPoint(c(), matchId, syncPoint);
+export const updateSyncPoint = async (matchId: string, syncPoint: SyncPoint | null, opts?: { moved?: boolean }) => {
+  const result = await db.updateSyncPoint(c(), matchId, syncPoint, opts);
   window.dispatchEvent(new CustomEvent("matches-changed"));
   return result;
 };

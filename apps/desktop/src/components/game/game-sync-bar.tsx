@@ -26,19 +26,27 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
   if (mode.kind === "idle" || !cue) return null;
   const change = cue.score ? { before: score(cue.score.before), after: score(cue.score.after) } : null;
   if (mode.kind === "ask") {
-    if (mode.purpose === "narrow" && mode.narrow) {
+    if (mode.purpose === "narrow" || !mode.part) {
       return {
-        label: `Where it starts · ${mode.part.name}`,
+        label: `Where it starts · ${mode.partName}`,
         change,
         main: cue.sentence,
-        hint: `Is this earlier play in the right place? If it’s off, it moves ${describeShiftSeconds(mode.narrow.delta)} too.`,
+        hint: "Is this earlier play in the right place? Each answer halves the plays left to look at.",
       };
     }
     return {
-      label: mode.total > 1 ? `Check ${mode.part.index + 1} of ${mode.total} · ${mode.part.name}` : `Check · ${mode.part.name}`,
+      label: mode.total > 1 ? `Check ${mode.part.index + 1} of ${mode.total} · ${mode.partName}` : `Check · ${mode.partName}`,
       change,
       main: cue.sentence,
       hint: change ? `Does the ball go in as the score above the video turns ${change.after}? A second either way is fine.` : "Does it happen as its name lights up above the video? A second either way is fine.",
+    };
+  }
+  if (mode.kind === "find" && mode.narrow) {
+    return {
+      label: `Where it starts · ${mode.narrow.partName}`,
+      change,
+      main: cue.sentence,
+      hint: "The video is where this play should be if it moved with the others. If it isn’t here, scrub to where it happens.",
     };
   }
   if (mode.kind === "find") {
@@ -71,7 +79,7 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
   return {
     label: "Moved",
     change: null,
-    main: `Earlier plays in ${mode.narrow.part.name} may be off too.`,
+    main: `Earlier plays in ${mode.narrow.partName} may be off too.`,
     hint: "A few quick looks at earlier plays find where the shift starts.",
   };
 }

@@ -188,7 +188,10 @@ lead to it, as references in the text, not new buttons:
   column's whole height. The stage is as large as its column allows once the
   Now bar and the timeline have their room (`UNDER_STAGE`, `useStageFit` in
   `components/plays/use-stage-fit.ts`, which Teams' Plays shares). A sync
-  warning opens at the foot of the column.
+  warning opens at the foot of the column: plays past the video's end (the
+  quarters are set in Details), two quarters that overlap (Check sync), or a
+  recording that starts after tip-off. The sync itself is checked and fixed
+  here, on this video: see Sync.
 - **The divider between the columns drags** (`components/ui/resizable.tsx`):
   a narrower list, a larger player. The line thickens and darkens under
   the pointer and while it is dragged, a double-click puts the columns back,
@@ -455,7 +458,7 @@ released app lists each row there as a clip.
   `LabelPickerPopover`, the key scope (`game`) and `resolvePlayerKey`.
   `lib/use-clip-labels.ts` gives the view the labels of one game.
 
-**Keys**: the player's own (Space, K, J, L, arrows, R, M, F) as in the editor;
+**Keys** (while the sync is checked or fixed, see Sync): the player's own (Space, K, J, L, arrows, R, M, F) as in the editor;
 ↑ ↓ the previous or next listed play; Page Up and Page Down the previous or
 next marker (quarter start, timeout, run); 1–9 the start of that period; A
 add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
@@ -477,6 +480,102 @@ goes too (`PlayRowCells`). **The moment chips** and every event chip row
 scroll sideways and fade where more chips wait; under the pointer a ‹ or ›
 in the fade moves the row a page (`ui/scroll-row.tsx`), so a chip that ends
 at the edge isn't taken for the last.
+
+## Sync: finding what is off, and fixing it here
+
+A game's plays are placed by the league's wall-clock stamps (`computeVideoTime`).
+Three things put them in the wrong place, and each has its own answer:
+
+1. **A play logged late.** The scorer's table types a forgotten play in at the
+   next break, stamped with that moment, minutes after it happened. Its game
+   clock is right. `lib/late-plays.ts` finds such plays and places them between
+   the plays around them by game clock; every reader of a game's plays gets them
+   placed (`lib/matches-db.ts`), with the feed's stamp kept as `loggedAt` (the
+   table keeps the stamps as they came). A clock the table puts back and plays
+   on from looks the same at first and is told apart by the entries after it.
+   Checked against 83 cached feeds with the whole feed as reference: 26 found,
+   none wrong, 10 short ones left where they were. The list marks them, and the
+   Now bar says "Logged late".
+2. **A stretch that is off.** The tip-off was set wrong, the video skips a
+   break, or it jumps where the livestream dropped. Everything from some
+   point on is off by the same amount.
+3. **One play off on its own**, a second or two: logged a moment late.
+
+**Parts and checks** (`lib/sync-check.ts`). The game is placed in stretches:
+each quarter from its start, and inside a quarter from each cut. Within a
+stretch every play is off by the same amount or by none, so one play seen in
+the right place near the end of a stretch says the stretch is right. That
+play is a check (`SyncPoint.checks`, with where it was when it was confirmed:
+a check holds only while the sync still has the play there, so a tip-off moved
+in Details or a save from an older desktop unchecks what it moved). The
+timeline's last row draws the parts: dotted until checked, then a green line
+with a tick where the checked play is; a cut breaks the row. The row's line
+under the pointer says which part it is and whether it is checked, and a
+click on an unchecked part checks it.
+
+**Check sync** (the control beside the zoom, or a part of the row) asks about
+each unchecked part in turn, with its last made basket: the play's clip plays
+(6 s before to 4 s after), and over the footage the app's own score turns to
+the play's score, and lights up, at the moment the sync has the play at
+(`sync-cue.tsx`). The Now bar's place holds the question (`game-sync-bar.tsx`):
+the score change, the play in a sentence, and Skip, It's off, Looks right.
+The line under the timeline says what to look for, with Replay and Try
+another play. Looks right saves a check and moves on. The list stands back
+(inert) for as long as a play is being checked or found.
+
+**Fix sync** (the Now bar, a row's menu, or It's off): the video stops where
+the sync has the play, and a close-up of the video around it takes the
+timeline's place (`sync-find-strip.tsx`: a minute and a half, the play on the
+playhead, the plays after it riding along with their scores, a ring where the
+play was and how far it has come). The coach scrubs to the moment (the arrow
+keys step a second here) and sets it. Then the app proposes how far the move
+reaches (`suggestedScope`): under 3 s, or a play logged late, that play alone
+("Only this play": `SyncPoint.playTimes`, on the game, so every playlist and
+every clip of the play follows; the playlist editor's "Only this clip" stays a
+clip offset); else the play and the ones after it, up to the next checked
+play, which is held where it is with everything after it, and up to the next
+quarter or cut placed on its own (`planFix`). The bar says how many plays move
+and from where to where; the other choice is one button away. Every move has
+its toast and Undo, and shared clips are cut again as after any sync change
+(`afterSyncChange`). A save that only records a check moves nothing and
+touches no shipped clip.
+
+**Where it starts.** A fix from a play leaves the plays before it as they
+were, and they may be off too. After the move the app narrows it down by
+looking at earlier plays (`NarrowGap`, `gapCandidate`): first the stretch's
+first basket, then the basket halfway between the last play seen right and the
+cut, and when no basket is left between the two, the missed shots, turnovers
+and fouls there. Looks right: the shift starts after that play, which becomes
+a check. It's off: the video goes to where the same shift would put the play;
+when it is there (within 1.5 s) the cut moves back to that play, and when it
+isn't the coach scrubs to it, and it becomes a fix of its own, with a gap on
+either side (`narrowFound`). A stretch whose first basket has the shift too
+was off as a whole: the cut goes and the stretch moves from its start, which
+is the tip-off or the quarter's own sync (`narrowClose`). What the looks work
+out is saved once, at the end or on Stop here. From Check sync this follows on
+its own; after a fix from the Now bar it is offered ("Check earlier plays").
+Run on the game the first coach reported (three jumps in the video, a
+quarter's sync 12 s off, six late entries), with every answer truthful: 170 of
+369 plays more than 2 s off before, none after, in 19 looks and 4 searches.
+
+**Keys while a play is checked or found**: Return is the bar's main button,
+Escape steps back out (a question ends the check, a search goes back to its
+question or to watching), R replays the clip; Space, the arrows and J K L move
+the footage as ever; the keys that would leave the play rest.
+
+`use-game-sync.ts` is the host: the mode, the video, the saves, analytics
+(`sync_check_started`, `sync_check_answered`, `sync_check_finished`, and
+`sync_fix_opened` / `sync_fix_applied` / `sync_fix_undone` with `surface:
+game_view`). Headless: `W-game-sync` (the sample game read as two quarters
+with one late entry, every save answered in the browser).
+
+Not built yet: finding the jumps in the picture when a video is linked
+(ffmpeg's scene filter finds them in about a minute and a half for a whole
+game), which would start each part at a jump instead of asking the coach to
+narrow it down, and reading the video's own scoreboard to check a part
+without the coach. The quarter guide in Details is still the way to place the
+quarters of a video that skips the breaks when their plays fall outside the
+video.
 
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 

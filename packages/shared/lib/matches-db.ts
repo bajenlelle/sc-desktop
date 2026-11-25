@@ -517,13 +517,16 @@ export async function listEventsForMatchesChecked(
 export async function updateSyncPoint(
   supabase: SupabaseClient,
   matchId: string,
-  syncPoint: SyncPoint | null
+  syncPoint: SyncPoint | null,
+  /** `moved: false` when the save places every play where it was (a play marked as checked): no shipped clip is touched. */
+  opts: { moved?: boolean } = {},
 ): Promise<{ clearedShippedClips: number }> {
   const { error } = await supabase
     .from("matches")
     .update({ sync_point: syncPoint })
     .eq("id", matchId);
   if (error) throw new Error(`Failed to update sync point: ${error.message}`);
+  if (opts.moved === false) return { clearedShippedClips: 0 };
   return { clearedShippedClips: await invalidateShippedClips(supabase, matchId) };
 }
 

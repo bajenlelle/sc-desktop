@@ -38,9 +38,11 @@ const Y = {
   stintH: 3,
   lane: 93,
   laneH: 11,
+  height: 104,
+  /** Under the lanes, only for a game whose sync can be checked: the sync row. */
   sync: 108,
   syncH: 10,
-  height: 120,
+  syncRow: 16,
 } as const;
 
 /** The middle of the lane under the graph: home's play marks stand above it, away's below, the playlist's dots on it. */
@@ -51,9 +53,11 @@ const MARK_H = 5;
 /** The middle of the sync row, the strip's last: which stretches of the game the coach has checked. */
 const SYNC_MID = Y.sync + Y.syncH / 2;
 
-/** The track's own height: what stands in for it (the find strip, while a play is being found) is as tall. */
-export const GAME_TRACK_HEIGHT = Y.height;
-/** Everything the timeline takes under the Now bar: its track, the line of facts and zoom under it, and the air below. */
+/** What the sync row adds to the track, for a game that has one (footage, synced). */
+export const GAME_SYNC_ROW_HEIGHT = Y.syncRow;
+/** The track's height with its sync row: what stands in for it (the find strip, while a play is being found) is as tall. */
+export const GAME_TRACK_HEIGHT = Y.height + Y.syncRow;
+/** Everything the timeline takes under the Now bar without a sync row: its track, the line of facts and zoom under it, and the air below. */
 export const GAME_TIMELINE_HEIGHT = Y.height + 44;
 
 /**
@@ -227,6 +231,7 @@ const StripDrawing = memo(function StripDrawing({
   syncParts: readonly PlacedPart[] | null;
 }) {
   const width = scale.width;
+  const height = Y.height + (syncParts ? Y.syncRow : 0);
   const xOfEvent = (eventId: number) => {
     const p = playByEvent.get(eventId);
     return p ? scale.xOf(p.time) : null;
@@ -310,14 +315,14 @@ const StripDrawing = memo(function StripDrawing({
       : null;
 
   return (
-    <svg width={width} height={Y.height} className="absolute inset-0 block text-foreground" aria-hidden>
+    <svg width={width} height={height} className="absolute inset-0 block text-foreground" aria-hidden>
       <defs>
         <pattern id={`${patternId}-away`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(135)">
           <line x1="0" y1="0" x2="0" y2="5" strokeWidth="1.5" stroke={tints.away} strokeOpacity={0.55} />
         </pattern>
         {/* While a zoom is under way, what leaves the strip gathers at its edges: keep the last pixel of each side clear. */}
         <clipPath id={`${patternId}-clip`}>
-          <rect x={1} y={-2} width={Math.max(0, width - 2)} height={Y.height + 4} />
+          <rect x={1} y={-2} width={Math.max(0, width - 2)} height={height + 4} />
         </clipPath>
       </defs>
 
@@ -328,7 +333,7 @@ const StripDrawing = memo(function StripDrawing({
         if (w < 0.5) return null;
         if (s.kind !== "period") {
           return w > 3 ? null : (
-            <line key={i} x1={s.x0 + w / 2} x2={s.x0 + w / 2} y1={0} y2={Y.height} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
+            <line key={i} x1={s.x0 + w / 2} x2={s.x0 + w / 2} y1={0} y2={height} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
           );
         }
         const score = flow.periods.find((p) => p.period === s.period);
@@ -1207,7 +1212,7 @@ export function GameTimelineStrip({
         }}
         onDoubleClick={onDoubleClick}
         className="relative cursor-default touch-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-selection"
-        style={{ height: Y.height }}
+        style={{ height: Y.height + (placedParts ? Y.syncRow : 0) }}
       >
         {width > 0 && (
           <StripDrawing

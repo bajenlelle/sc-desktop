@@ -13,7 +13,7 @@ import { PLAY_ROW, closeFilters, expect, filterSection, filterToken, giveSampleG
 const timeline = (page: Page) => page.getByRole("region", { name: "Game timeline" });
 const track = (page: Page) => page.getByRole("slider", { name: "Position in the game" });
 const list = (page: Page) => page.getByRole("list", { name: "Plays" });
-const drawn = (page: Page, what: "play-mark" | "run" | "run-hatch" | "run-score" | "timeout" | "timeout-line" | "timeout-mark" | "peak" | "playhead") =>
+const drawn = (page: Page, what: "play-mark" | "run" | "run-hatch" | "run-score" | "timeout" | "timeout-line" | "timeout-mark" | "peak" | "playhead" | "sync-part") =>
   timeline(page).locator(`[data-strip="${what}"]`);
 const readout = (page: Page) => timeline(page).locator('[role="presentation"]');
 /** The time in the video the line under the track gives, in seconds. */
@@ -138,7 +138,9 @@ test("the whole game shows its story: quarters, runs with their score, timeouts,
     }
   }
   expect(await timeline(page).locator("pattern[id$='-notch']").count(), "the breaks are gaps, not hatched fields").toBe(0);
-  expect((await boxOf(track(page), "the timeline's track")).height, "the strip is 12 px lower than it was").toBe(104);
+  // The track is 104 px, and 16 more for a game whose sync can be checked here: the sync row (W-game-sync).
+  const syncRow = (await drawn(page, "sync-part").count()) > 0 ? 16 : 0;
+  expect((await boxOf(track(page), "the timeline's track")).height, "the strip keeps its height").toBe(104 + syncRow);
 
   for (const scheme of ["dark", "light"] as const) {
     await page.emulateMedia({ colorScheme: scheme });

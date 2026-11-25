@@ -213,7 +213,13 @@ test("a play that is off is found on the game's own video, the plays after it mo
   await shot(page, `${browserName}-W-narrow`);
   await bar(page).getByRole("button", { name: "It’s off" }).click();
 
-  // Off at the part's first basket too: the whole quarter moves, from its start.
+  // Off there too: the video goes to where the same shift would put that play, and the coach says it is there.
+  await expect(findStrip(page)).toBeVisible();
+  await expect(label(page)).toHaveText("Where it starts · Q2");
+  await expect(findStrip(page).locator('[data-find="moved"]'), "the play is already 8 s from where the sync had it").toContainText("8 s earlier");
+  await page.keyboard.press("Enter");
+
+  // No play of the quarter was right: the whole quarter moves, from its start.
   await expect(bar(page)).toHaveCount(0);
   const whole = saved.at(-1)!;
   expect(whole.cuts, "no cut is left: the quarter moved as one").toBeUndefined();
@@ -222,12 +228,13 @@ test("a play that is off is found on the game's own video, the plays after it mo
   expect(whole.syncVideoTime, "the first quarter, checked, stays").toBe(saved[0].syncVideoTime);
   expect(await states(page)).toEqual(["checked", "checked"]);
   await expect(toastWith(page, "Sync checked")).toBeVisible();
+  await expect(toastWith(page, /earlier plays moved too/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Undo" }), "the move can still be undone").toBeVisible();
 
   const applied = (await tracked()).filter((e) => e.event === "sync_fix_applied").map((e) => e.properties);
   expect(applied).toHaveLength(2);
   expect(applied[0]).toMatchObject({ scope: "play", period: 2, surface: "game_view", suggested: true, delta_s: -8 });
-  expect(applied[1]).toMatchObject({ scope: "start", narrowed: true });
+  expect(applied[1]).toMatchObject({ scope: "narrowed", surface: "game_view" });
 });
 
 test("narrowing down keeps the earlier plays seen right, and Stop here saves what is known", async ({ page }) => {

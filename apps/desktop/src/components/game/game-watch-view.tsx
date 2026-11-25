@@ -51,7 +51,7 @@ import { GameSyncBar, syncWords } from "./game-sync-bar";
 import { GamePlayList } from "./game-play-list";
 import { playDetails } from "./game-play-row";
 import { GamePlayMenuContent } from "./game-play-menu";
-import { GAME_TIMELINE_HEIGHT, GameTimelineStrip, type GameTimelineHandle, type StripLandmark, type StripSyncPart } from "./game-timeline-strip";
+import { GAME_SYNC_ROW_HEIGHT, GAME_TIMELINE_HEIGHT, GameTimelineStrip, type GameTimelineHandle, type StripLandmark, type StripSyncPart } from "./game-timeline-strip";
 import { SyncCue } from "./sync-cue";
 import { SyncFindStrip } from "./sync-find-strip";
 import { useCollect, type CollectScope } from "./use-collect";
@@ -906,7 +906,8 @@ export function GameWatchView({
   });
 
   // ---- The stage's size: as large as the column allows, 16:9 --------------------
-  const { ref: stageBoxRef, width: stageWidth } = useStageFit(UNDER_STAGE);
+  // A game whose sync can be checked has the sync row under its timeline.
+  const { ref: stageBoxRef, width: stageWidth } = useStageFit(UNDER_STAGE + (sync.parts.length > 0 ? GAME_SYNC_ROW_HEIGHT : 0));
 
   // ---- What stands in the way of the footage, and of its timing -----------------
   const fileName = match.videoUrl ? videoBasename(match.videoUrl) : null;

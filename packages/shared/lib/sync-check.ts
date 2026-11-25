@@ -9,15 +9,19 @@
  * fix moves the plays from where it starts up to the next checked play, and
  * never that play or anything after it.
  *
- * When a play is off, the coach finds where it is, and the question left is
- * where that starts: at the start of the stretch (the quarter's own sync was
- * off) or somewhere inside it (the video jumps). That is narrowed down with
- * yes-or-no looks at earlier plays, halving the plays in doubt each time.
+ * When a play is off, the coach finds where it is, and the fix cuts the video
+ * at that play. The question left is where the shift really starts: at the
+ * start of the stretch (the quarter's own sync was off) or somewhere inside it
+ * (the video jumps). That is narrowed down by looking at earlier plays,
+ * halving the plays in doubt each time (NarrowGap): a play that looks right
+ * is before the shift, a play that is off is looked for where the shift
+ * would put it, and when it isn't there either it has an error of its own
+ * and becomes a fix of its own.
  */
 import type { PlayByPlayEvent, SyncCheck, SyncCut, SyncPoint } from "../types/match";
 import { computeVideoTime, ownVideoTime } from "./clip-timing";
 import { formatGameClock, periodLabel } from "./events";
-import { firstPlayOfCut, periodSpans, shiftStretch, syncFromPlayOn } from "./period-sync";
+import { clearSyncCut, firstPlayOfCut, periodSpans, shiftStretch, syncFromPlayOn } from "./period-sync";
 
 /** What the checks read of a play. */
 export type CheckEvent = Pick<
@@ -132,6 +136,21 @@ export function isCheckable(event: CheckEvent, sync: SyncPoint): boolean {
   );
 }
 
+/**
+ * A play that will do when no made basket is left between two plays: a
+ * missed shot, a turnover or a foul can be told in the footage too, only not
+ * to the frame. Narrowing ends on these, so the plays between the last basket
+ * before a jump and the first one after it land on the right side of it.
+ */
+function isTellable(event: CheckEvent, sync: SyncPoint): boolean {
+  return (
+    (event.type === "2pt" || event.type === "3pt" || event.type === "turnover" || event.type === "foul") &&
+    Number.isFinite(msOf(event.realWorldTime)) &&
+    !event.loggedAt &&
+    ownVideoTime(event, sync) === null
+  );
+}
+
 /** The checkable plays of a part, in time order. */
 function checkable<E extends CheckEvent>(part: SyncPart, parts: readonly SyncPart[], events: readonly E[], sync: SyncPoint): E[] {
   return events
@@ -154,35 +173,139 @@ export function checkCandidate<E extends CheckEvent>(
   return checkable(part, parts, events, sync).filter((e) => !tried.has(e.eventId)).at(-1) ?? null;
 }
 
+/** While narrowing, a play found this near to where the shift would put it has the same shift. */
+export const SAME_SHIFT_SECONDS = 1.5;
+
 /**
- * The next play to look at while narrowing down where a shift starts: the
- * plays in doubt are the made baskets of the part after `lo` (the last play
- * seen right; null when none has been) and before `hi` (the earliest play
- * known to be off). With nothing seen right yet, the part's first basket is
- * asked about: when that is off too, the whole part is. After that, the
- * middle one. Null when no play is left in doubt.
+ * A stretch in doubt while a shift is narrowed down. `b` is the play the
+ * later sync starts at (a cut made from it, `SyncCut.eventId`), `a` the last
+ * earlier play known to be in the right place (null when none is). The shift
+ * starts somewhere after `a` and no later than `b`.
  */
-export function narrowCandidate<E extends CheckEvent>(
-  part: SyncPart,
-  parts: readonly SyncPart[],
-  events: readonly E[],
-  sync: SyncPoint,
-  lo: CheckEvent | null,
-  hi: CheckEvent,
-): E | null {
-  const from = lo ? msOf(lo.realWorldTime) : -Infinity;
-  const to = msOf(hi.realWorldTime);
-  const open = checkable(part, parts, events, sync).filter((e) => {
-    const at = msOf(e.realWorldTime);
-    return at > from && at < to && e.eventId !== hi.eventId && e.eventId !== lo?.eventId;
-  });
-  if (open.length === 0) return null;
-  return lo === null ? open[0] : open[Math.floor(open.length / 2)];
+export interface NarrowGap<E extends CheckEvent = CheckEvent> {
+  a: E | null;
+  b: E;
 }
 
-/** How many looks narrowing down takes at most from here: one per halving. */
-export function narrowStepsLeft(open: number): number {
-  return open <= 0 ? 0 : Math.ceil(Math.log2(open + 1));
+/** The cut made from a play ("From this play on"), if the sync has one. */
+function cutFrom(sync: SyncPoint, play: { eventId: number }): SyncCut | null {
+  return sync.cuts?.find((c) => c.eventId === play.eventId) ?? null;
+}
+
+/** How far the cut made from `b` moves the plays after it, against the sync before it; 0 when there is no such cut. */
+export function gapShift(sync: SyncPoint, b: CheckEvent): number {
+  const cut = cutFrom(sync, b);
+  if (!cut) return 0;
+  const moment = { realWorldTime: b.realWorldTime, period: b.period };
+  const now = computeVideoTime(moment, sync);
+  const without = computeVideoTime(moment, clearSyncCut(sync, cut.syncRealWorldTime));
+  return now !== null && without !== null ? now - without : 0;
+}
+
+/**
+ * The next play to look at in a gap: of the made baskets after `a` and
+ * before the cut at `b`, the first when no play is known to be right (off
+ * there too: the whole stretch is), else the middle one. With no basket left
+ * between a play seen right and the cut, the middle one of the other plays
+ * that can be told (isTellable). Null when none is left in doubt, or the cut
+ * is gone.
+ */
+export function gapCandidate<E extends CheckEvent>(sync: SyncPoint, events: readonly E[], gap: NarrowGap): E | null {
+  const cut = cutFrom(sync, gap.b);
+  if (!cut) return null;
+  const upper = msOf(cut.syncRealWorldTime);
+  // The stretch the gap is in starts at the cut before this one in the quarter, or with the quarter.
+  const before = (sync.cuts ?? []).filter((c) => c.period === gap.b.period && msOf(c.syncRealWorldTime) < upper).at(-1);
+  const lower = Math.max(gap.a ? msOf(gap.a.realWorldTime) : -Infinity, before ? msOf(before.syncRealWorldTime) : -Infinity);
+  const between = (will: (e: E) => boolean) =>
+    events
+      .filter((e) => {
+        if (!will(e) || e.period !== gap.b.period || e.eventId === gap.a?.eventId || e.eventId === gap.b.eventId) return false;
+        const at = msOf(e.realWorldTime);
+        return at < upper && (gap.a ? at > lower : at >= lower);
+      })
+      .sort((x, y) => msOf(x.realWorldTime) - msOf(y.realWorldTime) || x.eventId - y.eventId);
+  const baskets = between((e) => isCheckable(e, sync));
+  if (baskets.length > 0) return gap.a === null ? baskets[0] : baskets[Math.floor(baskets.length / 2)];
+  // Between two baskets next to each other: the other plays a coach can tell, down to the one the shift starts at.
+  if (gap.a === null) return null;
+  const others = between((e) => isTellable(e, sync));
+  return others.length > 0 ? others[Math.floor(others.length / 2)] : null;
+}
+
+/** A cut made from `event` starts `leadSeconds` before it, but never so early that it takes the last play seen right with it. */
+function leadAfter(lastRight: CheckEvent | null, event: CheckEvent, leadSeconds: number): number {
+  if (!lastRight) return leadSeconds;
+  const room = (msOf(event.realWorldTime) - msOf(lastRight.realWorldTime)) / 1000;
+  return Math.max(0, Math.min(leadSeconds, room / 2));
+}
+
+/** The play looked right: the shift starts after it. */
+export function narrowRight<E extends CheckEvent>(sync: SyncPoint, gap: NarrowGap<E>, event: E): { sync: SyncPoint; gaps: NarrowGap<E>[] } {
+  return { sync: withCheck(sync, event), gaps: [{ a: event, b: gap.b }] };
+}
+
+/**
+ * The play was off, and the coach found it at `found`. Where the gap's shift
+ * would put it (within SAME_SHIFT_SECONDS): the shift reaches back to this
+ * play, and the cut moves to it. Where the sync already had it: it was right
+ * after all. Anywhere else: the play has an error of its own, and is fixed
+ * on its own (from the start of the stretch when nothing before it is known
+ * to be right, else from the play), which leaves a gap on either side of it.
+ */
+export function narrowFound<E extends CheckEvent>(
+  sync: SyncPoint,
+  events: readonly E[],
+  gap: NarrowGap<E>,
+  event: E,
+  found: number,
+  leadSeconds: number,
+): { sync: SyncPoint; gaps: NarrowGap<E>[]; outcome: "same" | "right" | "own" } {
+  const mapped = computeVideoTime(event, sync);
+  const cut = cutFrom(sync, gap.b);
+  if (mapped === null || !cut) return { sync, gaps: [], outcome: "right" };
+  const shift = gapShift(sync, gap.b);
+  if (Math.abs(found - (mapped + shift)) < SAME_SHIFT_SECONDS) {
+    // The same cut, starting at this play instead: every play after it stays exactly where it is.
+    const without = clearSyncCut(sync, cut.syncRealWorldTime);
+    const next = syncFromPlayOn(
+      without,
+      { realWorldTime: event.realWorldTime, period: event.period, eventId: event.eventId },
+      (computeVideoTime(event, without) ?? mapped) + shift,
+      leadAfter(gap.a, event, leadSeconds),
+    );
+    return { sync: next, gaps: [{ a: gap.a, b: event }], outcome: "same" };
+  }
+  if (Math.abs(found - mapped) < SAME_PLACE_SECONDS) return { ...narrowRight(sync, gap, event), outcome: "right" };
+  if (gap.a === null) {
+    // Nothing before it is known to be right, and it is the stretch's first basket: the stretch starts off by this much.
+    const plan = planFix(sync, events, event, found, leadSeconds, "start");
+    return plan ? { sync: plan.next, gaps: [{ a: event, b: gap.b }], outcome: "own" } : { sync, gaps: [], outcome: "own" };
+  }
+  const plan = planFix(sync, events, event, found, leadAfter(gap.a, event, leadSeconds), "play");
+  if (!plan) return { sync, gaps: [], outcome: "own" };
+  return { sync: plan.next, gaps: [{ a: gap.a, b: event }, { a: event, b: gap.b }], outcome: "own" };
+}
+
+/**
+ * No play is left in doubt in the gap. With a play known to be right before
+ * it, the cut is where the shift starts and nothing changes. With none (even
+ * the stretch's first basket has the shift), the whole stretch was off: the
+ * cut goes, and the stretch moves from its start.
+ */
+export function narrowClose(sync: SyncPoint, events: readonly CheckEvent[], gap: NarrowGap): SyncPoint {
+  const cut = cutFrom(sync, gap.b);
+  if (gap.a !== null || !cut) return sync;
+  const shift = gapShift(sync, gap.b);
+  const without = clearSyncCut(sync, cut.syncRealWorldTime);
+  const next = shiftStretch(without, [...events], { realWorldTime: gap.b.realWorldTime, period: gap.b.period }, shift);
+  // The found play is where it was; its check is written again for the sync that now places it.
+  return standingChecks(sync).some((c) => c.eventId === gap.b.eventId) ? withCheck(next, gap.b) : next;
+}
+
+/** How many plays two syncs place differently. */
+export function playsMoved(before: SyncPoint, after: SyncPoint, events: readonly CheckEvent[]): number {
+  return events.filter((e) => moved(computeVideoTime(e, before), computeVideoTime(e, after))).length;
 }
 
 /**
