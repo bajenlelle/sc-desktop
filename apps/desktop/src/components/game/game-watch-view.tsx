@@ -36,13 +36,15 @@ import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { getGameTimelineTipSeen, setGameTimelineTipSeen } from "@/lib/prefs";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
+import { useVideoCuts } from "@/lib/video-cut-scan";
 import { useClipLabels } from "@/lib/use-clip-labels";
 import { useFilterPresets } from "@/lib/use-filter-presets";
 import { useGameMarks } from "@/lib/use-game-marks";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
-import type { StoredMatch, SyncPoint } from "@/types/match";
+import type { PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { VideoJump } from "@scoutable/shared/lib/video-jumps";
 import { CollectControl } from "./collect-control";
 import { GameFilterBar, type GamePerson } from "./game-filters";
 import { GameLabelKeys } from "./game-label-keys";
@@ -101,6 +103,17 @@ function StagePanel({ title, body, action }: { title: string; body: string; acti
  * its plays and its moments, and its plays can still be collected and
  * labelled.
  */
+
+/** "The video jumps twice where the stream dropped (Q1 6:58, Q2 1:10). Plays after a jump may be off." */
+function jumpWords(jumps: readonly VideoJump<PlayByPlayEvent>[]): string {
+  const where = jumps
+    .slice(0, 3)
+    .map((j) => [periodLabel(j.period), j.after.gameClockTime ? formatGameClock(j.after.gameClockTime).replace(/^0(\d:)/, "$1") : null].filter(Boolean).join(" "))
+    .join(", ");
+  const times = jumps.length === 1 ? "once" : jumps.length === 2 ? "twice" : `${jumps.length} times`;
+  return `The video jumps ${times} where the stream dropped (${where}${jumps.length > 3 ? ", …" : ""}). Plays after a jump may be off.`;
+}
+
 export function GameWatchView({
   match,
   videoStatus,
@@ -276,7 +289,9 @@ export function GameWatchView({
     },
     [playback, video, refollow],
   );
-  const sync = useGameSync({ match, timeline, flow, video, duration, footage, seek: syncSeek, onSyncChange });
+  // The recording's hard cuts, found in the background and shared by its fingerprint (lib/video-cut-scan.ts).
+  const { cuts } = useVideoCuts(footage && match.syncPoint && match.videoUrl ? match.videoUrl : null);
+  const sync = useGameSync({ match, timeline, flow, video, duration, footage, seek: syncSeek, onSyncChange, cuts });
 
   // ---- The selection: plays picked to add together, as the editor's list picks clips (list-selection.ts) ----
   // The anchor is where Shift ranges grow from, the focus where the last Shift move landed; a plain arrow lets go of both.
@@ -950,6 +965,10 @@ export function GameWatchView({
         ? `This video skips the breaks, so ${timeline.pastEnd} ${timeline.pastEnd === 1 ? "play falls" : "plays fall"} past its end. Set each quarter to line them up.`
         : `${timeline.pastEnd} ${timeline.pastEnd === 1 ? "play falls" : "plays fall"} past the end of the video. The sync may be off.`}
     </Callout>
+  ) : sync.jumpsLeft.length > 0 && !sync.active ? (
+    <Callout tone="warning" action={<Button variant="outline" size="sm" onClick={sync.startJumps}>Check the jumps</Button>}>
+      {jumpWords(sync.jumpsLeft)}
+    </Callout>
   ) : timeline.overlaps && !sync.active && sync.progress.left > 0 ? (
     <Callout tone="warning" action={<Button variant="outline" size="sm" onClick={() => sync.startCheck("banner")}>Check sync</Button>}>
       Two quarters overlap in the video, so some plays are in the wrong place.
@@ -991,7 +1010,7 @@ export function GameWatchView({
           Replay
         </button>
       )}
-      {sync.mode.kind === "ask" && sync.mode.purpose === "check" && (
+      {sync.mode.kind === "ask" && sync.mode.purpose !== "narrow" && (
         <button type="button" className={quietLink} onClick={sync.actions.another}>
           Try another play
         </button>

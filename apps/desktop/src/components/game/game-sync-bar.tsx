@@ -27,6 +27,16 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
   if (mode.kind === "idle" || !cue) return null;
   const change = cue.score ? { before: score(cue.score.before), after: score(cue.score.after) } : null;
   if (mode.kind === "ask") {
+    if (mode.purpose === "jump") {
+      return {
+        label: mode.partName,
+        change,
+        main: cue.sentence,
+        hint: `${mode.first ? "The video jumps where the stream dropped: is the game still in step after it? " : ""}${
+          change ? `Right if the ball goes in as the score over the video turns ${change.after}, give or take a second.` : "Right if it happens as its name lights up over the video, give or take a second."
+        }`,
+      };
+    }
     if (mode.purpose === "narrow" || !mode.part) {
       return {
         label: `Where it starts · ${mode.partName}`,
@@ -43,6 +53,16 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
       hint: `${mode.first ? (mode.total > 1 ? "One play from each part of the game. Nothing moves unless one is off. " : "Nothing moves unless the play is off. ") : ""}${
         change ? `Right if the ball goes in as the score over the video turns ${change.after}, give or take a second.` : "Right if it happens as its name lights up over the video, give or take a second."
       }`,
+    };
+  }
+  if (mode.kind === "find" && mode.jumpAt !== undefined) {
+    return {
+      label: "After the jump",
+      change,
+      main: cue.sentence,
+      hint: change
+        ? `Scrub to where the ball goes in and the score becomes ${change.after}: likely earlier, by what the stream lost.`
+        : "Scrub to where it happens: likely earlier, by what the stream lost.",
     };
   }
   if (mode.kind === "find" && mode.narrow) {
@@ -105,7 +125,7 @@ export function GameSyncBar({ sync }: { sync: GameSync }) {
   if (mode.kind === "ask") {
     buttons = (
       <>
-        {mode.purpose === "check" ? (
+        {mode.purpose !== "narrow" ? (
           <Button variant="ghost" size="sm" onClick={actions.skip} disabled={busy}>
             Skip
           </Button>

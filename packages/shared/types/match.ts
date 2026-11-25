@@ -198,6 +198,12 @@ export interface SyncCut {
   syncRealWorldTime: string;
   /** The play the fix was made from, which names the cut on the game page. Absent on older cuts. */
   eventId?: number;
+  /**
+   * The cut is at a jump in the recording (a dropped stream joined back on,
+   * lib/video-jumps.ts): the plays the sync before it puts after it were lost
+   * and are not in the video. Absent on a cut made from a play.
+   */
+  jump?: true;
 }
 
 /**

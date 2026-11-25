@@ -56,7 +56,7 @@ test("the tip-off step can set the first basket instead, and works the tip-off o
   await expect(panel(page)).toContainText(/1 of \d+/);
 
   // The basket is in the recording's first frame: the tip-off was before the recording started.
-  const after = Number((await panel(page).innerText()).match(/(\d+) s after the tip-off/)![1]);
+  const after = Number(((await panel(page).textContent()) ?? "").match(/(\d+) s after the tip-off/)![1]);
   await page.locator('[data-tour="tipoff-set"]').click();
   // The quarters' list has the tip-off, before the recording (the short test video reads as one that skips the
   // breaks, so the picker goes on to Q2).
@@ -81,7 +81,7 @@ test("a hard cut between the tip-off and the basket is where the game's footage 
   await page.evaluate(() => (window.__headlessCuts = [12]));
   await page.locator('[data-sync="first-basket-link"]').click();
   await expect(panel(page)).toContainText(/s after the tip-off/);
-  const after = Number((await panel(page).innerText()).match(/(\d+) s after the tip-off/)![1]);
+  const after = Number(((await panel(page).textContent()) ?? "").match(/(\d+) s after the tip-off/)![1]);
   // The basket 30 s into the recording puts the tip-off before the cut (if the feed has it more than 18 s after).
   test.skip(after <= 20, "this game's first basket came too soon after the tip-off for the cut to lie between them");
   await page.getByRole("button", { name: "Forward 10 seconds" }).click();

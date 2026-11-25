@@ -34,6 +34,8 @@ import { OnboardingPage } from "@/pages/onboarding";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { createClient } from "@/lib/supabase/client";
 import { UpdateChecker } from "@/components/UpdateChecker";
+import { resumePendingScans } from "@/lib/video-cut-scan";
+import { useAuth } from "@/lib/auth-context";
 import { reportPendingUpdate } from "@/lib/updates";
 import { MenuHandler } from "@/components/menu-handler";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
@@ -178,6 +180,15 @@ function AuthLayout() {
   );
 }
 
+/** Searches for jumps in game videos that a quit cut short go on once someone is signed in (lib/video-cut-scan.ts). */
+function CutScanResumer() {
+  const { user } = useAuth();
+  useEffect(() => {
+    if (user) resumePendingScans();
+  }, [user]);
+  return null;
+}
+
 function CrashFallback() {
   return (
     <div className="h-screen">
@@ -220,6 +231,7 @@ export default function App() {
         <WindowChromeEffects />
         <ThemeSync />
         <UpdateChecker />
+        <CutScanResumer />
         <UpgradeCelebration />
         <ThemedToaster />
         <Sentry.ErrorBoundary fallback={<CrashFallback />}>

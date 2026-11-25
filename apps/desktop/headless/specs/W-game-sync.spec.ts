@@ -24,7 +24,10 @@ type Row = Record<string, unknown>;
  * turnover typed in after the final play, as a scorer's table does with a play it missed. Every save of a game's
  * sync, and every write to a playlist clip that follows one, is answered here; the syncs saved are returned.
  */
-async function twoQuarterGame(page: Page, opts: { footageStartAfterTipoff?: number } = {}): Promise<Sync[]> {
+async function twoQuarterGame(
+  page: Page,
+  opts: { footageStartAfterTipoff?: number; onSync?: (sync: Sync) => void } = {},
+): Promise<Sync[]> {
   const saved: Sync[] = [];
   const reshape = (events: Row[]) => {
     if (events.length === 0) return;
@@ -41,6 +44,10 @@ async function twoQuarterGame(page: Page, opts: { footageStartAfterTipoff?: numb
     if (opts.footageStartAfterTipoff !== undefined && node && typeof node === "object" && !Array.isArray(node)) {
       const sync = (node as Row).sync_point as (Sync & { footageStart?: number }) | null | undefined;
       if (sync && typeof sync.syncVideoTime === "number") sync.footageStart = sync.syncVideoTime + opts.footageStartAfterTipoff;
+    }
+    if (opts.onSync && node && typeof node === "object" && !Array.isArray(node)) {
+      const sync = (node as Row).sync_point as Sync | null | undefined;
+      if (sync && typeof sync.syncVideoTime === "number") opts.onSync(sync);
     }
     if (Array.isArray(node)) {
       if (node.length > 0 && node.every((n) => n && typeof n === "object" && "game_clock_time" in (n as Row))) return reshape(node as Row[]);
@@ -438,4 +445,36 @@ test("a recording that jumps into the game after the tip-off: the plays before h
   await expect(toastWith(page, "Fix removed")).toBeVisible();
   expect((saved.at(-1) as { footageStart?: number }).footageStart, "the footage starts with the recording again").toBeUndefined();
   await expect(page.getByText(/The video jumps into the game/)).toHaveCount(0);
+});
+
+test("a jump in the video is found, warned about, and checked: the fix starts at the jump itself", async ({ page, browserName }) => {
+  const tracked = await recordAnalytics(page);
+  // The stream dropped two and a half minutes after the tip-off (the cuts are handed in: headless videos aren't files).
+  let tip = 0;
+  const saved = await twoQuarterGame(page, { onSync: (s) => (tip = s.syncVideoTime) });
+  await page.exposeFunction("__headlessCutsFn", () => [tip + 150]);
+  await openSampleGame(page);
+  const jump = tip + 150;
+
+  const banner = page.getByText(/^The video jumps once where the stream dropped \(Q1 \d+:\d\d\)\. Plays after a jump may be off\.$/);
+  await expect(banner).toBeVisible();
+  await shot(page, `${browserName}-W-jump-banner`);
+  await page.getByRole("button", { name: "Check the jumps" }).click();
+  await expect(label(page)).toHaveText(/^Jump · Q1 \d+:\d\d$/);
+  await expect(page.locator('[data-sync="hint"]')).toContainText("The video jumps where the stream dropped");
+  await expect.poll(() => inClip(page), { message: "the basket after the jump plays" }).toBe(true);
+
+  // Off: the stream lost five seconds, so the basket is five seconds earlier than the sync has it.
+  await bar(page).getByRole("button", { name: "It’s off" }).click();
+  await expect(label(page)).toHaveText("After the jump");
+  await step(page, "ArrowLeft", 5);
+  await page.keyboard.press("Enter");
+  await expect(toastWith(page, /plays? moved 5 s earlier/)).toBeVisible();
+  const fixed = saved.at(-1)! as Sync & { cuts?: { syncVideoTime: number; jump?: boolean }[] };
+  expect(fixed.cuts, "one fix, at the jump itself").toHaveLength(1);
+  expect(fixed.cuts![0].jump).toBe(true);
+  expect(fixed.cuts![0].syncVideoTime).toBeCloseTo(jump, 1);
+  await expect(bar(page), "no jump left: back to watching").toHaveCount(0);
+  await expect(banner, "the jump is answered").toHaveCount(0);
+  expect((await tracked()).find((e) => e.event === "sync_fix_applied")?.properties).toMatchObject({ scope: "jump", surface: "game_view" });
 });

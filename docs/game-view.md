@@ -643,6 +643,48 @@ starts after the tip-off.
   play before the footage start from the warm-up, as before; drops inside the
   game (this replay has two more) are left to Fix sync.
 
+## Jumps in the video
+
+A replay whose stream dropped is joined back on with a hard cut: the play in
+between is lost, and every later play is off by as much until a fix places
+them again. On a coach's game (Basketettan Dam, 2026-11-22) the replay jumped
+at 1:25, 6:26 and 41:11.
+
+- **Finding the cuts** (`apps/desktop/src/lib/video-cut-scan.ts`): after an
+  import, when a game opens in the game view, and when the app starts with a
+  search left unfinished, the recording is looked up by its fingerprint among
+  the scans coaches have shared (`video_cut_scans`, migration
+  20261125100000; RPCs `find_video_cut_scans`, `save_video_cut_scan`). One
+  nobody has searched is read here with ffmpeg's scene score (`find_cuts`,
+  two threads), fifteen minutes at a time, one recording at a time; the
+  progress is kept on this computer (`scoutable_cut_scan:<fingerprint>`,
+  `scoutable_cut_scans_pending`), so a quit loses at most fifteen minutes of
+  work and the next start picks it up. A finished search is shared. Nothing
+  waits on it: about 1.5 minutes for a 2.5-hour game. Only the fingerprint and
+  the cut times leave the machine.
+- **Which cuts are jumps** (`packages/shared/lib/video-jumps.ts`): measured
+  on nine downloaded games, a dropped stream is a cut on its own and a
+  production's graphics in a break a run of cuts a few seconds apart. A jump
+  is a cut with no other within 30 s, inside a quarter's play by the sync
+  (not before the tip-off, in a break or after the final play), after where
+  the game's footage starts.
+- **The warning**: "The video jumps twice where the stream dropped (Q1 6:58,
+  Q2 1:10). Plays after a jump may be off." with **Check the jumps**, while a
+  jump is unanswered. A jump is answered by a fix within 30 s of it or a play
+  after it seen in the right place.
+- **Check the jumps** asks about a made basket at least 45 s after each jump
+  (the plays just after it may be in what was lost), as Check sync does:
+  Looks right saves a check; It's off finds the basket ("After the jump",
+  likely earlier by what the stream lost), and The play is here saves the fix
+  at once, starting at the jump itself (`syncFromJump`, `SyncCut.jump`): no
+  scope to choose and nothing to narrow down, since the jump is known to the
+  frame. The plays the old sync put after the jump that came before the new
+  sync starts were lost: they read "Lost where the video jumps" (reach
+  "lost") and are not asked about. The toast says how many plays moved and
+  how many were lost, with Undo.
+- Not done: the editor, Add clips and the players' apps don't read lost
+  plays yet.
+
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 
 `useCollect` takes a `CollectScope` (the games, where the target is
