@@ -8,7 +8,8 @@
  *
  * Measured on nine downloaded games (2026-11-25): a dropped stream is a cut
  * on its own; a production's graphics in a break come as a run of cuts a few
- * seconds apart. So a jump is a cut with no other cut near it, inside a
+ * seconds apart. So a jump is a cut with no other cut near it (a burst a
+ * second or two long counts as one cut), inside a
  * quarter's play by the sync (not in a break, before the tip-off or after the
  * final play).
  *
@@ -22,6 +23,13 @@ import { withCuts } from "./period-sync";
 
 /** A cut this far from any other is on its own: a jump, not a production's run of cuts. */
 export const JUMP_ALONE_S = 30;
+/**
+ * Cuts this close together are one change of picture: a stream joined back on
+ * can flash through a frame or two before it settles (Älmhult Beasts P16 vs
+ * Södertälje, 2026-11-25: three cuts a second apart at 1:10:13). A production's
+ * graphics are 3 s apart or more.
+ */
+export const CUT_BURST_S = 2;
 /** A fix or a check this near a jump answers it. */
 const ANSWERED_NEAR_S = 30;
 /**
@@ -31,10 +39,21 @@ const ANSWERED_NEAR_S = 30;
  */
 export const JUMP_ASK_AFTER_S = 45;
 
-/** The cuts with no other cut within JUMP_ALONE_S. */
+/**
+ * The cuts with no other cut within JUMP_ALONE_S. A burst of cuts under
+ * CUT_BURST_S apart counts as one, at its last cut, where the picture after
+ * the drop starts.
+ */
 export function isolatedCuts(cuts: readonly number[]): number[] {
-  const sorted = [...cuts].sort((a, b) => a - b);
-  return sorted.filter((t, i) => (i === 0 || t - sorted[i - 1] > JUMP_ALONE_S) && (i === sorted.length - 1 || sorted[i + 1] - t > JUMP_ALONE_S));
+  const bursts: { from: number; to: number }[] = [];
+  for (const t of [...cuts].sort((a, b) => a - b)) {
+    const last = bursts[bursts.length - 1];
+    if (last && t - last.to < CUT_BURST_S) last.to = t;
+    else bursts.push({ from: t, to: t });
+  }
+  return bursts
+    .filter((b, i) => (i === 0 || b.from - bursts[i - 1].to > JUMP_ALONE_S) && (i === bursts.length - 1 || bursts[i + 1].from - b.to > JUMP_ALONE_S))
+    .map((b) => b.to);
 }
 
 type JumpEvent = Pick<PlayByPlayEvent, "eventId" | "period" | "realWorldTime" | "gameClockTime" | "type" | "isSuccessful">;

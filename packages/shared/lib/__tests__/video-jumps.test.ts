@@ -29,6 +29,15 @@ describe("isolatedCuts", () => {
     expect(isolatedCuts([149, ...run, 2471])).toEqual([149, 2471]);
     expect(isolatedCuts([])).toEqual([]);
   });
+
+  it("counts a burst of cuts a second apart as one, at its last cut (Älmhult Beasts P16 vs Södertälje)", () => {
+    // A stream joined back on at 1:10:13: three cuts in two seconds, nothing else in the recording.
+    expect(isolatedCuts([4213.8, 4214.8, 4215.8])).toEqual([4215.8]);
+    // A burst with a production's run near it is still part of that run.
+    expect(isolatedCuts([1700, 1700.8, 1724, 1739, 1742])).toEqual([]);
+    // Graphics 3 s apart stay apart.
+    expect(isolatedCuts([1739, 1742])).toEqual([]);
+  });
 });
 
 describe("videoJumps", () => {

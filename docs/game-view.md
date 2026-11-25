@@ -684,7 +684,9 @@ at 1:25, 6:26 and 41:11.
 - **Which cuts are jumps** (`packages/shared/lib/video-jumps.ts`): measured
   on nine downloaded games, a dropped stream is a cut on its own and a
   production's graphics in a break a run of cuts a few seconds apart. A jump
-  is a cut with no other within 30 s, inside a quarter's play by the sync
+  is a cut with no other within 30 s (cuts under 2 s apart count as one: a
+  stream joined back on can flash through a frame or two, measured on Älmhult
+  Beasts P16 vs Södertälje), inside a quarter's play by the sync
   (not before the tip-off, in a break or after the final play), after where
   the game's footage starts.
 - **The warning**: "The video has 2 jumps in it (Q1 6:58, Q2 1:10).
