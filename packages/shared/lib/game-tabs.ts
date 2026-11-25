@@ -1,7 +1,7 @@
 /**
  * The desktop's open games (its game tabs, drawn as rows in the sidebar): the
- * games a coach has open, in the order they were opened (new ones last) unless
- * the coach has dragged them into another, and which were shown most recently.
+ * games a coach has open, in the order they were opened (new ones first, at
+ * the top of the list) unless the coach has dragged them into another, and which were shown most recently.
  * Pure state; the desktop keeps it per user and space, across launches.
  *
  * Every function returns the state it was given when nothing changes, so a
@@ -15,7 +15,7 @@ export interface GameTab {
 }
 
 export interface GameTabs {
-  /** Their order: oldest opened first. */
+  /** Their order: newest opened first. */
   tabs: GameTab[];
   /** Ids, most recently shown first. */
   recent: string[];
@@ -29,7 +29,7 @@ export const NO_GAME_TABS: GameTabs = { tabs: [], recent: [] };
 /**
  * Shows a game: an open one keeps its place and takes the newer title and
  * date (an empty title, a game still loading, never overwrites a known one);
- * a new one is appended, and at the cap the game shown least recently, never
+ * a new one goes first (the top of the list), and at the cap the game shown least recently, never
  * this one, makes room.
  */
 export function showGameTab(state: GameTabs, tab: GameTab, max: number = GAME_TABS_MAX): GameTabs {
@@ -47,7 +47,7 @@ export function showGameTab(state: GameTabs, tab: GameTab, max: number = GAME_TA
   const recent = [tab.id, ...state.recent.filter((id) => id !== tab.id)].slice(0, Math.max(1, max));
   const keep = new Set(recent);
   return {
-    tabs: [...state.tabs, { id: tab.id, title: tab.title, date: tab.date }].filter((t) => keep.has(t.id)),
+    tabs: [{ id: tab.id, title: tab.title, date: tab.date }, ...state.tabs].filter((t) => keep.has(t.id)),
     recent,
   };
 }

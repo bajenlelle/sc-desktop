@@ -95,8 +95,8 @@ test("games open in tabs, switch without loading, and close", { tag: "@alone" },
   const g2 = await openLibraryGame(page, 2);
   await showGameView(page);
   await expect(tablist(page).locator("button[data-open-game]")).toHaveCount(3);
-  // Strip order is the order they were opened.
-  await expect(tablist(page).locator("button[data-open-game]")).toHaveText([g0.title, g1.title, g2.title]);
+  // The newest game is on top.
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveText([g2.title, g1.title, g0.title]);
 
   // A click switches at once: the game's own title, its play list, and no spinner on the way.
   await watchForSpinner(page);
@@ -110,12 +110,12 @@ test("games open in tabs, switch without loading, and close", { tag: "@alone" },
   expect(await sawSpinner(page), "no \"Loading the game…\" on a tab switch").toBe(false);
   await shot(page, name("switched"));
 
-  // ⌃Tab and ⌃⇧Tab step in strip order and wrap at both ends.
-  await page.keyboard.press("Control+Tab"); // g2 → g0, wrapping forward
+  // ⌃Tab and ⌃⇧Tab step in list order (g2, g1, g0) and wrap at both ends.
+  await page.keyboard.press("Control+Shift+Tab"); // g2 → g0, wrapping back
   await expect(heading(page)).toHaveText(g0.title, { timeout: 5_000 });
-  await page.keyboard.press("Control+Shift+Tab"); // g0 → g2, wrapping back
+  await page.keyboard.press("Control+Tab"); // g0 → g2, wrapping forward
   await expect(heading(page)).toHaveText(g2.title, { timeout: 5_000 });
-  await page.keyboard.press("Control+Shift+Tab"); // g2 → g1
+  await page.keyboard.press("Control+Tab"); // g2 → g1
   await expect(heading(page)).toHaveText(g1.title, { timeout: 5_000 });
   expect(await sawSpinner(page), "no spinner on a key switch either").toBe(false);
   await expect(tab(page, g1.title)).toHaveAttribute("aria-current", "page");
@@ -131,8 +131,8 @@ test("games open in tabs, switch without loading, and close", { tag: "@alone" },
     await expect(field).toHaveValue(original!, { timeout: 15_000 });
     await field.fill(renamed);
     await expect(field).toBeFocused();
-    await page.keyboard.press("Control+Tab"); // g1 → g2, straight from the field
-    await expect(heading(page)).toHaveText(g2.title, { timeout: 5_000 });
+    await page.keyboard.press("Control+Tab"); // g1 → g0, straight from the field
+    await expect(heading(page)).toHaveText(g0.title, { timeout: 5_000 });
     await expect.poll(() => titleOnServer(page, g1.id), { message: "the title typed before the switch is saved" }).toBe(renamed);
     await expect(tab(page, renamed)).toBeVisible({ timeout: 10_000 });
     await shot(page, name("renamed-tab"));
@@ -167,10 +167,10 @@ test("games open in tabs, switch without loading, and close", { tag: "@alone" },
   await tab(page, g1.title).click({ button: "middle" });
   await expect(tablist(page).locator("button[data-open-game]")).toHaveCount(3);
   await expect(page).toHaveURL(new RegExp(`/matches/${g4.id}$`));
-  await expect(tablist(page).locator("button[data-open-game]")).toHaveText([g2.title, g3.title, g4.title]);
+  await expect(tablist(page).locator("button[data-open-game]")).toHaveText([g4.title, g3.title, g2.title]);
   await shot(page, name("closed-two"));
 
-  // Close the shown game's tab (the last one): its neighbour shows.
+  // Close the shown game's tab (the first one): the one under it shows.
   await tab(page, g4.title).hover();
   await tablist(page).getByRole("button", { name: `Close ${g4.title}` }).click();
   await expect(page).toHaveURL(new RegExp(`/matches/${g3.id}$`));

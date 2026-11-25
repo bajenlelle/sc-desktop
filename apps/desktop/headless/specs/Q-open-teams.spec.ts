@@ -46,7 +46,7 @@ test("a row opens its team as it was left", { tag: "@smoke" }, async ({ page }) 
   await page.getByRole("radio", { name: "Plays" }).click();
   await expect(page).toHaveURL(/view=plays/);
   await openTeam(page, "Beta");
-  await expect.poll(() => titles(page)).toEqual(["Alfa", "Beta"]);
+  await expect.poll(() => titles(page), { message: "the newest team is on top" }).toEqual(["Beta", "Alfa"]);
   await row(page, "Alfa").click();
   await expect(page.getByRole("heading", { level: 1, name: "Alfa" })).toBeVisible();
   await expect(page).toHaveURL(/\/teams\/\d+\/1\?view=plays$/);
@@ -96,7 +96,7 @@ test("the open teams are back after the app is quit", async ({ page }) => {
   await page.goto("/teams");
   await page.reload();
   await expect(nav(page)).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => titles(page)).toEqual(["Alfa", "Beta"]);
+  await expect.poll(() => titles(page)).toEqual(["Beta", "Alfa"]);
 });
 
 test("the open games keep their own list", async ({ page }) => {
