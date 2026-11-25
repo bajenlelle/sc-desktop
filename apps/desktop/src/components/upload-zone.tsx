@@ -34,7 +34,8 @@ import { usePlayerAccess } from "@/lib/player-access";
 import { activePass, importBadge, parseGameAccess, playerMeterLabel, type GameAccess, type GameBadge } from "@scoutable/shared/lib/player-access";
 import { ImportSuccessDialog, type ImportSummary } from "@/components/import-success-dialog";
 import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
-import { fetchGameData, getLeagueSchedule, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
+import { fetchGameData, getLeagueSchedule, getSeasonStages, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
+import { matchProvider, PROFIXIO_SOURCE_PREFIX, seasonProvider } from "@scoutable/shared/lib/provider";
 import { useLeagues } from "@/lib/use-leagues";
 import { Sentry } from "@/lib/sentry";
 import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
@@ -221,7 +222,7 @@ export function UploadZone({
   const hasNtAccess = ntMemberships.length > 0;
   // Club leagues come from the edge function (see use-leagues); national teams
   // stay bundled — no competitionId, no data source decided.
-  const clubLeagues = useLeagues();
+  const clubLeagues = useLeagues({ withProfixio: true });
   // Memoised so the selection effect below fires when the catalogue actually
   // changes, not on every render.
   const leagueList = useMemo(
@@ -237,6 +238,45 @@ export function UploadZone({
   const [selectedSeason, setSelectedSeason] = useState<Season | null>(null);
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
 
+  // A Profixio season's stages are its categories, fetched once it is chosen
+  // (a Genius season carries its own). Kept per season for the session.
+  const [fetchedStages, setFetchedStages] = useState<Record<string, Stage[] | "error">>({});
+  const stagesKey = (league: League | null, season: Season | null) => (league && season ? `${league.id}/${season.id}` : "");
+  const isProfixio = !!selectedSeason && seasonProvider(selectedSeason) === "profixio";
+  /** The stages a season offers: its own, or the categories fetched for it (empty until they are in). */
+  const stagesFor = (league: League | null, season: Season | null): Stage[] => {
+    if (!season) return [];
+    if (seasonProvider(season) !== "profixio") return season.stages;
+    const got = fetchedStages[stagesKey(league, season)];
+    return Array.isArray(got) ? got : [];
+  };
+  const seasonStages = stagesFor(selectedLeague, selectedSeason);
+  const stagesState = isProfixio ? fetchedStages[stagesKey(selectedLeague, selectedSeason)] : undefined;
+  useEffect(() => {
+    if (!selectedLeague || !selectedSeason || seasonProvider(selectedSeason) !== "profixio") return;
+    const key = stagesKey(selectedLeague, selectedSeason);
+    if (fetchedStages[key]) return;
+    let cancelled = false;
+    getSeasonStages(selectedLeague, selectedSeason)
+      .then((stages) => {
+        if (!cancelled) setFetchedStages((prev) => ({ ...prev, [key]: stages }));
+      })
+      .catch((err) => {
+        console.error("[categories]", err);
+        Sentry.captureException(err);
+        if (!cancelled) setFetchedStages((prev) => ({ ...prev, [key]: "error" }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLeague, selectedSeason]);
+  // Once a Profixio season's categories are in, the first is chosen (or the one already chosen kept).
+  useEffect(() => {
+    if (!isProfixio) return;
+    if (selectedStage && seasonStages.some((s) => s.id === selectedStage.id)) return;
+    setSelectedStage(seasonStages[0] ?? null);
+  }, [isProfixio, seasonStages]);
+
   // Select the first league once the list arrives (access props load async),
   // and re-resolve the current selection by id when the served catalogue
   // replaces the bundled one — otherwise selectedSeason keeps pointing at the
@@ -248,9 +288,8 @@ export function UploadZone({
     const season =
       (selectedSeason && league.seasons.find((s) => s.id === selectedSeason.id)) ??
       league.seasons[0];
-    const stage =
-      (selectedStage && season?.stages.find((s) => s.id === selectedStage.id)) ??
-      season?.stages[0];
+    const stages = stagesFor(league, season ?? null);
+    const stage = (selectedStage && stages.find((s) => s.id === selectedStage.id)) ?? stages[0];
     setSelectedLeague(league);
     setSelectedSeason(season ?? null);
     setSelectedStage(stage ?? null);
@@ -468,7 +507,13 @@ export function UploadZone({
   const [successOpen, setSuccessOpen] = useState(false);
 
   useEffect(() => {
-    if (!selectedLeague || !selectedSeason || !selectedStage) return;
+    if (!selectedLeague || !selectedSeason) return;
+    if (!selectedStage) {
+      // A Profixio season whose categories aren't in yet: no games from the last league meanwhile.
+      setScheduleGames([]);
+      setScheduleFor(null);
+      return;
+    }
     // Guarded like the duplicate-detection effect below: without it a fast
     // league switch can land the previous league's schedule.
     let cancelled = false;
@@ -567,12 +612,23 @@ export function UploadZone({
     );
   });
 
+  /** The game list's state: a Profixio season's categories load before its games do. */
+  const listStatus: "loading" | "idle" | "error" = isProfixio
+    ? stagesState === undefined
+      ? "loading"
+      : stagesState === "error"
+        ? "error"
+        : seasonStages.length === 0
+          ? "idle"
+          : scheduleStatus
+    : scheduleStatus;
+
   function handleLeagueChange(league: League) {
     if (selectedLeague && league.id === selectedLeague.id) return;
     leagueTouched.current = true;
     setSelectedLeague(league);
     setSelectedSeason(league.seasons[0] ?? null);
-    setSelectedStage(league.seasons[0]?.stages[0] ?? null);
+    setSelectedStage(stagesFor(league, league.seasons[0] ?? null)[0] ?? null);
     setSelectedGame(null);
     setSearchQuery("");
   }
@@ -582,13 +638,13 @@ export function UploadZone({
     if (!season || season.id === selectedSeason?.id) return;
     leagueTouched.current = true;
     setSelectedSeason(season);
-    setSelectedStage(season.stages[0] ?? null);
+    setSelectedStage(stagesFor(selectedLeague, season)[0] ?? null);
     setSelectedGame(null);
     setSearchQuery("");
   }
 
   function handleStageChange(stageId: string | null) {
-    const stage = selectedSeason?.stages.find((s) => s.id === stageId);
+    const stage = seasonStages.find((s) => s.id === stageId);
     if (!stage || stage.id === selectedStage?.id) return;
     leagueTouched.current = true;
     setSelectedStage(stage);
@@ -646,7 +702,7 @@ export function UploadZone({
     }
 
     try {
-      const data = await fetchGameData(season, game);
+      const data = await fetchGameData(season, game, seasonOverride ? null : selectedStage);
 
       const home = data.homeName || fallbackHome;
       const away = data.awayName || fallbackAway;
@@ -780,6 +836,7 @@ export function UploadZone({
         title: storedMatch.title,
         league: selectedLeague.name,
         season: selectedSeason?.label ?? null,
+        provider: matchProvider(storedMatch),
         source_game_id: storedMatch.sourceGameId ?? null,
         match_date: storedMatch.date,
         has_video: !!videoPath,
@@ -1112,12 +1169,12 @@ export function UploadZone({
                   required
                 />
               )}
-              {(selectedSeason?.stages.length ?? 0) > 1 && (
+              {seasonStages.length > 1 && (
                 <SingleSelectDropdown
-                  options={(selectedSeason?.stages ?? []).map((s) => ({ value: s.id, label: s.label }))}
+                  options={seasonStages.map((s) => ({ value: s.id, label: s.label }))}
                   value={selectedStage?.id ?? null}
                   onChange={handleStageChange}
-                  placeholder="Stage"
+                  placeholder={isProfixio ? "Category" : "Stage"}
                   required
                 />
               )}
@@ -1165,6 +1222,12 @@ export function UploadZone({
                       {formatDate(selectedGame.rawStartDateTime)}
                       {selectedGame.venueInfo?.name ? ` · ${selectedGame.venueInfo.name}` : ""}
                     </p>
+                    {/* A district protocol is thinner than a national league's: say so before the coach looks for rebounds. */}
+                    {selectedGame.uuid.startsWith(PROFIXIO_SOURCE_PREFIX) && (
+                      <p data-import="profixio-note" className="text-subheadline text-muted-foreground">
+                        This league records baskets, fouls and timeouts only.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={clearSelectedGame}>
@@ -1187,20 +1250,20 @@ export function UploadZone({
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
 
-                {scheduleStatus === "loading" && (
+                {listStatus === "loading" && (
                   <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
                     <Loader2 className="size-4 animate-spin" />
                     <span className="text-sm">Loading schedule…</span>
                   </div>
                 )}
 
-                {scheduleStatus === "error" && (
+                {listStatus === "error" && (
                   <p className="py-4 text-center text-sm text-destructive">
                     Failed to load schedule. Check your connection.
                   </p>
                 )}
 
-                {scheduleStatus === "idle" && (
+                {listStatus === "idle" && (
                   <div className="-mx-1 max-h-72 overflow-y-auto">
                     {filteredGames.length === 0 ? (
                       // An empty schedule (early in a season, before any game

@@ -27,7 +27,7 @@ export type AnalyticsEvent =
   | "team_step_skipped"
   | "team_unlisted" // surface, spaces
   // Import funnel (desktop)
-  | "game_synced" // …, picked_from (latest_card | team_list | all_list), team_game
+  | "game_synced" // …, picked_from (latest_card | team_list | all_list), team_game, provider (genius | profixio)
   | "game_sync_failed"
   | "sync_point_skipped"
   | "shared_clips_recut" // game_id, clips, failed, hidden, playlists: a sync change re-cut (or hid) moved shared clips
