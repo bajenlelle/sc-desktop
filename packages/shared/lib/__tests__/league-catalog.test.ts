@@ -108,3 +108,115 @@ describe("catalogToLeagues", () => {
     expect(catalogToLeagues([])).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Provider-aware catalogue (Profixio seasons carry a league handle, not a
+// Genius competitionId). Served by the `profixio` function and merged
+// client-side with the genius list, so both shapes must round-trip and the
+// genius rules above must stay byte-for-byte the same.
+// ---------------------------------------------------------------------------
+
+function profixioLeague(partial: Partial<CatalogLeague> = {}): CatalogLeague {
+  return {
+    id: "profixio-749-herrar-u19",
+    name: "Herrar U19",
+    country: "SE",
+    gender: "men",
+    region: "Stockholm Basket",
+    provider: "profixio",
+    seasons: [
+      {
+        id: "2026-27",
+        label: "2026/27",
+        provider: "profixio",
+        profixio: { leagueId: 27804, seasonId: 776, tournamentId: 52949 },
+      },
+      { id: "2025-26", label: "2025/26", provider: "profixio", profixio: { leagueId: 17550 } },
+    ],
+    ...partial,
+  };
+}
+
+describe("parseLeagueCatalog — Profixio seasons", () => {
+  it("accepts a Profixio league unchanged", () => {
+    const input = [profixioLeague()];
+    expect(parseLeagueCatalog(input)).toEqual(input);
+  });
+
+  it("accepts a mixed catalogue and preserves order", () => {
+    const input = [catalogLeague(), profixioLeague()];
+    expect(parseLeagueCatalog(input)?.map((l) => l.id)).toEqual([
+      "basketettan-herr",
+      "profixio-749-herrar-u19",
+    ]);
+  });
+
+  it("does not require gender on a Profixio league (youth names don't always carry one)", () => {
+    const league: Record<string, unknown> = { ...profixioLeague() };
+    delete league.gender;
+    expect(parseLeagueCatalog([league])).toEqual([league]);
+  });
+
+  it("still requires gender on a Genius league", () => {
+    const league: Record<string, unknown> = { ...catalogLeague() };
+    delete league.gender;
+    expect(parseLeagueCatalog([league])).toBeNull();
+  });
+
+  it("rejects a Profixio season without a usable league handle", () => {
+    const bad = (profixio: unknown) =>
+      parseLeagueCatalog([
+        {
+          ...profixioLeague(),
+          seasons: [{ id: "2025-26", label: "2025/26", provider: "profixio", profixio }],
+        },
+      ]);
+    expect(bad(undefined)).toBeNull();
+    expect(bad({})).toBeNull();
+    expect(bad({ leagueId: 0 })).toBeNull();
+    expect(bad({ leagueId: "17550" })).toBeNull();
+    expect(bad({ leagueId: 17550.5 })).toBeNull();
+    expect(bad({ leagueId: 17550, tournamentId: "x" })).toBeNull();
+  });
+
+  it("rejects an unknown provider", () => {
+    expect(
+      parseLeagueCatalog([
+        { ...catalogLeague(), seasons: [{ id: "x", label: "x", provider: "sportradar", competitionId: 1 }] },
+      ]),
+    ).toBeNull();
+  });
+
+  it("still rejects a provider-less season without competitionId", () => {
+    // Guards against a server accidentally dropping competitionId for Genius.
+    expect(
+      parseLeagueCatalog([{ ...catalogLeague(), seasons: [{ id: "x", label: "x" }] }]),
+    ).toBeNull();
+  });
+
+  it("rejects a non-string region and tolerates a missing one", () => {
+    expect(parseLeagueCatalog([{ ...profixioLeague(), region: 42 }])).toBeNull();
+    const league: Record<string, unknown> = { ...profixioLeague() };
+    delete league.region;
+    expect(parseLeagueCatalog([league])).toEqual([league]);
+  });
+});
+
+describe("catalogToLeagues — Profixio seasons", () => {
+  it("leaves stages empty on Profixio seasons (categories load lazily) and keeps the handle", () => {
+    const [league] = catalogToLeagues([profixioLeague()]);
+    expect(league.region).toBe("Stockholm Basket");
+    for (const season of league.seasons) {
+      expect(season.provider).toBe("profixio");
+      expect(season.stages).toEqual([]);
+      expect(season.competitionId).toBeUndefined();
+    }
+    expect(league.seasons[0].profixio).toEqual({ leagueId: 27804, seasonId: 776, tournamentId: 52949 });
+  });
+
+  it("marks Genius seasons explicitly and attaches no region key when absent", () => {
+    const [league] = catalogToLeagues([catalogLeague()]);
+    expect(league.seasons.every((s) => s.provider === "genius")).toBe(true);
+    expect("region" in league).toBe(false);
+  });
+});

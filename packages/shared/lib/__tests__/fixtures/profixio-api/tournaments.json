@@ -1,0 +1,529 @@
+[
+ {
+  "id": 53930,
+  "name": "Ungdom Pojkar - Pojkar U16 SM",
+  "slug": "leagueid27658",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27658,
+   "name": "Pojkar U16 SM",
+   "districtId": null,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 497,
+    "description": "Ungdoms-SM"
+   },
+   "division": {
+    "id": 6829,
+    "name": "Ungdom Pojkar"
+   }
+  }
+ },
+ {
+  "id": 53929,
+  "name": "Ungdom Pojkar - Pojkar U15 SM",
+  "slug": "leagueid27657",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27657,
+   "name": "Pojkar U15 SM",
+   "districtId": null,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 497,
+    "description": "Ungdoms-SM"
+   },
+   "division": {
+    "id": 6829,
+    "name": "Ungdom Pojkar"
+   }
+  }
+ },
+ {
+  "id": 53917,
+  "name": "Ungdom Herr - Herrar U20 SM",
+  "slug": "leagueid28134",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 28134,
+   "name": "Herrar U20 SM",
+   "districtId": null,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 497,
+    "description": "Ungdoms-SM"
+   },
+   "division": {
+    "id": 6827,
+    "name": "Ungdom Herr"
+   }
+  }
+ },
+ {
+  "id": 53912,
+  "name": "Ungdom Dam - Damer U18 SM",
+  "slug": "leagueid28131",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 28131,
+   "name": "Damer U18 SM",
+   "districtId": null,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 497,
+    "description": "Ungdoms-SM"
+   },
+   "division": {
+    "id": 6826,
+    "name": "Ungdom Dam"
+   }
+  }
+ },
+ {
+  "id": 53911,
+  "name": "Ungdom Dam - Damer U20 SM",
+  "slug": "leagueid28132",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 28132,
+   "name": "Damer U20 SM",
+   "districtId": null,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 497,
+    "description": "Ungdoms-SM"
+   },
+   "division": {
+    "id": 6826,
+    "name": "Ungdom Dam"
+   }
+  }
+ },
+ {
+  "id": 52932,
+  "name": "Herrar Division 2",
+  "slug": "leagueid27794",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27794,
+   "name": "Herrar Division 2",
+   "districtId": 749,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 499,
+    "description": "Stockholms BDF"
+   },
+   "division": {
+    "id": 6869,
+    "name": "Seniorserier Herr"
+   }
+  }
+ },
+ {
+  "id": 52929,
+  "name": "Damer Division 2",
+  "slug": "leagueid27800",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27800,
+   "name": "Damer Division 2",
+   "districtId": 749,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 499,
+    "description": "Stockholms BDF"
+   },
+   "division": {
+    "id": 6870,
+    "name": "Seniorserier Dam"
+   }
+  }
+ },
+ {
+  "id": 52949,
+  "name": "Herrar U19",
+  "slug": "leagueid27804",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27804,
+   "name": "Herrar U19",
+   "districtId": 749,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 499,
+    "description": "Stockholms BDF"
+   },
+   "division": {
+    "id": 6871,
+    "name": "Ungdomsserier pojkar"
+   }
+  }
+ },
+ {
+  "id": 52946,
+  "name": "Damer U19",
+  "slug": "leagueid27811",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27811,
+   "name": "Damer U19",
+   "districtId": 749,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 499,
+    "description": "Stockholms BDF"
+   },
+   "division": {
+    "id": 6872,
+    "name": "Ungdomsserier flickor"
+   }
+  }
+ },
+ {
+  "id": 52944,
+  "name": "Flickor U16",
+  "slug": "leagueid27813",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27813,
+   "name": "Flickor U16",
+   "districtId": 749,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 499,
+    "description": "Stockholms BDF"
+   },
+   "division": {
+    "id": 6872,
+    "name": "Ungdomsserier flickor"
+   }
+  }
+ },
+ {
+  "id": 53107,
+  "name": "Seniorserier Herr - Herrar Division 2",
+  "slug": "leagueid27851",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27851,
+   "name": "Herrar Division 2",
+   "districtId": 754,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 507,
+    "description": "Westra Sveriges BDF"
+   },
+   "division": {
+    "id": 6881,
+    "name": "Seniorserier Herr"
+   }
+  }
+ },
+ {
+  "id": 53097,
+  "name": "Ungdomsserier pojkar - Herrar U20",
+  "slug": "leagueid27860",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27860,
+   "name": "Herrar U20",
+   "districtId": 754,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 507,
+    "description": "Westra Sveriges BDF"
+   },
+   "division": {
+    "id": 6883,
+    "name": "Ungdomsserier Pojkar"
+   }
+  }
+ },
+ {
+  "id": 53100,
+  "name": "Ungdomsserier flickor - Flickor U15",
+  "slug": "leagueid27874",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27874,
+   "name": "Flickor U15",
+   "districtId": 754,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 507,
+    "description": "Westra Sveriges BDF"
+   },
+   "division": {
+    "id": 6884,
+    "name": "Ungdomsserier Flickor"
+   }
+  }
+ },
+ {
+  "id": 53040,
+  "name": "Pojkar U18",
+  "slug": "leagueid27745",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27745,
+   "name": "Pojkar U18",
+   "districtId": 752,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 504,
+    "description": "Skånes BDF"
+   },
+   "division": {
+    "id": 6856,
+    "name": "Ungdomsserier pojkar"
+   }
+  }
+ },
+ {
+  "id": 53036,
+  "name": "Flickor U16",
+  "slug": "leagueid27752",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27752,
+   "name": "Flickor U16",
+   "districtId": 752,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 504,
+    "description": "Skånes BDF"
+   },
+   "division": {
+    "id": 6857,
+    "name": "Ungdomsserier flickor"
+   }
+  }
+ },
+ {
+  "id": 53267,
+  "name": "Herrar U18-19",
+  "slug": "leagueid28355",
+  "isTournament": false,
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 28355,
+   "name": "Herrar U19",
+   "districtId": 748,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 508,
+    "description": "Östsvenska BDF"
+   },
+   "division": {
+    "id": 6893,
+    "name": " Ungdomsserier pojkar"
+   }
+  }
+ },
+ {
+  "id": 52411,
+  "name": "Seniorserier Herr - Herrar Division 2",
+  "slug": "leagueid27720",
+  "isTournament": false,
+  "startDate": "2026-10-01",
+  "endDate": "2027-05-31",
+  "isDeactivated": false,
+  "isCancelled": false,
+  "league": {
+   "id": 27720,
+   "name": "Herrar Division 2",
+   "districtId": 751,
+   "syncedWithGenius": false,
+   "useMatchprotocol": true,
+   "buySellList": true,
+   "showRefereesPublic": true,
+   "season": {
+    "id": 776,
+    "name": "Säsongen 26/27"
+   },
+   "category": {
+    "id": 503,
+    "description": "Norrbottens BDF"
+   },
+   "division": {
+    "id": 6848,
+    "name": "Seniorserier Herr"
+   }
+  }
+ }
+]
