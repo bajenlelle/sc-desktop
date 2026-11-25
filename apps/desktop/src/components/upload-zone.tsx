@@ -477,8 +477,11 @@ export function UploadZone({
   /** The coach has moved between quarters: the picker's seeks are theirs from then on. */
   const navigatedRef = useRef(false);
   const cutReportedRef = useRef(false);
-  // Shared hint lookup, then automatic detection, for the linked recording.
-  const tipoffSuggestion = useTipoffSuggestion(videoPath, selectedGame?.uuid, {
+  // A Profixio game syncs on its first basket: its protocol has no tip-off (lib/profixio-import.ts).
+  const basketFirst = !!selectedGame?.uuid.startsWith(PROFIXIO_SOURCE_PREFIX);
+  // Shared hint lookup, then automatic detection, for the linked recording. Not for a
+  // basket-first game: a tip-off found in its video would be paired with its first basket.
+  const tipoffSuggestion = useTipoffSuggestion(basketFirst ? null : videoPath, selectedGame?.uuid, {
     surface: "import",
     // A scoreboard graphic with no clock is lined up with the feed's first points.
     firstScoreAfterS: tipoffRealWorldTime ? firstScoreAfterS(playByPlayEvents, tipoffRealWorldTime) : null,
@@ -492,6 +495,7 @@ export function UploadZone({
     surface: "import",
     tipoffEstimate: syncSeconds ?? offeredSeconds(tipoffSuggestion.state),
     seek: useCallback((seconds: number) => setQuarterSeek({ seconds, nonce: Date.now(), play: false }), []),
+    basketFirst,
   });
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -1318,7 +1322,7 @@ export function UploadZone({
         <ImportGuideBubble at="video" />
         <StepLabel
           step={2}
-          title="Video and tip-off"
+          title={basketFirst ? "Video and first basket" : "Video and tip-off"}
           subtitle="Plays from your computer"
           done={!!videoPath && syncSeconds !== null}
         />
@@ -1437,7 +1441,7 @@ export function UploadZone({
                 {syncSeconds !== null && periodRows.length > 0 && (
                   <div className="mt-4 border-t border-separator pt-4">
                     <QuarterSyncPanel
-                      q1Label="Tip-off"
+                      q1Label={basketFirst ? "First basket" : "Tip-off"}
                       q1Time={syncSeconds}
                       rows={periodRows}
                       active={breaksCut ? activePeriod : 1}
@@ -1478,7 +1482,7 @@ export function UploadZone({
                     : !videoPath
                       ? { key: "video", text: "Choose the game's video to continue.", tone: "muted" }
                       : syncSeconds === null
-                        ? { key: "sync", text: "Set the tip-off to continue.", tone: "muted" }
+                        ? { key: "sync", text: basketFirst ? "Set a basket to continue." : "Set the tip-off to continue.", tone: "muted" }
                         : {
                             key: "ready",
                             text: [
