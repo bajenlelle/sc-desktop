@@ -67,6 +67,8 @@ export function useScrollMemory(ref: RefObject<HTMLElement | null>, slot: string
 
   useLayoutEffect(() => {
     const el = ref.current;
+    // Set here, not only at mount: StrictMode's rehearsal unmount stops a restore that the real mount must start again.
+    restoring.current = target !== undefined && target > 0;
     if (!el || !restoring.current || target === undefined) return;
     const stop = () => {
       restoring.current = false;

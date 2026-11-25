@@ -3,7 +3,7 @@ import { Link, type LinkProps } from "react-router-dom";
 import { toast } from "sonner";
 import { teamTabId } from "@scoutable/shared/lib/team-tabs";
 import { useAuth } from "@/lib/auth-context";
-import { gameTabsScope, rememberGameTab } from "@/lib/game-tabs";
+import { gameTabsScope, openGameTabBehind } from "@/lib/game-tabs";
 import { rememberTeamTab } from "@/lib/team-tabs";
 import { cn } from "@/lib/utils";
 
@@ -94,8 +94,8 @@ export function GameLink({
   const scope = gameTabsScope(user?.id, activeOrgId);
   const open = gameId
     ? () => {
-        rememberGameTab(scope, { id: gameId, title, date: null });
-        toast(`${title} is in Open games`);
+        openGameTabBehind(scope, gameId, title);
+        toast("Added to Open games");
       }
     : null;
   const handlers = useBackgroundOpen(open, onOpen, via);
@@ -130,7 +130,7 @@ export function TeamLink({
     team && !("leagueTeamId" in team)
       ? () => {
           rememberTeamTab(scope, teamTabId(team.competitionId, team.teamId), name);
-          toast(`${name} is in Open teams`);
+          toast("Added to Open teams");
         }
       : null;
   const handlers = useBackgroundOpen(open, onOpen, via);

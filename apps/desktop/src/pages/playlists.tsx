@@ -334,7 +334,7 @@ export function PlaylistsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   // The playlist this page was left on, when it is shown again from the history (lib/page-memory.ts).
-  const keptPlaylistId = useRecalled<string | null>("editor-playlist") ?? null;
+  const kept = useRecalled<{ playlistId: string | null }>("editor-playlist");
   const canAccess = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
 
   useEffect(() => {
@@ -374,7 +374,9 @@ export function PlaylistsPage() {
   // handlers' membership checks read state that lags the network call.
   const clipAddInFlightRef = useRef<Set<string>>(new Set());
   const [selected, setSelected] = useState<Playlist | null>(null);
-  useRememberPage("editor-playlist", selected?.id ?? null);
+  // Kept as an object: left on the list (no playlist) is kept too, and is not "nothing kept".
+  const leftOn = useMemo(() => ({ playlistId: selected?.id ?? null }), [selected?.id]);
+  useRememberPage("editor-playlist", leftOn);
   // The name the next page's back button gives this page: the playlist open in it.
   usePageTitle(selected?.name ?? "Playlists");
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
@@ -901,11 +903,17 @@ export function PlaylistsPage() {
         // last opens its playlist). One deleted since, or not in this space, opens nothing. An ask
         // that came while this load was on its way (⌘N, the search; done once it lands) wins too.
         const asked = createNew || lateCreateRef.current || lateRestoreRef.current !== null;
-        // Back to this page: the playlist it was left on (lib/page-memory.ts).
-        const restoreId = restore?.playlistId ?? (asked ? null : keptPlaylistId) ?? (asked ? null : lastOpenedPlaylist(
-          readRecentOpens(recentOpensScope(user?.id, activeOrgId)),
-          new Set(loadedPlaylists.map((p) => p.id)),
-        ));
+        // Back to this page: the playlist it was left on, or none if it was left on the list (lib/page-memory.ts).
+        const restoreId =
+          restore?.playlistId ??
+          (asked
+            ? null
+            : kept
+              ? kept.playlistId
+              : lastOpenedPlaylist(
+                  readRecentOpens(recentOpensScope(user?.id, activeOrgId)),
+                  new Set(loadedPlaylists.map((p) => p.id)),
+                ));
         if (restoreId) {
           const pl = loadedPlaylists.find((p) => p.id === restoreId);
           if (pl) {

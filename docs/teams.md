@@ -24,8 +24,9 @@ game" (docs/scouting-reports.md, "Starting from a team").
   (Genius gives a team a new id each season).
 - **`/teams/find/:leagueTeamId`:** a stable team (`league_teams`) to its newest
   season's page; search uses it, and a report's opponent will.
-- **From a game:** in the Stats view's score table, each team's name opens its
-  page once the season is in; Back returns to the game.
+- **From a game:** in the Stats view, each team's name opens its page once the
+  season is in; Back returns to the game. Back from a team is always the page
+  before, whatever opened it (`docs/navigation.md`).
 - **Search (⌘K):** a Teams group after Games, this season's teams from the team
   catalogue (`docs/search.md`).
 

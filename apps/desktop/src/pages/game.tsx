@@ -237,7 +237,7 @@ export function GamePage() {
     return (
       <Page>
         <Toolbar title="Game" back={GAMES_FALLBACK} />
-        <PageContent width="narrow">
+        <PageContent width="narrow" scrollSlot="game-loading">
           <div className="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             Loading the game…

@@ -419,7 +419,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
           title="Game"
           back={GAMES_FALLBACK}
         />
-        <PageContent width="narrow">
+        <PageContent width="narrow" scrollSlot="game-details">
           {notFound ? (
             <EmptyState
               icon={<Film />}
@@ -594,7 +594,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
           </AnimatePresence>
         }
       />
-      <PageContent width="narrow" className="space-y-7">
+      <PageContent width="narrow" className="space-y-7" scrollSlot="game-details">
         <section>
           <GroupHeader title="Game" />
           <GroupedList>

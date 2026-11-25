@@ -59,11 +59,15 @@ describe("navStep", () => {
     expect(h.index).toBe(0);
   });
 
-  it("a replace onto another page (a switch between open games) forgets the old name", () => {
-    let h = walk(["POP", at("default", "/matches/x")]);
-    h = navTitle(h, navCurrent(h)!.id, "AIK vs Djurgården");
+  it("a replace onto another page (a switch between open games) is an entry of its own in the same place", () => {
+    let h = walk(["POP", at("default", "/teams/1/2")], ["PUSH", at("a", "/matches/x")]);
+    const was = navCurrent(h)!.id;
+    h = navTitle(h, was, "AIK vs Djurgården");
     h = navStep(h, "REPLACE", at("r", "/matches/y"));
     expect(navCurrent(h)?.title).toBeNull();
+    // A new id: what the replaced game kept (its scroll) is not the next game's.
+    expect(navCurrent(h)?.id).not.toBe(was);
+    expect(h.entries.map((e) => e.path)).toEqual(["/teams/1/2", "/matches/y"]);
   });
 
   it("a POP to an entry never seen (after a reload) starts over", () => {

@@ -326,6 +326,8 @@ export function MenuHandler() {
       const id = historyKeyFor(e, IS_MACOS);
       if (!id) return;
       e.preventDefault();
+      // One step per press: a held key's repeats would outrun the router.
+      if (e.repeat) return;
       runMenuAction(id);
     }
     // The mouse's side buttons, on release, as browsers do: WebView2 would step its own history on the same

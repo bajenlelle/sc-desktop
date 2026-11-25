@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useLocation, useNavigate, useNavigationType, type NavigateFunction } from "react-router-dom";
 import {
   EMPTY_NAV_HISTORY,
@@ -8,6 +8,7 @@ import {
   navStep,
   navTitle,
   pageOf,
+  type NavEntry,
   type NavHistory,
 } from "@scoutable/shared/lib/nav-history";
 
@@ -49,27 +50,38 @@ export function markNextNavRoot() {
 }
 
 /**
- * Follows the router into the history. Rendered once, inside the router, above the pages, and rendered
- * before them so a page's first effects already see their own entry.
+ * Follows the router into the history, and returns the entry on screen. Called once, by the layout around the
+ * pages, during its render: the pages rendered under it read their own entry (useNavEntryId) at once.
+ *
+ * A new mount of the layout (the app starting, a sign-in after the sign-in page) starts the history over: the
+ * pages walked before it are not this session's to go back to.
  */
-export function NavHistoryTracker() {
+export function useTrackNavHistory(): NavEntry | null {
   const location = useLocation();
   const action = useNavigationType();
   const navigate = useNavigate();
   navigateRef = navigate;
   const path = location.pathname + location.search;
-  // During render, so the page rendered for this location reads its own entry (useNavEntryId) at once.
+  const fresh = useRef(true);
   const current = navCurrent(history);
-  if (!current || current.key !== location.key) {
+  let next = history;
+  if (fresh.current && (!current || current.key !== location.key)) {
+    next = navStep(EMPTY_NAV_HISTORY, "POP", { key: location.key, path, root: false });
+  } else if (!current || current.key !== location.key) {
     const root = nextIsRoot;
+    next = navStep(history, action, { key: location.key, path, root });
+  }
+  fresh.current = false;
+  if (next !== history) {
     nextIsRoot = false;
-    history = navStep(history, action, { key: location.key, path, root });
+    stepping = false;
+    history = next;
     // Listeners hear of it after the render (they are components; setting state in another's render warns).
     queueMicrotask(() => {
       for (const l of listeners) l();
     });
   }
-  return null;
+  return navCurrent(history);
 }
 
 /** The id of the entry on screen: stable while the page replaces its own entry (lib/page-memory.ts keys by it). */
@@ -120,7 +132,7 @@ export function useBack(fallback?: BackFallback): Back | null {
   const label = viaHistory ? (previous!.title ?? titleOfPath(previous!.path)) : (upLabel ?? null);
   return useMemo<Back | null>(() => {
     if (label === null) return null;
-    if (viaHistory) return { label, go: () => navigate(-1), history: true };
+    if (viaHistory) return { label, go: navBack, history: true };
     return { label, go: () => upPath && navigate(upPath), history: false };
   }, [label, viaHistory, upPath, navigate]);
 }
@@ -133,14 +145,31 @@ export function canNavForward(): boolean {
   return canGoForward(history);
 }
 
-/** ⌘[, the mouse's back button, the Go menu. */
+/**
+ * A step asked for and not yet taken: the router moves on popstate, after the call. Until it has, another
+ * step (a held key's repeats, a second click) would be counted from where the history was, and could step
+ * past its start into pages from before a reload.
+ */
+let stepping = false;
+let steppingTimer: ReturnType<typeof setTimeout> | undefined;
+
+function step(delta: -1 | 1) {
+  if (stepping || !navigateRef) return;
+  stepping = true;
+  clearTimeout(steppingTimer);
+  // A step that never lands (nothing that way after all) frees the next one.
+  steppingTimer = setTimeout(() => (stepping = false), 500);
+  navigateRef(delta);
+}
+
+/** ⌘[, the mouse's back button, the Go menu, the toolbar's back button. */
 export function navBack() {
-  if (canNavBack()) navigateRef?.(-1);
+  if (canNavBack()) step(-1);
 }
 
 /** ⌘], the mouse's forward button, the Go menu. */
 export function navForward() {
-  if (canNavForward()) navigateRef?.(1);
+  if (canNavForward()) step(1);
 }
 
 /** A name for a page that never named itself (it was left before it loaded): its place in the app. */

@@ -55,8 +55,9 @@ function NavItem({
           onClickWhileActive();
           return;
         }
-        // A page of the sidebar's is a fresh start: no "‹ {page}" back in its toolbar (⌘[ still goes back).
-        markNextNavRoot();
+        // A page of the sidebar's is a fresh start: no "‹ {page}" back in its toolbar (⌘[ still goes back). Only for
+        // the click that navigates here: a modified one leaves it to the system, and the mark would land elsewhere.
+        if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) markNextNavRoot();
       }}
       className={cn(
         "flex h-7 items-center gap-2 rounded-md px-2 text-sm font-medium outline-none transition-[background-color,transform] duration-100 active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-selection",

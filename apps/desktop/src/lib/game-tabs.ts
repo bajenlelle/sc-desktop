@@ -96,6 +96,22 @@ function write(scope: string | null, next: GameTabs) {
   for (const listener of listeners) listener();
 }
 
+/**
+ * A game opened in the sidebar's Open games from a link (⌘-click), the page left as it is: its row at once, under
+ * what the link called it, then under the game's own title and date once read.
+ */
+export function openGameTabBehind(scope: string | null, id: string, title: string): void {
+  if (!scope) return;
+  rememberGameTab(scope, { id, title, date: null });
+  listMatchesByIds([id])
+    .then(([m]) => {
+      if (m && read(scope).tabs.some((t) => t.id === id)) rememberGameTab(scope, { id, title: m.title, date: m.date || null });
+    })
+    .catch(() => {
+      /* the row keeps the link's name */
+    });
+}
+
 /** Brings tabs read from storage up to date with their games, once per launch and scope. */
 function checkRestored(scope: string) {
   const ids = read(scope).tabs.map((t) => t.id);

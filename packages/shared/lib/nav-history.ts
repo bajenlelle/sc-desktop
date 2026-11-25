@@ -47,9 +47,15 @@ export function navStep(h: NavHistory, action: NavAction, at: NavArrival): NavHi
   if (action === "REPLACE" && current) {
     const samePage = pageOf(current.path) === pageOf(at.path);
     const entries = h.entries.slice();
-    // A replace onto another page (a switch between open games) starts that page's name afresh.
-    entries[h.index] = { ...current, key: at.key, path: at.path, title: samePage ? current.title : null, root: current.root || at.root };
-    return { ...h, entries };
+    if (samePage) {
+      // The page's own replace (a switch between its views, a cleared one-shot state): the same entry.
+      entries[h.index] = { ...current, key: at.key, path: at.path, root: current.root || at.root };
+      return { ...h, entries };
+    }
+    // A replace onto another page (a switch between open games, a closed team's row giving way): in the same place
+    // in the history, but an entry of its own, with nothing of the page it replaced (its name, what it kept).
+    entries[h.index] = { ...fresh(h.nextId, at), root: current.root || at.root };
+    return { ...h, entries, nextId: h.nextId + 1 };
   }
   if (action === "POP") {
     const found = h.entries.findIndex((e) => e.key === at.key);

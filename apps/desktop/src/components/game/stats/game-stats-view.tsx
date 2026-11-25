@@ -134,7 +134,7 @@ export function GameStatsView({
         back={GAMES_FALLBACK}
         leading={viewSwitch}
       />
-      <PageContent width="wide" className="space-y-7">
+      <PageContent width="wide" className="space-y-7" scrollSlot="game-stats">
         <div ref={anchorRef} className="contents" />
         {match.events.length === 0 ? (
           <EmptyState
