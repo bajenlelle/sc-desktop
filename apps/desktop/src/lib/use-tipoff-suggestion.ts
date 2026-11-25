@@ -75,7 +75,13 @@ export function useTipoffSuggestion(
    * Read once when a video is linked. `autoDetect: false` (the game already has a sync
    * point) only looks up hints; `existingSeconds` hides a hint that agrees with it.
    */
-  opts: { surface: TipoffSurface; autoDetect?: boolean; existingSeconds?: number },
+  opts: {
+    surface: TipoffSurface;
+    autoDetect?: boolean;
+    existingSeconds?: number;
+    /** How long after the tip-off the feed has the first points (lib/sync-anchor.ts): lets a graphic with no clock place the tip-off. */
+    firstScoreAfterS?: number | null;
+  },
 ): TipoffSuggestion {
   const optsRef = useRef(opts);
   useEffect(() => {
@@ -197,6 +203,7 @@ export function useTipoffSuggestion(
       track("tipoff_detect_started", { trigger: "auto", duration_s: Math.round(fingerprinted.probe.durationMs / 1000) });
       try {
         const result = await detectTipoff(path, fingerprinted.probe, {
+          firstScoreAfterS: optsRef.current.firstScoreAfterS,
           signal: ac.signal,
           onProgress: (p) => {
             if (!active || decided()) return;

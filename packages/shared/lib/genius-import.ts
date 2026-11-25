@@ -98,6 +98,8 @@ export interface ImportInput {
   breaksCutChoice: boolean | null;
   /** The quarters set during the import. */
   periodSyncs: Record<string, PeriodSync>;
+  /** Where the game's footage begins, when the recording jumps into the game after something else (lib/sync-anchor.ts). */
+  footageStart?: number | null;
   /** The earlier import of this game, when it is one. */
   existing: { syncPoint?: SyncPoint; videoUrl?: string } | null;
 }
@@ -121,6 +123,7 @@ export function importedMatch(input: ImportInput): StoredMatch {
         : input.breaksCutChoice === false
           ? { breaksCut: false }
           : {}),
+      ...(input.footageStart != null && input.footageStart > 0 ? { footageStart: input.footageStart } : {}),
     };
     syncPoint = carrySyncOver(input.existing?.syncPoint, syncPoint, !!input.videoUrl && input.existing?.videoUrl === input.videoUrl);
   }

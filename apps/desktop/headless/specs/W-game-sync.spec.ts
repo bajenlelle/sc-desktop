@@ -24,7 +24,7 @@ type Row = Record<string, unknown>;
  * turnover typed in after the final play, as a scorer's table does with a play it missed. Every save of a game's
  * sync, and every write to a playlist clip that follows one, is answered here; the syncs saved are returned.
  */
-async function twoQuarterGame(page: Page): Promise<Sync[]> {
+async function twoQuarterGame(page: Page, opts: { footageStartAfterTipoff?: number } = {}): Promise<Sync[]> {
   const saved: Sync[] = [];
   const reshape = (events: Row[]) => {
     if (events.length === 0) return;
@@ -37,6 +37,11 @@ async function twoQuarterGame(page: Page): Promise<Sync[]> {
     }
   };
   const walk = (node: unknown) => {
+    // A recording that jumps into the game this long after the tip-off (SyncPoint.footageStart).
+    if (opts.footageStartAfterTipoff !== undefined && node && typeof node === "object" && !Array.isArray(node)) {
+      const sync = (node as Row).sync_point as (Sync & { footageStart?: number }) | null | undefined;
+      if (sync && typeof sync.syncVideoTime === "number") sync.footageStart = sync.syncVideoTime + opts.footageStartAfterTipoff;
+    }
     if (Array.isArray(node)) {
       if (node.length > 0 && node.every((n) => n && typeof n === "object" && "game_clock_time" in (n as Row))) return reshape(node as Row[]);
       return node.forEach(walk);
@@ -416,4 +421,21 @@ test("in a small window the sync's bar and its buttons stay inside the player's 
   await playRows(page).filter({ hasText: "3PT made" }).first().click();
   await expect(nowBarFix(page)).toBeVisible();
   await shot(page, `${browserName}-W-small-now-bar`);
+});
+
+test("a recording that jumps into the game after the tip-off: the plays before have no footage, and that can be taken back", async ({ page }) => {
+  const saved = await twoQuarterGame(page, { footageStartAfterTipoff: 25 });
+  await openSampleGame(page);
+  await expect(page.getByText(/The video jumps into the game after the tip-off: the first \d+ plays? (isn’t|aren’t) in it\./)).toBeVisible();
+
+  // Listed among the fixes, first, with what it leaves out; the × takes it back.
+  const fixes = page.locator('[data-sync="fixes"]');
+  await fixes.click();
+  const start = page.locator('[data-fix="start"]');
+  await expect(start).toContainText(/Game footage starts at \d+:\d\d/);
+  await expect(start).toContainText(/\d+ plays? not in the video/);
+  await start.getByRole("menuitem", { name: /^Remove fix: Game footage starts/ }).click();
+  await expect(toastWith(page, "Fix removed")).toBeVisible();
+  expect((saved.at(-1) as { footageStart?: number }).footageStart, "the footage starts with the recording again").toBeUndefined();
+  await expect(page.getByText(/The video jumps into the game/)).toHaveCount(0);
 });

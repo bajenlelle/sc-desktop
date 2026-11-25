@@ -316,7 +316,7 @@ describe("score moves while the clock slot is dead (Eskilstuna–Djurgården, ti
 
   it("falls back to the first scored sample when the states are unreadable", () => {
     const blind = whole.map((x) => (x.t >= 450 && x.t <= 720 ? { ...x, state: "unknown" as const, jumpBall: null } : x));
-    expect(interpretCoarse(blind, 8372, { view: "whole" })).toEqual({ kind: "window", startS: 480, endS: 662, basis: "visual" });
+    expect(interpretCoarse(blind, 8372, { view: "whole" })).toMatchObject({ kind: "window", startS: 480, endS: 662, basis: "visual" });
   });
 });
 
@@ -328,7 +328,7 @@ describe("scoreboard crop with a score but no clock at all", () => {
   ];
 
   it("opens a visual window below the first scored sample instead of asking for whole frames", () => {
-    expect(interpretCoarse(crops, 7209, { view: "overlay" })).toEqual({ kind: "window", startS: 690, endS: 872, basis: "visual" });
+    expect(interpretCoarse(crops, 7209, { view: "overlay" })).toMatchObject({ kind: "window", startS: 690, endS: 872, basis: "visual" });
   });
 
   it("narrows a long visual window to the jump ball with 5-second whole frames", () => {
@@ -358,7 +358,7 @@ describe("score guards", () => {
 
   it("opens a window at the very start when the first points come within the first minute", () => {
     const rs = [blank(0, [0, 0]), blank(5, [0, 0]), blank(10, [0, 0]), blank(20, [0, 0]), blank(30, [2, 0]), blank(60, [2, 2]), ...grid(90, 1500).map((t) => blank(t, [5, 4]))];
-    expect(interpretCoarse(rs, 7209, { view: "whole" })).toEqual({ kind: "window", startS: 0, endS: 32, basis: "visual" });
+    expect(interpretCoarse(rs, 7209, { view: "whole" })).toMatchObject({ kind: "window", startS: 0, endS: 32, basis: "visual" });
   });
 
   it("leaves readings without a score alone", () => {

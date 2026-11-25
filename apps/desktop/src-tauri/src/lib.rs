@@ -1357,6 +1357,7 @@ pub fn run() {
             extract_clip_poster,
             video_frames::probe_video,
             video_frames::grab_frames,
+            video_frames::find_cuts,
             device_identity::get_device_identity,
             menu::menu_set_enabled,
             menu::menu_set_text,

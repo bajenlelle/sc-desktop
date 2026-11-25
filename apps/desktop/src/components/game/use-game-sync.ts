@@ -137,7 +137,7 @@ export function useGameSync({
   const inFile = useCallback(
     (e: PlayByPlayEvent, sync: SyncPoint) => {
       const t = computeVideoTime(e, sync);
-      return t !== null && t >= 0 && (duration === null || t <= duration);
+      return t !== null && t >= (sync.footageStart ?? 0) && (duration === null || t <= duration);
     },
     [duration],
   );

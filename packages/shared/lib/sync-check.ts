@@ -142,12 +142,24 @@ export function cutShiftSeconds(sync: SyncPoint, cut: SyncCut): number | null {
  */
 export type SyncFix =
   | { kind: "cut"; period: number; realWorldTime: string; eventId: number | null; name: string; shift: number | null }
-  | { kind: "own"; period: number; realWorldTime: string; eventId: number };
+  | { kind: "own"; period: number; realWorldTime: string; eventId: number }
+  /** Where the game's footage begins (SyncPoint.footageStart), with how many plays it leaves out of the video. */
+  | { kind: "start"; seconds: number; plays: number };
 
 /** The game's fixes, in game order. `name` is the stretch a cut starts ("Q2 from 6:14"). */
 export function syncFixes(sync: SyncPoint, events: readonly CheckEvent[]): SyncFix[] {
   const parts = syncParts(sync, events);
   const out: SyncFix[] = [];
+  // Where the game's footage begins comes first: it is the start of the video.
+  const start = sync.footageStart;
+  const head: SyncFix[] = [];
+  if (start !== undefined) {
+    const plays = events.filter((e) => {
+      const t = computeVideoTime(e, sync);
+      return t !== null && t >= 0 && t < start;
+    }).length;
+    head.push({ kind: "start", seconds: start, plays });
+  }
   for (const cut of sync.cuts ?? []) {
     const part = parts.find((p) => p.cut === cut);
     out.push({
@@ -164,11 +176,17 @@ export function syncFixes(sync: SyncPoint, events: readonly CheckEvent[]): SyncF
     const e = byId.get(Number(id));
     if (e) out.push({ kind: "own", period: e.period, realWorldTime: e.realWorldTime, eventId: e.eventId });
   }
-  return out.sort((a, b) => a.period - b.period || msOf(a.realWorldTime) - msOf(b.realWorldTime));
+  const placed = out as Exclude<SyncFix, { kind: "start" }>[];
+  return [...head, ...placed.sort((a, b) => a.period - b.period || msOf(a.realWorldTime) - msOf(b.realWorldTime))];
 }
 
 /** The sync without one fix: a cut's plays follow the sync before it again, an own-placed play follows the sync. */
 export function withoutFix(sync: SyncPoint, fix: SyncFix): SyncPoint {
+  if (fix.kind === "start") {
+    const next = { ...sync };
+    delete next.footageStart;
+    return next;
+  }
   return fix.kind === "cut" ? clearSyncCut(sync, fix.realWorldTime) : withoutOwnTime(sync, { eventId: fix.eventId });
 }
 
@@ -177,6 +195,7 @@ export function withoutFixes(sync: SyncPoint): SyncPoint {
   const next: SyncPoint = { ...sync };
   delete next.cuts;
   delete next.playTimes;
+  delete next.footageStart;
   return next;
 }
 

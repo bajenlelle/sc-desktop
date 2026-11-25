@@ -600,6 +600,46 @@ without the coach. The quarter guide in Details is still the way to place the
 quarters of a video that skips the breaks when their plays fall outside the
 video.
 
+## When the tip-off isn't in the video
+
+A game is placed on the wall clock, so any play seen in the footage places it
+as well as the tip-off does (`packages/shared/lib/sync-anchor.ts`). Found on a
+coach's game (Basketettan Dam, 2026-11-22): the replay's score graphic has no
+clock, the stream shows the warm-up and then jumps into the game 85 s in, and
+the tip-off was lost in the jump. The detector took the first frame of play
+after the jump for the tip-off (24 s out), and the coach tried three times
+before the clips lined up. Of 33 detections in 60 days, 7 said the recording
+starts after the tip-off.
+
+- **The first basket you can see** (`components/first-basket.tsx`): the
+  tip-off step, in the import and on Details, has "Tip-off not in the video?
+  Set the first basket you can see", and the suggestion offers "Use the first
+  basket" when it finds the recording starts late or finds nothing. The
+  picker then sets a basket: the first quarter's made baskets from the field
+  in order (`q1Baskets`, plays logged late left out), each with its score, its
+  player, its clock and how long after the tip-off it came; ‹ › step to the
+  next when one isn't in the footage either. The tip-off is that much before
+  it (`tipoffFromBasket`), before the recording if need be (a negative sync).
+- **The detector lines the graphic up with the feed** (`tipoff-detect.ts`,
+  signal 5): given how long after the tip-off the feed has the first points
+  (`firstScoreAfterS`), the moment a clockless graphic leaves 0-0 (read twice a
+  second) places the tip-off without looking at the court ("Tip-off worked out
+  from the first points on the scoreboard"); too soon for the recording, it is
+  a late start by that much. Play seen starting on a hard cut (`find_cuts`,
+  ffmpeg's scene score, a fraction of a second for the first minutes) is a jump
+  into the game, not the tip-off, and is reported as a late start.
+- **Where the game's footage starts** (`SyncPoint.footageStart`): setting the
+  first basket also looks for a hard cut between the tip-off and the basket
+  (`footageStartFromCuts`). Before it the recording shows something else, so
+  the plays the sync puts there are "Not in the video" like plays before the
+  recording: grey in the list, no clip, never asked about by Check sync. The
+  banner says "The video jumps into the game after the tip-off". It is the
+  first entry in the Fixes menu ("Game footage starts at 1:25 · 4 plays not in
+  the video"), with its ×. A re-import onto the same video keeps it.
+- Not done: other surfaces (Add clips, the editor, players' apps) still clip a
+  play before the footage start from the warm-up, as before; drops inside the
+  game (this replay has two more) are left to Fix sync.
+
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 
 `useCollect` takes a `CollectScope` (the games, where the target is

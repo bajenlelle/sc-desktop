@@ -16,7 +16,8 @@ export type CollectStatus = "none" | "in" | "added";
 
 /** Words for a play outside the video, for its row's tooltip and the Now bar. */
 export function reachWords(play: TimedPlay): string | null {
-  if (play.reach === "before") return "Before the video starts";
+  // Before the recording, or before it jumps into the game (SyncPoint.footageStart): either way, no footage.
+  if (play.reach === "before") return "Not in the video";
   if (play.reach === "after") return "After the video ends";
   return null;
 }

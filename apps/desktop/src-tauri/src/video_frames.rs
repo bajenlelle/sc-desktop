@@ -252,6 +252,60 @@ pub(crate) async fn probe_fps(app: &tauri::AppHandle, path: &str) -> Option<f64>
     parse_ffmpeg_probe(&stderr).map(|p| p.fps).filter(|fps| *fps > 0.0)
 }
 
+/// The hard cuts ffmpeg's scene score finds in a stretch of a video: where a
+/// dropped stream was joined back on, or the recording jumps from the warm-up
+/// into the game. Seconds into the video, in order.
+pub fn parse_scene_cuts(stderr: &str, offset: f64) -> Vec<f64> {
+    let mut out: Vec<f64> = stderr
+        .lines()
+        .filter_map(|line| line.split("pts_time:").nth(1))
+        .filter_map(|rest| rest.split_whitespace().next())
+        .filter_map(|n| n.parse::<f64>().ok())
+        .filter(|t| t.is_finite() && *t >= 0.0)
+        .map(|t| ((t + offset) * 1000.0).round() / 1000.0)
+        .collect();
+    out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    out.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+    out
+}
+
+/// Longest stretch one search reads: the first minutes, where a game starts.
+const CUTS_MAX_SECONDS: f64 = 900.0;
+
+#[tauri::command]
+pub async fn find_cuts(app: tauri::AppHandle, path: String, start: f64, duration: f64, threshold: Option<f64>) -> Result<Vec<f64>, String> {
+    let video = checked_video_path(&path)?;
+    if !start.is_finite() || start < 0.0 || !duration.is_finite() || duration <= 0.0 || duration > CUTS_MAX_SECONDS {
+        return Err("find_cuts: bad range".into());
+    }
+    let threshold = threshold.unwrap_or(0.3).clamp(0.1, 0.9);
+    // Small frames are enough to tell one picture from another, and quick to decode.
+    let filter = format!("scale=160:-2,select='gt(scene,{threshold})',metadata=print");
+    let args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-nostats".into(),
+        "-ss".into(),
+        format!("{start:.3}"),
+        "-t".into(),
+        format!("{duration:.3}"),
+        "-i".into(),
+        video,
+        "-an".into(),
+        "-sn".into(),
+        "-vf".into(),
+        filter,
+        "-f".into(),
+        "null".into(),
+        "-".into(),
+    ];
+    let (_, stderr, ok) = run_ffmpeg(&app, &args).await?;
+    if !ok {
+        return Err("find_cuts: ffmpeg failed".into());
+    }
+    // An input seek starts the timestamps at the seek point.
+    Ok(parse_scene_cuts(&stderr, start))
+}
+
 #[tauri::command]
 pub async fn probe_video(app: tauri::AppHandle, path: String) -> Result<VideoProbe, String> {
     let video = checked_video_path(&path)?;
@@ -375,6 +429,14 @@ mod tests {
     #[test]
     fn probe_needs_a_duration() {
         assert_eq!(parse_ffmpeg_probe("x.mp4: No such file or directory\n"), None);
+    }
+
+    #[test]
+    fn reads_scene_cuts_from_the_metadata_lines() {
+        let stderr = "[Parsed_metadata_2 @ 0x1] frame:0    pts:2552550 pts_time:85.085\n[Parsed_metadata_2 @ 0x1] lavfi.scene_score=0.372038\n[Parsed_metadata_2 @ 0x1] frame:1    pts:11579568 pts_time:385.9856\nframe:2 pts:1 pts_time:385.99\n";
+        assert_eq!(parse_scene_cuts(stderr, 0.0), vec![85.085, 385.986]);
+        assert_eq!(parse_scene_cuts(stderr, 10.0), vec![95.085, 395.986]);
+        assert!(parse_scene_cuts("nothing here", 0.0).is_empty());
     }
 
     #[test]

@@ -143,7 +143,8 @@ export function buildGameTimeline(input: {
       continue;
     }
     let reach: TimedPlay["reach"] = "in";
-    if (sync && time < 0) {
+    // Before the recording, or before the game's footage begins in it (lib/sync-anchor.ts).
+    if (sync && time < (sync.footageStart ?? 0)) {
       reach = "before";
       beforeStart++;
     } else if (sync && duration !== null && time > duration) {

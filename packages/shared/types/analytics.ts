@@ -60,6 +60,8 @@ export type AnalyticsEvent =
   | "period_sync_cleared" // surface, period (all = every quarter)
   | "sync_fix_opened" // entry (clip_menu | this_clip | banner; in the game view game_now_bar | game_row_menu | game_check: Check sync's "It's off")
   | "sync_fix_applied" // scope (quarter | play | game | clip; in the game view play_only: the play alone, on the game | play: from the play on | narrowed: what looking at earlier plays moved after such a fix), period, delta_s; from the game view also surface (game_view), suggested (the app proposed that scope), plays (how many moved), late (the play was logged late)
+  | "sync_first_basket_opened" // surface (import | game_page), from (link | strip: the suggestion's "Use the first basket"), baskets (how many the first quarter has)
+  | "sync_first_basket_set" // surface, basket (1-based: which of the first quarter's baskets), after_tipoff_s, tipoff_s (negative: before the recording), footage_start (a jump into the game was found before the basket)
   | "sync_fix_removed" // kind (cut | own | all): a fix taken back in the game view, from the Fixes menu or a row's menu; surface (game_view)
   | "sync_fix_undone" // scope: the toast's Undo put the sync back; surface (game_view) from the game view
   // Check sync in the game view (desktop): one play of each part of the game, right or off

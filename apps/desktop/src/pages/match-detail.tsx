@@ -23,7 +23,9 @@ import {
   videoLooksCut,
   withTipoff,
 } from "@scoutable/shared/lib/period-sync";
-import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { isSuggestionPending, offeredSeconds, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { FirstBasketLink, FirstBasketPanel, useFirstBasket } from "@/components/first-basket";
+import { firstScoreAfterS } from "@scoutable/shared/lib/sync-anchor";
 import { Page, PageContent } from "@/components/shell/page";
 import { GameBackButton, GameTitle } from "@/components/game/game-toolbar-parts";
 import { Toolbar } from "@/components/shell/toolbar";
@@ -210,6 +212,9 @@ function RosterGroup({
   );
 }
 
+/** No plays yet: one empty list, so the first-basket hook sees the same one each render. */
+const NO_EVENTS: [] = [];
+
 /**
  * The game's settings: title, date, colours, video, sync, rosters. The route
  * (pages/game.tsx) shows it as the game page's Details view and hands it the
@@ -302,12 +307,28 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
     else openPeriod(nextUnset(1, s) ?? 2, s);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openQuartersRequested, storedMatch?.id, storedMatch?.syncPoint, videoStatus]);
+  // When the game's first quarter started on the wall clock: what a basket or the first points are measured from.
+  const q1Start = storedMatch?.syncPoint?.syncRealWorldTime || storedMatch?.syncPoint?.marks?.["1"]?.anchor.realWorldTime || null;
   // Shared hints for the linked recording; the detector only runs while the game has no tip-off.
   const tipoffSuggestion = useTipoffSuggestion(
     storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null,
     storedMatch?.sourceGameId,
-    { surface: "game_page", autoDetect: !storedMatch?.syncPoint, existingSeconds: storedMatch?.syncPoint?.syncVideoTime },
+    {
+      surface: "game_page",
+      autoDetect: !storedMatch?.syncPoint,
+      existingSeconds: storedMatch?.syncPoint?.syncVideoTime,
+      firstScoreAfterS: q1Start && storedMatch ? firstScoreAfterS(storedMatch.events, q1Start) : null,
+    },
   );
+  // The tip-off isn't in the video: the first basket the coach can see places the game (components/first-basket.tsx).
+  const firstBasket = useFirstBasket({
+    events: storedMatch?.events ?? NO_EVENTS,
+    tipoffRealWorldTime: q1Start,
+    videoPath: storedMatch?.videoUrl ?? null,
+    surface: "game_page",
+    tipoffEstimate: storedMatch?.syncPoint?.syncVideoTime ?? offeredSeconds(tipoffSuggestion.state),
+    seek: useCallback((seconds: number) => setQuarterSeek({ seconds, nonce: Date.now(), play: false }), []),
+  });
   // The recording's length tells whether the play-by-play runs past its end (a video that skips the breaks).
   const probeUrl = storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null;
   useEffect(() => {
@@ -721,23 +742,41 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
                         videoPath={storedMatch.videoUrl!}
                         tipoffHint={syncHint ?? undefined}
                         initialSeconds={storedMatch.syncPoint?.syncVideoTime}
-                        copy={activeRow ? quarterCopy(activeRow) : undefined}
-                        note={activeRow?.anchor ? `Look for ${activeRow.anchor.label}.` : undefined}
-                        momentKey={activeRow?.period ?? 1}
+                        copy={activeRow ? quarterCopy(activeRow) : firstBasket.active ? firstBasket.copy : undefined}
+                        note={
+                          activeRow?.anchor
+                            ? `Look for ${activeRow.anchor.label}.`
+                            : firstBasket.active
+                              ? "The tip-off is worked out from it, even when it was before the recording started."
+                              : undefined
+                        }
+                        momentKey={activeRow?.period ?? (firstBasket.active ? `basket-${firstBasket.index}` : 1)}
                         confirmedSeconds={
-                          activeRow ? (activeRow.set ? activeRow.videoTime : null) : (storedMatch.syncPoint?.syncVideoTime ?? null)
+                          activeRow
+                            ? activeRow.set
+                              ? activeRow.videoTime
+                              : null
+                            : firstBasket.active
+                              ? firstBasket.confirmedFor(storedMatch.syncPoint?.syncVideoTime ?? null)
+                              : (storedMatch.syncPoint?.syncVideoTime ?? null)
                         }
                         seekRequest={activeRow ? quarterSeek : newestRequest(quarterSeek, tipoffSuggestion.seekRequest)}
                         onUserAction={activeRow ? undefined : tipoffSuggestion.noteUserAction}
-                        hasPendingSuggestion={!activeRow && isSuggestionPending(tipoffSuggestion.state)}
+                        hasPendingSuggestion={!activeRow && !firstBasket.active && isSuggestionPending(tipoffSuggestion.state)}
                         suggestionSlot={
-                          activeRow ? undefined : (
-                            <TipoffSuggestionStrip
-                              state={tipoffSuggestion.state}
-                              onAccept={tipoffSuggestion.accept}
-                              onReject={tipoffSuggestion.reject}
-                              onCancel={tipoffSuggestion.cancel}
-                            />
+                          activeRow ? undefined : firstBasket.active ? (
+                            <FirstBasketPanel fb={firstBasket} />
+                          ) : (
+                            <>
+                              <TipoffSuggestionStrip
+                                state={tipoffSuggestion.state}
+                                onAccept={tipoffSuggestion.accept}
+                                onReject={tipoffSuggestion.reject}
+                                onCancel={tipoffSuggestion.cancel}
+                                onUseBasket={firstBasket.available ? () => firstBasket.open("strip") : undefined}
+                              />
+                              <FirstBasketLink fb={firstBasket} />
+                            </>
                           )
                         }
                         onConfirm={async (secs) => {
@@ -747,6 +786,21 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
                               const after = nextUnset(activeRow.period, next);
                               if (after !== null) openPeriod(after, next);
                               else closePicker();
+                            }
+                            return;
+                          }
+                          if (firstBasket.active) {
+                            // The basket places the tip-off, and a jump into the game before it is where the footage starts.
+                            const r = await firstBasket.set(secs);
+                            if (!r) return;
+                            const next = withTipoff(storedMatch.syncPoint, r.tip);
+                            if (r.footageStart !== null) next.footageStart = r.footageStart;
+                            else delete next.footageStart;
+                            if (await saveSync(next)) {
+                              tipoffSuggestion.recordResolved(r.tip);
+                              void tipoffSuggestion.saveConfirmed(r.tip);
+                              firstBasket.close();
+                              closePicker();
                             }
                             return;
                           }

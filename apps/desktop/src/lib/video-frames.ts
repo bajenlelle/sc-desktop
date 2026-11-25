@@ -40,6 +40,15 @@ export function grabFrames(path: string, at: FrameAt, output: FrameOutput): Prom
   return invoke<GrabbedFrame[]>("grab_frames", { req: { path, at, output } });
 }
 
+/**
+ * The hard cuts between two seconds of a video (ffmpeg's scene score): where
+ * a dropped stream was joined back on, or the recording jumps into the game.
+ * Up to fifteen minutes at a time; a few seconds of work for the first minutes.
+ */
+export function findCuts(path: string, start: number, duration: number): Promise<number[]> {
+  return invoke<number[]>("find_cuts", { path, start: Math.max(0, start), duration: Math.min(900, Math.max(1, duration)) });
+}
+
 /** Seeks are independent, so split the times over a few sidecar processes. */
 export async function grabFramesParallel(path: string, times: number[], output: FrameOutput, concurrency = 4): Promise<GrabbedFrame[]> {
   if (times.length === 0) return [];

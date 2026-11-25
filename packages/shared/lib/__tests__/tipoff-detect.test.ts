@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DETECT,
   coarseSchedule,
+  estimateFromFirstScore,
   estimateTipoff,
   fineSchedule,
   interpretCoarse,
@@ -207,5 +208,66 @@ describe("runTipoffDetection", () => {
     const d = deps({ onProgress: (p) => stages.push(p.stage) });
     await runTipoffDetection(7112, d);
     expect(stages.join(",")).toMatch(/^locate(,coarse)+(,fine)+$/);
+  });
+});
+
+describe("the first points on a graphic with no clock (a recording whose tip-off was lost)", () => {
+  // Basketettan Dam, 2026-11-22: the score graphic has no clock; the warm-up runs to 85 s, where the recording jumps
+  // into the game (the tip-off, at about 61 s by the feed, was lost); 2-0 goes up at 95.3 s, 34 s after the tip-off.
+  const JUMP = 85.085;
+  const SCORED = 95.3;
+  const frame = (t: number): Frame => ({ t, jpegBase64: "x", width: 640, height: 96 });
+  const readOne = (t: number, view: string) => ({
+    clockVisible: false,
+    clock: null,
+    clockRunning: null,
+    period: view === "overlay" ? 1 : null,
+    state: (t < JUMP ? "pregame" : "in_play") as FrameReading["state"],
+    jumpBall: null,
+    score: t < SCORED ? { home: 0, away: 0 } : { home: 2, away: 0 },
+  });
+  function deps(overrides: Partial<DetectDeps> = {}): DetectDeps & { views: string[] } {
+    const views: string[] = [];
+    return {
+      views,
+      grab: async (times) => times.map(frame),
+      grabRange: async (startS, durationS, fps) => fineSchedule({ startS, endS: startS + durationS }, fps).map(frame),
+      read: async (frames, view) => {
+        views.push(view);
+        return frames.map((f, index) => ({ index, ...readOne(f.t, view) }));
+      },
+      locate: async () => null,
+      ...overrides,
+    };
+  }
+
+  it("places the tip-off as long before the first points as the feed has them, without the court", async () => {
+    const d = deps();
+    const r = await runTipoffDetection(9000, d, { firstScoreAfterS: 34 });
+    expect(r.outcome).toBe("found");
+    if (r.outcome !== "found") return;
+    expect(r.estimate.basis).toBe("first_score");
+    expect(Math.abs(r.estimate.seconds - (SCORED - 34))).toBeLessThanOrEqual(0.5);
+    expect(d.views.every((v) => v === "overlay"), "the court is never read").toBe(true);
+  });
+
+  it("first points too soon for the recording: it starts after the tip-off, by that much", async () => {
+    const r = await runTipoffDetection(9000, deps(), { firstScoreAfterS: 120 });
+    expect(r.outcome).toBe("starts_after_tipoff");
+    if (r.outcome !== "starts_after_tipoff") return;
+    expect(r.estimateS).toBeCloseTo(SCORED - 0.25 - 120, 0);
+  });
+
+  it("without the feed, play starting on a hard cut is not taken for the tip-off", async () => {
+    const withoutCuts = await runTipoffDetection(9000, deps());
+    expect(withoutCuts.outcome, "the court alone takes the jump for the tip-off").toBe("found");
+    const r = await runTipoffDetection(9000, deps({ cuts: async () => [JUMP] }));
+    expect(r.outcome).toBe("starts_after_tipoff");
+  });
+
+  it("estimateFromFirstScore: a one-frame misread doesn't count", () => {
+    const rs = [0, 0.5, 1, 1.5, 2, 2.5].map((t) => reading(t, null, { score: t === 0.5 || t >= 2 ? { home: 2, away: 0 } : { home: 0, away: 0 } }));
+    expect(estimateFromFirstScore(rs, 1, 0.5)?.seconds).toBeCloseTo(2 - 0.25 - 1);
+    expect(estimateFromFirstScore(rs.slice(0, 2).map((r) => ({ ...r, score: { home: 0, away: 0 } })), 1, 0.5)).toBeNull();
   });
 });

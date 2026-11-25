@@ -89,6 +89,8 @@ export function normalizeSyncPoint(raw: SyncPoint): SyncPoint {
     if (checks.length > 0) out.checks = checks.sort((a, b) => timeOf(a.realWorldTime) - timeOf(b.realWorldTime));
     else delete out.checks;
   }
+
+  if ("footageStart" in raw && !(isSeconds(raw.footageStart) && raw.footageStart > 0)) delete out.footageStart;
   return out;
 }
 
@@ -102,7 +104,7 @@ function editedParts(sync: SyncPoint | undefined): unknown {
   const cuts = (n.cuts ?? []).map((c) => [c.period, c.syncVideoTime, c.syncRealWorldTime, c.eventId ?? null]);
   const playTimes = Object.entries(n.playTimes ?? {}).sort(([a], [b]) => Number(a) - Number(b));
   const checks = (n.checks ?? []).map((c) => [c.eventId, c.videoTime]);
-  return [n.syncVideoTime, n.syncRealWorldTime, n.breaksCut ?? null, periods, cuts, playTimes, checks];
+  return [n.syncVideoTime, n.syncRealWorldTime, n.breaksCut ?? null, periods, cuts, playTimes, checks, n.footageStart ?? null];
 }
 
 /**
@@ -577,6 +579,8 @@ export function carrySyncOver(previous: SyncPoint | undefined, next: SyncPoint, 
   if (!next.playTimes && previous.playTimes) out.playTimes = previous.playTimes;
   // A check whose play the re-import moved no longer counts (lib/sync-check.ts reads only the ones that still hold).
   if (!next.checks && previous.checks?.length) out.checks = previous.checks;
+  // Where the game's footage begins is the video's, whatever the sync.
+  if (next.footageStart === undefined && previous.footageStart !== undefined) out.footageStart = previous.footageStart;
   return out;
 }
 

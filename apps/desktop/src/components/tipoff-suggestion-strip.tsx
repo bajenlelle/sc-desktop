@@ -17,6 +17,8 @@ interface Props {
   onAccept: () => void;
   onReject: () => void;
   onCancel: () => void;
+  /** Sync on the first basket instead, where the tip-off isn't in the recording (components/first-basket.tsx); absent when the game has none. */
+  onUseBasket?: () => void;
 }
 
 /** True while the strip offers a tip-off the user can take in one press. */
@@ -24,12 +26,19 @@ export function isSuggestionPending(state: TipoffSuggestionState): boolean {
   return state.kind === "hint_found" || state.kind === "suggested" || state.kind === "starts_after_tipoff";
 }
 
+/** The tip-off the strip offers, as seconds into the video; null when it offers none. */
+export function offeredSeconds(state: TipoffSuggestionState): number | null {
+  if (state.kind === "hint_found" || state.kind === "suggested") return state.seconds;
+  if (state.kind === "starts_after_tipoff") return state.estimateS;
+  return null;
+}
+
 /**
  * What the app found out about this recording's tip-off, in one strip above
  * the picker. It grows in and out with a spring and its states cross-fade in
  * place, so the footage below moves smoothly instead of jumping.
  */
-export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: Props) {
+export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel, onUseBasket }: Props) {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     if (state.kind !== "detecting") {
@@ -68,7 +77,7 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
     );
   }
 
-  function offer(text: string, seconds: number | null) {
+  function offer(text: string, seconds: number | null, basket = false) {
     return shell(
       <>
         <Sparkles className="size-4 shrink-0 text-primary" />
@@ -77,6 +86,12 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
           {seconds !== null && (
             <Button type="button" size="sm" data-tour="tipoff-use" onClick={onAccept}>
               Use <span className="nums">{formatMSSd(seconds)}</span>
+            </Button>
+          )}
+          {/* With nothing to use, the first basket is the way on: the main button. */}
+          {basket && onUseBasket && (
+            <Button type="button" size="sm" variant={seconds !== null ? "ghost" : "default"} onClick={onUseBasket}>
+              Use the first basket
             </Button>
           )}
           <Button type="button" variant="ghost" size="sm" onClick={onReject}>
@@ -162,9 +177,11 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
         return {
           key: "suggested",
           node: offer(
-            state.previewed
-              ? `Is this the tip-off? The game clock starts at ${formatMSSd(state.seconds)}.`
-              : `Tip-off found: the game clock starts at ${formatMSSd(state.seconds)}.`,
+            state.basis === "first_score"
+              ? `Tip-off worked out from the first points on the scoreboard: ${formatMSSd(state.seconds)}.`
+              : state.previewed
+                ? `Is this the tip-off? The game clock starts at ${formatMSSd(state.seconds)}.`
+                : `Tip-off found: the game clock starts at ${formatMSSd(state.seconds)}.`,
             state.seconds,
           ),
         };
@@ -172,15 +189,27 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
         return {
           key: "starts_after_tipoff",
           node: offer(
-            `The recording starts after the tip-off${state.firstClock ? `: the game clock already reads ${state.firstClock} in the first frame` : ""}.`,
+            state.estimateS !== null && state.estimateS < 0 && !state.firstClock
+              ? `The recording starts after the tip-off: by the first points, ${formatMSSd(-state.estimateS)} before it.`
+              : `The recording starts after the tip-off${state.firstClock ? `: the game clock already reads ${state.firstClock} in the first frame` : ""}.`,
             state.estimateS,
+            true,
           ),
         };
       case "not_found":
       case "failed":
         return {
           key: "none",
-          node: shell(<span className="text-muted-foreground">No tip-off found automatically. Scrub to it below.</span>),
+          node: shell(
+            <>
+              <span className="min-w-0 flex-1 text-muted-foreground">No tip-off found automatically. Scrub to it below.</span>
+              {onUseBasket && (
+                <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={onUseBasket}>
+                  Use the first basket
+                </Button>
+              )}
+            </>,
+          ),
         };
       // Nothing to say once the user has decided: the picker shows the confirmed time.
       default:

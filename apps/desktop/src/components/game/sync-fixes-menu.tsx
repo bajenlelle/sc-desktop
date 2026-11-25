@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { ChevronDown, MapPin, Undo2, X } from "lucide-react";
+import { ChevronDown, Film, MapPin, Undo2, X } from "lucide-react";
 import { describePlay, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { describeShiftSeconds, type SyncFix } from "@scoutable/shared/lib/sync-check";
 import {
@@ -14,8 +14,17 @@ import { quietControl } from "@/components/ui/filter-button";
 import { cn } from "@/lib/utils";
 import type { PlayByPlayEvent } from "@/types/match";
 
+/** A place in the video as m:ss. */
+function videoClock(seconds: number): string {
+  const t = Math.round(Math.max(0, seconds));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+}
+
 /** A fix in a few words: where it is, and what it did. */
 function fixWords(fix: SyncFix, playOf: (eventId: number) => PlayByPlayEvent | undefined): { main: string; what: string } {
+  if (fix.kind === "start") {
+    return { main: `Game footage starts at ${videoClock(fix.seconds)}`, what: fix.plays === 1 ? "1 play not in the video" : `${fix.plays} plays not in the video` };
+  }
   if (fix.kind === "cut") {
     // A move, not a delay: "8 s later" alone read as the plays running late.
     const what = fix.shift !== null && Math.abs(fix.shift) >= 0.05 ? `Moved ${describeShiftSeconds(fix.shift)}` : "Moved";
@@ -59,11 +68,19 @@ export function SyncFixesMenu({
           const words = fixWords(fix, playOf);
           return (
             <div
-              key={`${fix.kind}-${fix.realWorldTime}-${fix.eventId ?? ""}`}
+              key={fix.kind === "start" ? "start" : `${fix.kind}-${fix.realWorldTime}-${fix.eventId ?? ""}`}
               data-fix={fix.kind}
               className="flex items-center gap-2 rounded-[5px] py-1 pr-1 pl-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0"
             >
-              {fix.kind === "cut" ? <span className="w-4 shrink-0 text-center text-muted-foreground" aria-hidden>//</span> : <MapPin className="text-muted-foreground" />}
+              {fix.kind === "cut" ? (
+                <span className="w-4 shrink-0 text-center text-muted-foreground" aria-hidden>
+                  //
+                </span>
+              ) : fix.kind === "start" ? (
+                <Film className="text-muted-foreground" />
+              ) : (
+                <MapPin className="text-muted-foreground" />
+              )}
               <span className="min-w-0 flex-1 truncate nums">{words.main}</span>
               <span className="shrink-0 text-footnote text-muted-foreground nums">{words.what}</span>
               {/* The open game's × in the sidebar, here always shown: it is the one thing the row does. */}

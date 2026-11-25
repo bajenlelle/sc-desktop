@@ -239,6 +239,14 @@ export interface SyncPoint {
   playTimes?: Record<string, number>;
   /** Plays the coach has seen happen where the sync puts them, in time order (see SyncCheck). */
   checks?: SyncCheck[];
+  /**
+   * Seconds into the video where the game's footage begins, when the
+   * recording shows something else first and then jumps into the game (a
+   * dropped stream joined back on, the tip-off lost in it). A play the sync
+   * puts before it is not in the video (lib/sync-anchor.ts). Absent: the
+   * footage starts with the recording.
+   */
+  footageStart?: number;
 }
 
 export interface PlaylistClipItem {

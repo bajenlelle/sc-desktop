@@ -15,7 +15,7 @@ import {
 } from "@scoutable/shared/lib/tipoff-detect";
 import { locateOverlay, readFrames } from "@scoutable/shared/lib/tipoff-detect-client";
 import { createClient } from "@/lib/supabase/client";
-import { grabFrames, grabFramesParallel, type FrameOutput, type GrabbedFrame, type VideoProbe } from "./video-frames";
+import { findCuts, grabFrames, grabFramesParallel, type FrameOutput, type GrabbedFrame, type VideoProbe } from "./video-frames";
 
 /** Error tokens from the function that mean "stop quietly" rather than "something broke". */
 export const SILENT_DETECT_ERRORS = new Set(["detection_disabled", "too_many_requests"]);
@@ -55,6 +55,8 @@ async function readWithRetry(frames: Frame[], view: FrameView, retried = false):
 }
 
 export interface DetectTipoffOptions {
+  /** How long after the tip-off the feed has the first points: a graphic with no clock is lined up with it. */
+  firstScoreAfterS?: number | null;
   signal?: AbortSignal;
   onProgress?: (p: DetectProgress) => void;
   log?: (line: string) => void;
@@ -74,9 +76,10 @@ export function detectTipoff(path: string, probe: VideoProbe, opts: DetectTipoff
       }
       return res.data.found && res.data.box ? { box: res.data.box, confidence: res.data.confidence } : null;
     },
+    cuts: (fromS, toS) => findCuts(path, fromS, toS - fromS),
     onProgress: opts.onProgress,
     signal: opts.signal,
     log: opts.log,
   };
-  return runTipoffDetection(probe.durationMs / 1000, deps);
+  return runTipoffDetection(probe.durationMs / 1000, deps, { firstScoreAfterS: opts.firstScoreAfterS });
 }

@@ -956,7 +956,8 @@ export function GameWatchView({
     </Callout>
   ) : timeline.beforeStart > 0 ? (
     <Callout>
-      The recording starts after tip-off: the first {timeline.beforeStart} {timeline.beforeStart === 1 ? "play isn’t" : "plays aren’t"} in it.
+      {match.syncPoint?.footageStart !== undefined ? "The video jumps into the game after the tip-off" : "The recording starts after tip-off"}: the first{" "}
+      {timeline.beforeStart} {timeline.beforeStart === 1 ? "play isn’t" : "plays aren’t"} in it.
     </Callout>
   ) : null;
 

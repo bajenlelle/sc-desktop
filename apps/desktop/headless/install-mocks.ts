@@ -21,6 +21,8 @@ declare global {
     __headlessOpened: string[];
     /** read_file / delete_file's disk: a spec may put bytes here before a step reads them. */
     __headlessFiles: Map<string, Uint8Array>;
+    /** The hard cuts find_cuts reports for any stretch of any video: a spec may set them before a step looks. */
+    __headlessCuts?: number[];
     /** Set up by mockWindows/mockIPC; `convertFileSrc` is the one piece written here. */
     __TAURI_INTERNALS__: { convertFileSrc: (filePath: string, protocol?: string) => string };
   }
@@ -79,6 +81,12 @@ const commands: Record<string, (args: Args) => unknown> = {
   menu_set_go_keys: none,
   menu_sync_theme: none,
   grab_frames: native("grab_frames"),
+  // The cuts a spec has set inside the stretch asked about; none otherwise.
+  find_cuts: (args) => {
+    const start = Number(args?.start ?? 0);
+    const end = start + Number(args?.duration ?? 0);
+    return (window.__headlessCuts ?? []).filter((t) => t >= start && t <= end);
+  },
   extract_poster_frame: native("extract_poster_frame"),
   extract_clip_poster: native("extract_clip_poster"),
   export_playlist: native("export_playlist"),

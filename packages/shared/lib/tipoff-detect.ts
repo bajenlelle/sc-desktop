@@ -23,6 +23,14 @@
  *    tip-off; whole frames every 5 s narrow the minutes before it to the jump
  *    ball, and the 1 fps pass runs there. In whole frames a clock estimate that
  *    contradicts its own window (an arena clock misread) is rejected.
+ * 5. The first points (2026-11-25): given how long after the tip-off the feed
+ *    has them (`firstScoreAfterS`), the moment the graphic leaves 0-0 places the
+ *    tip-off by itself, and the court is not needed. It also holds when the
+ *    tip-off isn't in the recording at all (lost in a dropped stream, or before
+ *    it started): the estimate is then before the jump into the game, or
+ *    negative. A court estimate that lands on a hard cut (`DetectDeps.cuts`) is
+ *    the first frame after the jump, not the tip-off, and is reported as a
+ *    recording that starts after it.
  */
 
 export interface FrameReading {
@@ -85,6 +93,8 @@ export const DETECT = {
   courtLookaheadS: 2,
   /** A toss this much before the clock estimate means the clock graphic ran late. */
   clockLagMinS: 2,
+  /** How often the graphic is read for the moment it first shows points. */
+  scoreFps: 2,
 } as const;
 
 /** Where Solidsport and baskettv productions draw the scoreboard: bottom band, centred. */
@@ -162,7 +172,14 @@ export function isWarmupCountdown(readings: TimedReading[], periodLengthS: numbe
 }
 
 export type CoarseVerdict =
-  | { kind: "window"; startS: number; endS: number; basis: "clock" | "visual" }
+  | {
+      kind: "window";
+      startS: number;
+      endS: number;
+      basis: "clock" | "visual";
+      /** From the score: between the last 0-0 sample and the first one with points. */
+      score?: { fromS: number; toS: number };
+    }
   | { kind: "starts_after_tipoff"; firstClock: string | null; firstClockS: number | null; estimateS: number | null }
   /** The scoreboard crop has no usable clock (stuck at 10:00, or none readable): sample whole frames instead. */
   | { kind: "frozen_clock" }
@@ -270,8 +287,17 @@ export function interpretCoarse(readings: TimedReading[], durationS: number, opt
   // above, and the fine pass looks for the jump ball in the minutes before it.
   const scoredAt = firstScoredSample(rs);
   if (scoredAt === "starts_after") return { kind: "starts_after_tipoff", firstClock: null, firstClockS: null, estimateS: null };
-  const scoreWindow = (): CoarseVerdict | null =>
-    scoredAt == null ? null : { kind: "window", startS: Math.max(0, rs[scoredAt].t - DETECT.scoreLookbackS), endS: rs[scoredAt].t + DETECT.finePadS, basis: "visual" };
+  const scoreWindow = (): CoarseVerdict | null => {
+    if (scoredAt == null) return null;
+    const nil = [...rs.slice(0, scoredAt)].reverse().find(isNilNil);
+    return {
+      kind: "window",
+      startS: Math.max(0, rs[scoredAt].t - DETECT.scoreLookbackS),
+      endS: rs[scoredAt].t + DETECT.finePadS,
+      basis: "visual",
+      score: { fromS: nil?.t ?? Math.max(0, rs[scoredAt].t - DETECT.coarseStepS), toS: rs[scoredAt].t },
+    };
+  };
 
   // A clock that never leaves 10:00 across the samples is a static graphic.
   const clocks = rs.filter((r) => clockOf(r) != null);
@@ -344,7 +370,27 @@ export function fineSchedule(w: { startS: number; endS: number }, fps: number = 
 export interface TipoffEstimate {
   seconds: number;
   confidence: number;
-  basis: "clock_transition" | "first_running_clock" | "visual_jump_ball" | "visual_play_start";
+  basis: "clock_transition" | "first_running_clock" | "visual_jump_ball" | "visual_play_start" | "first_score";
+}
+
+/**
+ * The tip-off from the moment the scoreboard graphic first shows points:
+ * as long before it as the feed has the first points after the tip-off.
+ * `readings` are crops of the graphic, in any order; the first one with
+ * points that the next one confirms (a misread digit is one frame) counts,
+ * less half a step, since the points went up somewhere in the step before it.
+ * Null when the graphic doesn't leave 0-0 in them.
+ */
+export function estimateFromFirstScore(readings: TimedReading[], firstScoreAfterS: number, stepS: number): TipoffEstimate | null {
+  const rs = [...readings].sort((a, b) => a.t - b.t);
+  for (let k = 0; k < rs.length; k++) {
+    if (!hasPoints(rs[k])) continue;
+    const next = rs[k + 1];
+    if (next && !hasPoints(next)) continue;
+    if (!rs.slice(0, k).some(isNilNil)) return null;
+    return { seconds: Number((rs[k].t - stepS / 2 - firstScoreAfterS).toFixed(2)), confidence: 0.75, basis: "first_score" };
+  }
+  return null;
 }
 
 /** Fine readings (1 fps, any order) → the second the game clock started. */
@@ -439,6 +485,8 @@ export interface DetectDeps {
   read(frames: Frame[], view: FrameView): Promise<FrameReading[]>;
   /** Optional: ask where the scoreboard graphic is when the default region shows no clock. */
   locate?(frames: Frame[]): Promise<{ box: OverlayBox; confidence: number } | null>;
+  /** Optional: the hard cuts between two seconds (ffmpeg's scene score), to tell the first frame after a jump from the tip-off. */
+  cuts?(fromS: number, toS: number): Promise<number[]>;
   onProgress?(p: DetectProgress): void;
   signal?: AbortSignal;
   log?(line: string): void;
@@ -459,7 +507,11 @@ export type DetectResult =
 export async function runTipoffDetection(
   durationS: number,
   deps: DetectDeps,
-  opts: { strategy?: "crop" | "whole" } = {},
+  opts: {
+    strategy?: "crop" | "whole";
+    /** How long after the tip-off the feed has the first points (lib/sync-anchor.ts, firstScoreAfterS). */
+    firstScoreAfterS?: number | null;
+  } = {},
 ): Promise<DetectResult> {
   const t0 = Date.now();
   const stats: DetectStats = { apiCalls: 0, frames: 0, elapsedMs: 0 };
@@ -547,6 +599,23 @@ export async function runTipoffDetection(
       return finish({ outcome: "starts_after_tipoff" as const, estimateS: verdict.estimateS, firstClock: verdict.firstClock, view, readings });
     }
 
+    // 3a. The graphic's first points and the feed's place the tip-off without the court: read the crop between
+    // the last 0-0 sample and the first one with points, twice a second.
+    if (verdict.score && crop && opts.firstScoreAfterS != null) {
+      const from = verdict.score.fromS;
+      const dur = Math.max(1, verdict.score.toS - from + DETECT.finePadS);
+      deps.onProgress?.({ stage: "fine", done: 0, total: Math.ceil(dur * DETECT.scoreFps) + 1 });
+      const frames = await deps.grabRange(from, dur, DETECT.scoreFps, { view: "overlay", crop });
+      const rd = await readAll(frames, "overlay");
+      if (rd == null) return finish({ outcome: "cancelled" as const });
+      const fromScore = estimateFromFirstScore(rd, opts.firstScoreAfterS, 1 / DETECT.scoreFps);
+      log(`first points ${frames.length} frames → ${fromScore ? `tip-off ${fromScore.seconds} s` : "no change"}`);
+      if (fromScore && fromScore.seconds < 0) {
+        return finish({ outcome: "starts_after_tipoff" as const, estimateS: fromScore.seconds, firstClock: null, view: "overlay" as const, readings });
+      }
+      if (fromScore) return finish({ outcome: "found" as const, estimate: fromScore, view: "overlay" as const, readings, fine: rd });
+    }
+
     // 3. A visual window needs the court, not the graphic; a long one is narrowed first.
     let win = { startS: verdict.startS, endS: verdict.endS };
     let narrow: TimedReading[] | undefined;
@@ -590,6 +659,15 @@ export async function runTipoffDetection(
           : `court ${courtFrames.length} frames → toss at ${checked.seconds} s, clock graphic ${(estimate.seconds - checked.seconds).toFixed(1)} s late`,
       );
       estimate = checked;
+    }
+
+    // 6. Play seen starting right on a hard cut is the first frame after a jump in the recording, not the tip-off.
+    if (deps.cuts && (estimate.basis === "visual_play_start" || estimate.basis === "visual_jump_ball")) {
+      const cuts = await deps.cuts(Math.max(0, estimate.seconds - 5), estimate.seconds + 5).catch(() => [] as number[]);
+      if (cuts.some((c) => Math.abs(c - estimate!.seconds) <= 2)) {
+        log(`a hard cut at ${cuts.join(", ")} s → the recording jumps into the game there`);
+        return finish({ outcome: "starts_after_tipoff" as const, estimateS: null, firstClock: null, view, readings });
+      }
     }
     return finish({ outcome: "found" as const, estimate, view, readings, narrow, fine, court });
   }
