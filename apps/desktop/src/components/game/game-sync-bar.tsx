@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { describeReach, describeShiftSeconds } from "@scoutable/shared/lib/sync-check";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
+import { cn } from "@/lib/utils";
 import type { GameSync } from "./use-game-sync";
 
 const score = (s: { home: number; away: number }) => `${s.home}–${s.away}`;
@@ -9,7 +10,7 @@ const score = (s: { home: number; away: number }) => `${s.home}–${s.away}`;
 /** The Return key on the bar's main button, as the Now bar shows A and G on its own. */
 function ReturnKey() {
   return (
-    <Kbd className="ml-0.5 hidden h-4 min-w-4 border-white/25 bg-white/15 text-caption text-primary-foreground @min-[560px]/sync:inline-flex" aria-hidden>
+    <Kbd className="ml-0.5 hidden h-4 min-w-4 border-white/25 bg-white/15 text-caption text-primary-foreground @min-[600px]/player:inline-flex" aria-hidden>
       ⏎
     </Kbd>
   );
@@ -31,14 +32,14 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
         label: `Where it starts · ${mode.partName}`,
         change,
         main: cue.sentence,
-        hint: "Is this earlier play in the right place? Each answer halves the plays left to look at.",
+        hint: "Is this earlier play right too? Each answer halves the plays left to look at.",
       };
     }
     return {
       label: mode.total > 1 ? `Check ${mode.part.index + 1} of ${mode.total} · ${mode.partName}` : `Check · ${mode.partName}`,
       change,
       main: cue.sentence,
-      hint: change ? `Does the ball go in as the score above the video turns ${change.after}? A second either way is fine.` : "Does it happen as its name lights up above the video? A second either way is fine.",
+      hint: change ? `Right if the ball goes in as the score over the video turns ${change.after}, give or take a second.` : "Right if it happens as its name lights up over the video, give or take a second.",
     };
   }
   if (mode.kind === "find" && mode.narrow) {
@@ -61,19 +62,21 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
     const shift = describeShiftSeconds(mode.found - mode.mapped);
     const n = mode.plan.reach.plays;
     const reach = describeReach(mode.plan.reach);
+    const sentence = reach.charAt(0).toUpperCase() + reach.slice(1);
+    // The bar says what moves in a few words; from where to where is on the line under the close-up.
     if (mode.suggested === "play") {
       return {
         label: shift,
         change: null,
-        main: mode.event.loggedAt ? "This play was logged late, so only it should move." : "A shift this small is usually this play alone, logged a moment late.",
+        main: mode.event.loggedAt ? "Logged late, so only this play should move." : "A small shift is usually this play alone.",
         hint: n > 1 ? `Or move ${n} plays with it: ${reach}.` : "",
       };
     }
     return {
       label: shift,
       change: null,
-      main: n > 1 ? `${n} plays move with it: ${reach}.` : "Only this play moves.",
-      hint: "Plays you’ve already checked stay where they are.",
+      main: n > 1 ? `${n} plays move with it.` : "Only this play moves.",
+      hint: n > 1 ? `${sentence}. Plays you’ve already checked stay where they are.` : "",
     };
   }
   return {
@@ -167,8 +170,10 @@ export function GameSyncBar({ sync }: { sync: GameSync }) {
   }
 
   return (
-    <div role="group" aria-label="Sync" data-sync-mode={mode.kind} data-clip-start={sync.clip?.start.toFixed(2)} data-clip-end={sync.clip?.end.toFixed(2)} className="@container/sync flex h-11 shrink-0 items-center gap-2.5 px-1">
-      <span data-sync="label" className="shrink-0 text-callout font-medium text-muted-foreground nums">
+    <div role="group" aria-label="Sync" data-sync-mode={mode.kind} data-clip-start={sync.clip?.start.toFixed(2)} data-clip-end={sync.clip?.end.toFixed(2)} className="flex h-11 shrink-0 items-center gap-2.5 px-1">
+      {/* How far the play moved is the bar's news; every other label gives way in a narrow column, to the line under
+          the timeline (the game view repeats it there), so the play keeps its words. */}
+      <span data-sync="label" className={cn("shrink-0 text-callout font-medium text-muted-foreground nums", mode.kind !== "confirm" && "hidden @min-[600px]/player:inline")}>
         {words.label}
       </span>
       {/* What to look for on the video's own scoreboard, ahead of the sentence: in a narrow bar the sentence gives way, not this. */}

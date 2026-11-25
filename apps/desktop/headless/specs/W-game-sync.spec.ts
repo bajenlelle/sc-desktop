@@ -187,7 +187,8 @@ test("a play that is off is found on the game's own video, the plays after it mo
 
   await bar(page).getByRole("button", { name: "The play is here" }).click();
   await expect(label(page)).toHaveText("8 s earlier");
-  await expect(bar(page).locator('[data-sync="main"]')).toContainText("from this play to the end of the game");
+  await expect(bar(page).locator('[data-sync="main"]')).toHaveText(/^\d+ plays move with it\.$/);
+  await expect(page.locator('[data-sync="hint"]'), "from where to where is under the close-up").toContainText("From this play to the end of the game.");
   const move = bar(page).getByRole("button", { name: /^Move \d+ plays/ });
   await expect(move, "a shift this large is proposed for the plays after it too").toHaveAttribute("data-variant", "default");
   await shot(page, `${browserName}-W-confirm`);
@@ -325,9 +326,49 @@ test("a play the table logged late is listed where it happened, marked, and Fix 
   await expect(findStrip(page)).toBeVisible();
   await step(page, "ArrowRight", 5);
   await bar(page).getByRole("button", { name: "The play is here" }).click();
-  await expect(bar(page).locator('[data-sync="main"]')).toHaveText("This play was logged late, so only it should move.");
+  await expect(bar(page).locator('[data-sync="main"]')).toHaveText("Logged late, so only this play should move.");
   await page.keyboard.press("Enter");
   await expect(toastWith(page, "This play moved 5 s later")).toBeVisible();
   expect(Object.keys(saved.at(-1)!.playTimes ?? {})).toHaveLength(1);
   expect(saved.at(-1)!.cuts).toBeUndefined();
+});
+
+test("in a small window the sync's bar and its buttons stay inside the player's column", async ({ page, browserName }) => {
+  await twoQuarterGame(page);
+  await page.setViewportSize({ width: 1024, height: 640 });
+  await openSampleGame(page);
+  const stage = page.locator('div[style*="aspect-ratio"]').filter({ has: page.locator("video") });
+  const fits = async (what: string) => {
+    const column = (await stage.boundingBox())!;
+    for (const button of await bar(page).getByRole("button").all()) {
+      const box = (await button.boundingBox())!;
+      expect(box.x, `${what}: "${await button.innerText()}" starts inside the column`).toBeGreaterThanOrEqual(column.x - 1);
+      expect(box.x + box.width, `${what}: "${await button.innerText()}" ends inside the column`).toBeLessThanOrEqual(column.x + column.width + 1);
+    }
+    const main = (await bar(page).locator('[data-sync="main"]').boundingBox())!;
+    expect(main.width, `${what}: the play still has room for a few words`).toBeGreaterThan(60);
+  };
+
+  await status(page).click();
+  await expect(page.locator('[data-sync="hint"]'), "the label moves to the line under the timeline").toContainText("Check 1 of 2 · Q1");
+  await expect(label(page)).toBeHidden();
+  await fits("a question");
+  await shot(page, `${browserName}-W-small-ask`);
+  await bar(page).getByRole("button", { name: "It’s off" }).click();
+  await expect(findStrip(page)).toBeVisible();
+  await fits("finding");
+  await step(page, "ArrowLeft", 5);
+  await shot(page, `${browserName}-W-small-find`);
+  await page.keyboard.press("Enter");
+  await expect(label(page)).toHaveText("5 s earlier");
+  await fits("confirming");
+  await shot(page, `${browserName}-W-small-confirm`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(bar(page)).toHaveCount(0);
+  // Back to watching: the Now bar's Fix sync is there for the play on screen, by its icon in a bar this narrow.
+  await playRows(page).filter({ hasText: "3PT made" }).first().click();
+  await expect(nowBarFix(page)).toBeVisible();
+  await shot(page, `${browserName}-W-small-now-bar`);
 });

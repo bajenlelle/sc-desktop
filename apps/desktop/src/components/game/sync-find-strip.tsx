@@ -193,7 +193,8 @@ export function SyncFindStrip({
             {ticks.map((s) => (
               <g key={s}>
                 <line x1={xOf(s)} x2={xOf(s)} y1={BASE_Y} y2={BASE_Y + (s % 30 === 0 ? 7 : 4)} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
-                {s % 30 === 0 && (
+                {/* A time under the playhead would be struck through by it. */}
+                {s % 30 === 0 && Math.abs(xOf(s) - playheadX) > 26 && (
                   <text x={xOf(s)} y={BASE_Y + 22} textAnchor="middle" className="text-caption nums" style={{ fill: "var(--muted-foreground)" }}>
                     {mmss(s)}
                   </text>
@@ -254,8 +255,15 @@ export function SyncFindStrip({
             {/* The playhead, with the play on it. */}
             <line x1={playheadX} x2={playheadX} y1={moved ? 22 : 8} y2={GAME_TRACK_HEIGHT - 8} strokeWidth="2" strokeLinecap="round" stroke="currentColor" />
             <circle cx={playheadX} cy={BASE_Y} r="6" fill="currentColor" style={{ stroke: "var(--background)" }} strokeWidth="2" />
+            {/* The play's score, on the side of the playhead away from where the play was. */}
             {ownScore && (
-              <text x={playheadX + 11} y={BASE_Y - 12} className="text-footnote font-semibold nums" style={{ fill: "var(--foreground)" }}>
+              <text
+                x={playheadX + (moved && delta < 0 ? -11 : 11)}
+                y={BASE_Y - 12}
+                textAnchor={moved && delta < 0 ? "end" : "start"}
+                className="text-footnote font-semibold nums"
+                style={{ fill: "var(--foreground)" }}
+              >
                 {ownScore}
               </text>
             )}

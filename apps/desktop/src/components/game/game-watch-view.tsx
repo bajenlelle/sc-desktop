@@ -978,7 +978,11 @@ export function GameWatchView({
   const quietLink = "shrink-0 rounded-sm text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection";
   const syncHint = !words ? null : (
     <span data-sync="hint" className="flex min-w-0 items-center gap-2 text-subheadline text-muted-foreground">
-      <span className="min-w-0 truncate">{words.hint}</span>
+      {/* In a column too narrow for the bar's own label, it leads this line. */}
+      {sync.mode.kind !== "confirm" && <span className="shrink-0 font-medium text-foreground @min-[600px]/player:hidden">{words.label}</span>}
+      <span className="min-w-0 truncate" title={words.hint}>
+        {words.hint}
+      </span>
       {sync.mode.kind === "ask" && (
         <button type="button" className={quietLink} onClick={sync.actions.replay}>
           Replay
@@ -1130,7 +1134,7 @@ export function GameWatchView({
         <ResizablePanel id="player" defaultSize="66" minSize="45">
           <div className="flex h-full min-h-0 flex-col px-4 pt-4">
             <div ref={stageBoxRef} className="flex min-h-0 flex-1 flex-col items-center">
-              <div className="flex flex-col" style={{ width: stageWidth || "100%" }}>
+              <div className="@container/player flex flex-col" style={{ width: stageWidth || "100%" }}>
                 <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
                   <div ref={stageWrapRef} className={playerFs.active ? "relative min-h-0 flex-1" : "relative w-full"}>
                     <PlayerStage
@@ -1280,6 +1284,8 @@ export function GameWatchView({
                   syncParts={stripSyncParts}
                   onCheckPart={sync.active ? undefined : (index) => sync.startCheck("lane", index)}
                   syncControl={syncControl}
+                  // While a play is checked the line under the track is for what to look for: the zoom waits.
+                  zoomHidden={sync.active}
                 />
                 )}
               </div>

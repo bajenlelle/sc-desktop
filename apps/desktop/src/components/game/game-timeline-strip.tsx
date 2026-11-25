@@ -660,6 +660,7 @@ export function GameTimelineStrip({
   syncParts,
   onCheckPart,
   syncControl,
+  zoomHidden = false,
   className,
   handleRef,
 }: {
@@ -696,6 +697,8 @@ export function GameTimelineStrip({
   onCheckPart?: (index: number) => void;
   /** Beside the zoom, under the track: the sync's state and the way to check it. */
   syncControl?: ReactNode;
+  /** The zoom control is left out (the row is needed for something else for a while); the zoom itself stays as it is. */
+  zoomHidden?: boolean;
   className?: string;
   handleRef?: Ref<GameTimelineHandle>;
 }) {
@@ -1285,10 +1288,10 @@ export function GameTimelineStrip({
         ) : (
           (hint || facts.length > 0) && <p className="min-w-0 truncate text-subheadline text-muted-foreground nums">{hint ?? facts.join(" · ")}</p>
         )}
-        {(syncControl || timeline.bands.length > 1) && (
+        {(syncControl || (timeline.bands.length > 1 && !zoomHidden)) && (
           <span ref={zoomRef} className="ml-auto flex shrink-0 items-center gap-1">
             {syncControl}
-            {timeline.bands.length > 1 && (
+            {timeline.bands.length > 1 && !zoomHidden && (
             <PopUpButton
               aria-label="Timeline zoom"
               size="sm"
