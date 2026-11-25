@@ -26,7 +26,8 @@ const KEY_STEP = 16;
  * the column animates, so nothing inside re-wraps; while dragged the content follows the edge.
  *
  * `onExpand` turns on the closed column's reveal: its edge pulls it back out 1:1, or opens it with a click.
- * Without it a closed column's edge does nothing (the main sidebar's would be the window's own edge).
+ * `onEdgeClick` makes a click on the open column's edge (a press that doesn't move) do something, such as
+ * hide it; a double-click then no longer resets the width, since its first click already acted.
  *
  * Shared by the window's sidebar (components/shell/sidebar.tsx) and the playlist browser
  * (components/editor/browser-column.tsx). Each paints its own edge.
@@ -38,6 +39,7 @@ export function useColumnResize({
   onWidthChange,
   onCollapse,
   onExpand,
+  onEdgeClick,
   onDragStart,
 }: {
   collapsed: boolean;
@@ -47,6 +49,8 @@ export function useColumnResize({
   onCollapse: () => void;
   /** Open again at `width`, from the closed column's edge. */
   onExpand?: (width: number) => void;
+  /** A click on the open column's edge. */
+  onEdgeClick?: () => void;
   onDragStart?: () => void;
 }): {
   w: MotionValue<number>;
@@ -155,6 +159,11 @@ export function useColumnResize({
       /* already released */
     }
     const velocity = velocityFromSamples(d.samples, 100, e.timeStamp);
+    if (d.mode === "resize" && !d.moved && onEdgeClick) {
+      w.set(d.startWidth);
+      onEdgeClick();
+      return;
+    }
     if (d.mode === "reveal") {
       // A click opens at the width it had; the collapsed effect springs it.
       if (!d.moved) {
@@ -204,7 +213,7 @@ export function useColumnResize({
       onPointerUp,
       onPointerCancel: onPointerUp,
       onDoubleClick: () => {
-        if (!collapsed) onWidthChange(limits.default);
+        if (!collapsed && !onEdgeClick) onWidthChange(limits.default);
       },
       onKeyDown: (e) => {
         if (collapsed) {
@@ -212,6 +221,11 @@ export function useColumnResize({
             e.preventDefault();
             onExpand(widthRef.current);
           }
+          return;
+        }
+        if (onEdgeClick && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onEdgeClick();
           return;
         }
         if (e.key === "ArrowLeft") {
