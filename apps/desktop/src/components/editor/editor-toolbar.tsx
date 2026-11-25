@@ -4,7 +4,6 @@ import {
   ArrowDownUp,
   BarChart3,
   ChevronDown,
-  ChevronLeft,
   CircleX,
   Columns2,
   FileDown,
@@ -25,6 +24,7 @@ import {
 import { exportProgressLabel, exportProgressPercent, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { ExportAction } from "@/components/export-format-dialog";
 import { Toolbar, ToolbarAction, useToolbarCompact } from "@/components/shell/toolbar";
+import { useBack } from "@/lib/nav-history";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -47,22 +47,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 
 export type ClockSort = "none" | "asc" | "desc";
-
-/** The game the coach came from, when they came from one: "‹ {title}" leads the toolbar and takes them back. */
-export interface BackToGame {
-  title: string;
-  onBack: () => void;
-}
-
-/** The toolbar's leading back button, the one the game page uses for "‹ Library". */
-export function BackButton({ title, onBack }: BackToGame) {
-  return (
-    <Button variant="ghost" size="sm" className="-ml-1 min-w-0 shrink text-muted-foreground" onClick={onBack}>
-      <ChevronLeft className="shrink-0" />
-      <span className="max-w-48 truncate">{title}</span>
-    </Button>
-  );
-}
 
 /** A reference in running text: quiet until pointed at, then the link it is. */
 const REFERENCE =
@@ -116,8 +100,6 @@ function GamesReference({ games, onOpen }: { games: PlaylistGame[]; onOpen: (mat
 
 export interface EditorToolbarProps {
   name: string;
-  /** Set while the editor was opened from a game page. */
-  backTo?: BackToGame | null;
   itemCount: number;
   /** The games the playlist's clips come from (packages/shared/lib/playlist-games.ts), named in the subtitle. */
   games: PlaylistGame[];
@@ -241,6 +223,8 @@ function CardMenuItem({
  * the menu beside Add clips, everything that goes into the video in one place.
  */
 export function EditorToolbar(p: EditorToolbarProps) {
+  // The toolbar leads with "‹ {page}" when the editor was opened from another page (a game, a report).
+  const hasBack = useBack() !== null;
   const title = p.editing ? (
     <input
       autoFocus
@@ -283,7 +267,6 @@ export function EditorToolbar(p: EditorToolbarProps) {
       variant="static"
       leading={
         <>
-          {p.backTo && <BackButton {...p.backTo} />}
           <ToolbarAction label="Report">
             {(compact) => (
               <Button
@@ -305,7 +288,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
       subtitle={subtitle}
       // Below this the actions show their icons only, so the title and the game keep their room. Measured on the
       // bar itself: the labels take some 180 px, and a back button to a game needs room of its own.
-      compactBelow={p.backTo ? 1240 : 1100}
+      compactBelow={hasBack ? 1240 : 1100}
       actions={
         <>
           {/* Clip length: pre/post roll, set once per playlist. */}

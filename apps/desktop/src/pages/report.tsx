@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { ReportView } from "@/components/report/report-view";
 import { Page } from "@/components/shell/page";
@@ -8,17 +8,20 @@ import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
+import { useBack, usePageTitle } from "@/lib/nav-history";
 import { useLeagues } from "@/lib/use-leagues";
 import { useReportWorkspace } from "@/lib/use-report-workspace";
 
-/** Where Back goes from a report, as the link that opened it says (a team, the Reports list, the playlist, the search). */
+/** What a link to a report may carry. Back is the page before (lib/nav-history.ts), else the Reports list. */
 export interface ReportPageState {
-  back?: { label: string; path: string; state?: unknown };
   /** Share again from the Reports list: the share sheet opens once the report is read. */
   share?: boolean;
 }
 
-/** The link to a report, with where Back should return. */
+/** Where a report goes back to when nothing was before it. */
+const REPORTS_FALLBACK = { label: "Reports", path: "/reports" };
+
+/** The link to a report. */
 export function reportPath(playlistId: string): string {
   return `/reports/${playlistId}`;
 }
@@ -35,7 +38,6 @@ export function ReportPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const state = (location.state ?? {}) as ReportPageState;
-  const back = state.back ?? { label: "Reports", path: "/reports" };
   const leagues = useLeagues();
   const ws = useReportWorkspace(playlistId);
   const { user, activeOrgId } = useAuth();
@@ -45,7 +47,9 @@ export function ReportPage() {
     if (opened) rememberOpened(recentOpensScope(user?.id, activeOrgId), "report", playlistId);
   }, [opened, user?.id, activeOrgId, playlistId]);
 
-  const goBack = useCallback(() => navigate(back.path, { state: back.state }), [navigate, back.path, back.state]);
+  const back = useBack(REPORTS_FALLBACK);
+  const goBack = useCallback(() => back?.go(), [back]);
+  usePageTitle(ws.playlist?.name);
   const editClips = useCallback(
     (reveal?: string) => navigate("/playlists", { state: { restore: { playlistId }, ...(reveal ? { reveal } : {}) } }),
     [navigate, playlistId],
@@ -53,17 +57,10 @@ export function ReportPage() {
   // Read once: a reload or Back to this page doesn't open the share sheet again.
   const clearShare = useCallback(() => navigate(location.pathname, { replace: true, state: { ...state, share: false } }), [navigate, location.pathname, state]);
 
-  const backButton = (
-    <Button variant="ghost" size="sm" className="-ml-1 min-w-0 shrink text-muted-foreground" onClick={goBack}>
-      <ChevronLeft className="shrink-0" />
-      <span className="max-w-48 truncate">{back.label}</span>
-    </Button>
-  );
-
   if (ws.status !== "ready" || !ws.playlist) {
     return (
       <Page>
-        <Toolbar leading={backButton} title={ws.status === "loading" ? "" : "Report"} />
+        <Toolbar back={REPORTS_FALLBACK} title={ws.status === "loading" ? "" : "Report"} />
         {ws.status === "missing" ? (
           <EmptyState icon={<FileText />} title="This report isn’t here" body="Its playlist was deleted, or it belongs to another space." action={<Button size="sm" variant="outline" onClick={() => navigate("/reports")}>Go to Reports</Button>} />
         ) : ws.status === "failed" ? (
@@ -95,7 +92,7 @@ export function ReportPage() {
       <ReportView
         key={ws.playlist.id}
         toolbarSlot={null}
-        leading={backButton}
+        back={REPORTS_FALLBACK}
         onEditClips={() => editClips()}
         playlist={ws.playlist}
         eventByKey={ws.eventByKey}

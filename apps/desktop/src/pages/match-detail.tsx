@@ -27,7 +27,7 @@ import { isSuggestionPending, offeredSeconds, TipoffSuggestionStrip } from "@/co
 import { FirstBasketPanel, FirstBasketSwitch, useFirstBasket } from "@/components/first-basket";
 import { firstScoreAfterS } from "@scoutable/shared/lib/sync-anchor";
 import { Page, PageContent } from "@/components/shell/page";
-import { GameBackButton, GameTitle } from "@/components/game/game-toolbar-parts";
+import { GAMES_FALLBACK, GameTitle } from "@/components/game/game-toolbar-parts";
 import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -35,6 +35,7 @@ import { Callout, FormRow, GroupFooter, GroupHeader, GroupRow, GroupedList } fro
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
+import { usePageTitle } from "@/lib/nav-history";
 import { formatDate } from "@/lib/format-date";
 import { getMatch, updateMatchMeta, updateSyncPoint, updateVideoUrl } from "@/lib/matches-db";
 import { springs } from "@/lib/motion";
@@ -232,6 +233,8 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
   const [clipCount, setClipCount] = useState(0);
 
   const [title, setTitle] = useState("");
+  // The name the next page's back button gives this game (as saved, not as being typed).
+  usePageTitle(storedMatch?.title);
   const [date, setDate] = useState("");
   const [homeColor, setHomeColor] = useState("");
   const [awayColor, setAwayColor] = useState("");
@@ -414,7 +417,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
       <Page>
         <Toolbar
           title="Game"
-          leading={<GameBackButton matchId={matchId} />}
+          back={GAMES_FALLBACK}
         />
         <PageContent width="narrow">
           {notFound ? (
@@ -562,12 +565,8 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
         subtitle={[`${storedMatch.homeTeam.name} – ${storedMatch.awayTeam.name}`, date ? formatDate(parseISO(date)) : null]
           .filter(Boolean)
           .join(" · ")}
-        leading={
-          <>
-            <GameBackButton matchId={matchId} />
-            {viewSwitch}
-          </>
-        }
+        back={GAMES_FALLBACK}
+        leading={viewSwitch}
         actions={
           <AnimatePresence>
             {saveState && (
@@ -587,7 +586,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
             <Button
               key="build"
               size="sm"
-              onClick={() => navigate("/playlists", { state: { createNew: true, addClipsFrom: matchId, highlight: "add-clips", from: { matchId, title: title || storedMatch.title } } })}
+              onClick={() => navigate("/playlists", { state: { createNew: true, addClipsFrom: matchId, highlight: "add-clips" } })}
             >
               <ListPlus />
               Build a playlist

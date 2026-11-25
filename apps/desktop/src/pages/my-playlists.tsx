@@ -389,6 +389,8 @@ export function MyPlaylistsPage() {
       <Page>
         <Toolbar
           variant="static"
+          // Its back is to the list on this page, not to the page before.
+          back={false}
           leading={
             <Button variant="ghost" size="sm" className="-ml-1 shrink-0 text-muted-foreground" onClick={() => setWatching(null)}>
               <ChevronLeft />

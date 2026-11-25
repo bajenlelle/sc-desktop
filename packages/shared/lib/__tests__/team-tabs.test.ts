@@ -35,9 +35,8 @@ describe("a team as it was left", () => {
     expect(teamStateToRestore({ side: "without", pick })).toEqual({ side: "without", pick });
   });
 
-  it("keeps Back only when it leads to a team page or the league", () => {
-    expect(teamStateToRestore({ back: { label: "Alfa", path: "/teams/1/1" } })).toEqual({ back: { label: "Alfa", path: "/teams/1/1" } });
-    expect(teamStateToRestore({ back: { label: "vs Beta", path: "/matches/abc" } })).toEqual({});
+  it("drops a Back from before Back was the history's (the row is a new way in)", () => {
+    expect(teamStateToRestore({ back: { label: "Alfa", path: "/teams/1/1" } })).toEqual({});
   });
 
   it("drops how it was first opened", () => {

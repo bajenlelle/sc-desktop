@@ -29,7 +29,7 @@ export function OpenTeams() {
       const path = teamTabPath(id);
       if (!path) return;
       const was = recallTeamLeft(id);
-      const state = { ...(teamStateToRestore(was?.state) as Pick<TeamPageState, "side" | "pick" | "back">), from: "open_teams" } satisfies TeamPageState;
+      const state = { ...(teamStateToRestore(was?.state) as Pick<TeamPageState, "side" | "pick">), from: "open_teams" } satisfies TeamPageState;
       // A field being typed in saves on blur, and the row's press keeps the focus where it was.
       leaveField();
       navigate(`${path}${was?.search ?? ""}`, { replace, state });

@@ -18,7 +18,7 @@ import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
 import { trackEvent } from "@/lib/analytics";
 import { recallGameView, rememberGameView } from "@/lib/game-tabs";
-import { GameBackButton, GameTitle } from "../game-toolbar-parts";
+import { GAMES_FALLBACK, GameTitle } from "../game-toolbar-parts";
 import { ScoreSection } from "./score-section";
 import type { OpenPlays } from "./stat-cell";
 
@@ -119,12 +119,8 @@ export function GameStatsView({
       <Toolbar
         compactBelow="auto"
         title={<GameTitle title={match.title} />}
-        leading={
-          <>
-            <GameBackButton matchId={match.id} />
-            {viewSwitch}
-          </>
-        }
+        back={GAMES_FALLBACK}
+        leading={viewSwitch}
       />
       <PageContent width="wide" className="space-y-7">
         <div ref={anchorRef} className="contents" />

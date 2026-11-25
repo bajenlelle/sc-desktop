@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GO_PAGES, goKeyOrder, isBrowserShortcut, menuIdForChord, sidebarPages, type KeyChord } from "../menu-shortcuts";
+import { GO_PAGES, goKeyOrder, historyKeyFor, isBrowserShortcut, menuIdForChord, sidebarPages, type KeyChord } from "../menu-shortcuts";
 
 const chord = (key: string, mods: Partial<KeyChord> = {}): KeyChord => ({
   key,
@@ -47,7 +47,20 @@ describe("menuIdForChord", () => {
     expect(menuIdForChord(chord("[", { ctrlKey: true, shiftKey: true }))).toBe("game-tab-prev");
     expect(menuIdForChord(chord("}", { ctrlKey: true, shiftKey: true }))).toBe("game-tab-next");
     expect(menuIdForChord(chord("]", { metaKey: true, shiftKey: true }))).toBe("game-tab-next");
-    expect(menuIdForChord(chord("[", { ctrlKey: true }))).toBeNull();
+    // Without Shift, [ and ] are Back and Forward.
+    expect(menuIdForChord(chord("[", { ctrlKey: true }))).toBe("nav-back");
+    expect(menuIdForChord(chord("]", { metaKey: true }))).toBe("nav-forward");
+  });
+
+  it("maps the arrows to Back and Forward: Cmd on a Mac, Alt on Windows, never with Shift", () => {
+    expect(historyKeyFor(chord("ArrowLeft", { metaKey: true }), true)).toBe("nav-back");
+    expect(historyKeyFor(chord("ArrowRight", { metaKey: true }), true)).toBe("nav-forward");
+    expect(historyKeyFor(chord("ArrowLeft", { altKey: true }), true)).toBeNull();
+    expect(historyKeyFor(chord("ArrowLeft", { altKey: true }), false)).toBe("nav-back");
+    expect(historyKeyFor(chord("ArrowRight", { altKey: true }), false)).toBe("nav-forward");
+    expect(historyKeyFor(chord("ArrowLeft", { metaKey: true, shiftKey: true }), true)).toBeNull();
+    expect(historyKeyFor(chord("ArrowLeft"), true)).toBeNull();
+    expect(historyKeyFor(chord("ArrowUp", { metaKey: true }), true)).toBeNull();
   });
 
   it("treats Cmd like Ctrl, matching CmdOrCtrl", () => {

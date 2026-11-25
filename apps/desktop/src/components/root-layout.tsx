@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/shell/sidebar";
 import { LicenseBanner } from "@/components/license-banner";
 import { TeamStep } from "@/components/team-step";
 import { useRememberLastPage } from "@/lib/last-page";
+import { NavHistoryTracker } from "@/lib/nav-history";
 
 /**
  * The window: a source-list sidebar beside the content column. Pages built
@@ -19,6 +20,8 @@ export function RootLayout() {
   useRememberLastPage();
   return (
     <div className="flex h-screen overflow-hidden font-sans antialiased">
+      {/* First, so the page rendered for a location already finds its entry in the history. */}
+      <NavHistoryTracker />
       <Sidebar />
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <LicenseBanner />

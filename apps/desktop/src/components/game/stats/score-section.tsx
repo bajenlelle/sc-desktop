@@ -79,7 +79,7 @@ export function ScoreSection({
                     {competitionId && season ? (
                       <Link
                         to={`/teams/${competitionId}/${t.side === 1 ? season.home.teamId : season.away.teamId}`}
-                        state={{ from: "game", back: { label: match.title, path: `/matches/${match.id}?view=stats` } }}
+                        state={{ from: "game" }}
                         className="truncate rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
                       >
                         {t.name}

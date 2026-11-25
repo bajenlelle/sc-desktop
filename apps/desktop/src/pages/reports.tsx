@@ -117,10 +117,10 @@ export function ReportsPage() {
     const url = item.reportId ? scoutingReportUrl(reportBaseUrl(), item.reportId) : null;
     switch (action) {
       case "open":
-        navigate(reportPath(item.playlistId), { state: { back: { label: "Reports", path: "/reports" } } satisfies ReportPageState });
+        navigate(reportPath(item.playlistId), { state: {} satisfies ReportPageState });
         break;
       case "share_again":
-        navigate(reportPath(item.playlistId), { state: { back: { label: "Reports", path: "/reports" }, share: true } satisfies ReportPageState });
+        navigate(reportPath(item.playlistId), { state: { share: true } satisfies ReportPageState });
         break;
       case "show_clips":
         navigate("/playlists", { state: { restore: { playlistId: item.playlistId } } });

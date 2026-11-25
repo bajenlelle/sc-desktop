@@ -85,8 +85,6 @@ export interface CollectScope {
   games: readonly StoredMatch[];
   /** A new playlist's suggested name. */
   title: string;
-  /** The editor's way back here, when it has one (a game). */
-  from: { matchId: string; title: string } | null;
   /** On every collecting event. */
   surface: "game_view" | "team_plays";
 }
@@ -533,11 +531,10 @@ export function useCollect({
     return [...out.values()].sort((a, b) => Number(b.playlist.id === targetId) - Number(a.playlist.id === targetId) || b.count - a.count);
   }, [playlists, gameIdsKey, targetId]);
 
-  /** Opens a playlist in the editor, which gets the way back to this game. */
+  /** Opens a playlist in the editor; its Back comes back here (lib/nav-history.ts). */
   const openPlaylist = useCallback(
     (playlistId: string) => {
-      const from = scopeRef.current.from;
-      navigate("/playlists", { state: from ? { restore: { playlistId }, from } : { restore: { playlistId } } });
+      navigate("/playlists", { state: { restore: { playlistId } } });
     },
     [navigate],
   );

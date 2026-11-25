@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Folder, Loader2 } from "lucide-react";
+import { Folder, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { isStaffRole } from "@scoutable/shared/lib/orgs";
 import { getLicenseState } from "@scoutable/shared/lib/license-state";
@@ -242,12 +242,7 @@ export function MoveToClubPage() {
     <Page>
       <Toolbar
         title="Move content to a club"
-        leading={
-          <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/settings")}>
-            <ChevronLeft />
-            Settings
-          </Button>
-        }
+        back={{ label: "Settings", path: "/settings" }}
       />
       <PageContent width="narrow">
         <div className="space-y-7 pb-4">

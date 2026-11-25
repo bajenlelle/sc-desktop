@@ -18,7 +18,9 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { whatsNewUrl } from "@scoutable/shared/lib/release-notes";
 import { useTheme } from "next-themes";
-import { GO_PAGES, goKeyOrder, isBrowserShortcut, menuIdForChord, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
+import { GO_PAGES, goKeyOrder, historyKeyFor, isBrowserShortcut, menuIdForChord, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
+import { canGoForward } from "@scoutable/shared/lib/nav-history";
+import { markNextNavRoot, navBack, navForward, useNavHistory } from "@/lib/nav-history";
 import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { interactiveUpdateCheck } from "@/lib/updates";
@@ -48,6 +50,17 @@ const enabledIds = new Map<string, boolean>();
 function storedZoom(): number {
   const raw = Number(localStorage.getItem(ZOOM_KEY));
   return raw >= ZOOM_MIN && raw <= ZOOM_MAX ? raw : 1;
+}
+
+/** A field the keys type into (where ⌘← and Alt+← move the caret, not the page). */
+function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  if (tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (tag !== "INPUT") return false;
+  const type = (target as HTMLInputElement).type;
+  return !["checkbox", "radio", "button", "submit", "reset", "range", "color", "file"].includes(type);
 }
 
 function setEnabled(id: string, enabled: boolean) {
@@ -163,6 +176,13 @@ export function MenuHandler() {
         return;
       }
       switch (id) {
+        // Back and Forward through the pages walked (lib/nav-history.ts).
+        case "nav-back":
+          navBack();
+          break;
+        case "nav-forward":
+          navForward();
+          break;
         case "settings":
           navigate("/settings");
           break;
@@ -174,21 +194,27 @@ export function MenuHandler() {
           navigate("/upload");
           break;
         case "go-playlists":
+          markNextNavRoot();
           navigate("/playlists");
           break;
         case "go-reports":
+          markNextNavRoot();
           navigate("/reports");
           break;
         case "go-my-playlists":
+          markNextNavRoot();
           navigate("/my-playlists");
           break;
         case "go-library":
+          markNextNavRoot();
           navigate("/matches");
           break;
         case "go-teams":
+          markNextNavRoot();
           navigate("/teams");
           break;
         case "go-organization":
+          markNextNavRoot();
           navigate("/organization");
           break;
         case "new-playlist":
@@ -292,12 +318,47 @@ export function MenuHandler() {
       else unlisten = fn;
     });
     if (!HAS_NATIVE_MENU) window.addEventListener("keydown", onKeyDown);
+
+    // Back and Forward by the arrows (⌘← ⌘→ on a Mac, Alt+← Alt+→ on Windows), from anywhere but a text field,
+    // where they move the caret; a list or player that took the key first keeps it.
+    function onHistoryKey(e: KeyboardEvent) {
+      if (e.defaultPrevented || isTextEntry(e.target)) return;
+      const id = historyKeyFor(e, IS_MACOS);
+      if (!id) return;
+      e.preventDefault();
+      runMenuAction(id);
+    }
+    // The mouse's side buttons, on release, as browsers do: WebView2 would step its own history on the same
+    // release too, and the router would follow it a second time.
+    function onMouseUp(e: MouseEvent) {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      runMenuAction(e.button === 3 ? "nav-back" : "nav-forward");
+    }
+    function onMouseDown(e: MouseEvent) {
+      if (e.button === 3 || e.button === 4) e.preventDefault();
+    }
+    window.addEventListener("keydown", onHistoryKey);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("mousedown", onMouseDown);
     return () => {
       cancelled = true;
       unlisten?.();
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onHistoryKey);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("mousedown", onMouseDown);
     };
   }, [navigate, setTheme]);
+
+  // Back and Forward are on while there is a page that way.
+  const nav = useNavHistory();
+  const canBack = nav.index > 0;
+  const canForward = canGoForward(nav);
+  useEffect(() => {
+    setEnabled("nav-back", canBack);
+    setEnabled("nav-forward", canForward);
+  }, [canBack, canForward]);
 
   // Role/route gating — items are disabled, never removed (macOS convention).
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";

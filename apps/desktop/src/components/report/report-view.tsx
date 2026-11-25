@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/shell/toolbar";
+import type { BackFallback } from "@/lib/nav-history";
 import { ScoutingReportDialog, type ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
 import { PlaylistViewSwitch } from "@/components/editor/playlist-view-switch";
 import { trackEvent } from "@/lib/analytics";
@@ -73,8 +74,8 @@ export interface ReportViewProps {
    * and the browser stay put when the view changes.
    */
   toolbarSlot: HTMLElement | null;
-  /** The toolbar's leading part on the report's own page (Back); the Clips | Report switch where it is absent. */
-  leading?: ReactNode;
+  /** On the report's own page: where its Back goes when nothing was before it (the toolbar's back button); in the editor, the Clips | Report switch leads instead. */
+  back?: BackFallback;
   /** Edit clips: the playlist in the editor. Shown when given (the report's own page). */
   onEditClips?: () => void;
   playlist: Playlist;
@@ -672,8 +673,9 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const toolbar = (
     <Toolbar
       variant="static"
+      back={props.back}
       leading={
-        props.leading ?? <PlaylistViewSwitch value="report" onChange={(v) => v === "clips" && onBack()} sharedStatus={liveReport ? sharedStatusLabel(liveReport) : null} />
+        props.back ? undefined : <PlaylistViewSwitch value="report" onChange={(v) => v === "clips" && onBack()} sharedStatus={liveReport ? sharedStatusLabel(liveReport) : null} />
       }
       title={playlist.name}
       subtitle="Scouting report"
@@ -709,7 +711,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {props.toolbarSlot ? createPortal(toolbar, props.toolbarSlot) : props.leading ? toolbar : null}
+      {props.toolbarSlot ? createPortal(toolbar, props.toolbarSlot) : props.back ? toolbar : null}
       <div className="flex min-h-0 flex-1">
         {layout ? (
           <ReportOutline

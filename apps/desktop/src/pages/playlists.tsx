@@ -172,7 +172,7 @@ import { readRecentOpens, recentOpensScope, rememberOpened } from "@/lib/recent-
 import { lastOpenedPlaylist } from "@scoutable/shared/lib/recent-opens";
 import { Page } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
-import { BackButton, EditorToolbar, type BackToGame } from "@/components/editor/editor-toolbar";
+import { EditorToolbar } from "@/components/editor/editor-toolbar";
 import { PlayerStage } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { ClipRow, TextCardRow } from "@/components/editor/clip-rows";
@@ -337,18 +337,6 @@ export function PlaylistsPage() {
     if (activeOrgId && !canAccess) navigate("/my-playlists", { replace: true });
   }, [activeOrgId, canAccess, profileLoading, navigate]);
 
-  // A new arrival on this page without a game behind it (the sidebar, a
-  // link) drops the way back; the page's own clearing of the state doesn't.
-  const seenLocationKeyRef = useRef(location.key);
-  useEffect(() => {
-    if (location.key === seenLocationKeyRef.current) return;
-    seenLocationKeyRef.current = location.key;
-    if (clearingStateRef.current) {
-      clearingStateRef.current = false;
-      return;
-    }
-    if (!(location.state as { from?: unknown } | null)?.from) setBackTo(null);
-  }, [location.key, location.state]);
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   // Games in another space that this space's playlists have clips on: a
   // personal playlist whose game moved to a club, or a club playlist with a
@@ -515,14 +503,6 @@ export function PlaylistsPage() {
   }, [resumeExport, exportAllowed]);
   // Vertical-crop editor: overlay visible + "export view" dim toggle.
   const [cropMode, setCropMode] = useState(false);
-  /**
-   * The game page this visit came from (its "Open playlist" or "Build a
-   * playlist"): the toolbar leads with "‹ {game}" back to it. Only for this
-   * arrival: a reload or a sidebar navigation drops it.
-   */
-  const [backTo, setBackTo] = useState<BackToGame | null>(null);
-  /** The page's own replace that clears the one-shot state: not an arrival that drops `backTo`. */
-  const clearingStateRef = useRef(false);
   const [cropDimmed, setCropDimmed] = useState(false);
   // Trim: the playing clip's ends on handles over the player (ClipTrimmer).
   // Nothing plays or advances on its own meanwhile (trimActiveRef).
@@ -811,8 +791,6 @@ export function PlaylistsPage() {
       share?: boolean;
       /** Set by a game page's "Build a playlist": the next Add clips starts on this game. */
       addClipsFrom?: string;
-      /** Set by a game page: the toolbar's "‹ {title}" goes back to it. */
-      from?: { matchId: string; title: string };
       /** Set by the report page's Edit clip: this clip is the selected row. */
       reveal?: string;
     } | null;
@@ -827,11 +805,8 @@ export function PlaylistsPage() {
     // One-shot flags: clear them from the history entry once read, or a
     // remount of this page would restore/reship/create all over again.
     if (state) {
-      clearingStateRef.current = true;
       navigate(location.pathname, { replace: true, state: null });
     }
-    const from = state?.from;
-    setBackTo(from ? { title: from.title, onBack: () => navigate(`/matches/${from.matchId}`) } : null);
     if (state?.reship && restore) pendingShipRef.current.add(restore.playlistId);
     if (state?.addClipsFrom) setAddClipsFrom(state.addClipsFrom);
     if (state?.highlight) applyHighlight(state.highlight);
@@ -5399,7 +5374,7 @@ export function PlaylistsPage() {
     handleStop();
     videoRef.current?.pause();
     if (playerFs.active) void playerFs.exit();
-    navigate(reportPath(pl.id), { state: { back: { label: pl.name, path: "/playlists", state: { restore: { playlistId: pl.id } } } } satisfies ReportPageState });
+    navigate(reportPath(pl.id));
   }
 
   // A playlist, or its report, asked for while this page is already shown (the search, ⌘K, a Getting
@@ -5461,7 +5436,6 @@ export function PlaylistsPage() {
     } | null;
     if (!state?.restore && !state?.createNew) return;
     // Read once, like the load effect's flags.
-    clearingStateRef.current = true;
     navigate(location.pathname, { replace: true, state: null });
     // The first load is still on its way: done when it lands, below.
     if (state.createNew) {
@@ -6470,7 +6444,6 @@ export function PlaylistsPage() {
     {selected && !reportView ? (
       <EditorToolbar
         name={selected.name}
-        backTo={backTo}
         itemCount={selected.items.length}
         games={gamesInPlaylist}
         onOpenGame={(id, via) => openGame(id, null, via)}
@@ -6550,7 +6523,6 @@ export function PlaylistsPage() {
       <Toolbar
         variant="static"
         title="Playlists"
-        leading={backTo ? <BackButton {...backTo} /> : undefined}
         actions={
           <Button size="sm" onClick={() => handleNewPlaylist()}>
             <ListPlus />

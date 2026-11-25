@@ -30,7 +30,7 @@ import { Callout } from "@/components/ui/group";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
-import { GameBackButton, GameTitle } from "@/components/game/game-toolbar-parts";
+import { GAMES_FALLBACK, GameTitle } from "@/components/game/game-toolbar-parts";
 import { recallGamePosition, recallGameView, rememberGamePosition, rememberGameView } from "@/lib/game-tabs";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { togglePlayerMuted } from "@/lib/player-sound";
@@ -215,7 +215,7 @@ export function GameWatchView({
     if (presetLabelsGone(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
   };
   const collectScope = useMemo<CollectScope>(
-    () => ({ key: match.id, games: [match], title: match.title, from: { matchId: match.id, title: match.title }, surface: "game_view" }),
+    () => ({ key: match.id, games: [match], title: match.title, surface: "game_view" }),
     [match],
   );
   const collect = useCollect({ scope: collectScope, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
@@ -1064,12 +1064,8 @@ export function GameWatchView({
         variant="static"
         compactBelow="auto"
         title={<GameTitle title={match.title} />}
-        leading={
-          <>
-            <GameBackButton matchId={match.id} />
-            {viewSwitch}
-          </>
-        }
+        back={GAMES_FALLBACK}
+        leading={viewSwitch}
         actions={<CollectControl collect={collect} highlight={!tipSeen} />}
       />
       <ResizablePanelGroup direction="horizontal" autoSaveId="game-view" className="min-h-0 flex-1">

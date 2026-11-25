@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { ReportGame } from "@scoutable/shared/lib/report-draft";
 import type { ReportDraftRow } from "@scoutable/shared/lib/scouting-report-list";
@@ -67,8 +67,6 @@ export function useTeamReport(
   team: { competitionId: number; teamId: number } | null,
   game: ReportGame | null,
   from: ReportStartFrom,
-  /** What Back on the report says: the team's name on its page. */
-  backName?: string,
 ): TeamReportControl {
   const navigate = useNavigate();
   const { activeOrgId } = useAuth();
@@ -80,11 +78,9 @@ export function useTeamReport(
 
   const playlistId = team ? findTeamReport(drafts.rows, drafts.inSpace, team, game?.id ?? null) : null;
 
-  const location = useLocation();
-  const backLabel = from === "next_game" ? "Teams" : (backName ?? "Team");
   const open = useCallback(
-    (id: string) => navigate(reportPath(id), { state: { back: { label: backLabel, path: location.pathname + location.search, state: location.state } } }),
-    [navigate, backLabel, location.pathname, location.search, location.state],
+    (id: string) => navigate(reportPath(id)),
+    [navigate],
   );
 
   const openOrStart = useCallback(() => {
@@ -138,7 +134,7 @@ export function useReportStarter(): {
       try {
         const id = await make();
         if (!id) return false;
-        navigate(reportPath(id), { state: { back: { label: "Reports", path: "/reports" } } });
+        navigate(reportPath(id));
         return true;
       } catch (e) {
         console.error("[report] couldn't start the report:", e);

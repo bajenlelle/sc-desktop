@@ -71,6 +71,9 @@ const PLAIN: Record<string, string> = {
   "0": "zoom-reset",
   // Organization is not a row of the sidebar: its key comes after the rows' (1 to 5), whatever they are.
   "6": "go-organization",
+  // Go > Back and Forward through the pages walked (docs/navigation.md), as Safari's and Finder's.
+  "[": "nav-back",
+  "]": "nav-forward",
 };
 
 /**
@@ -96,6 +99,21 @@ export function menuIdForChord(e: KeyChord, pages: readonly GoPage[] = GO_PAGES)
   // The nth row of the sidebar.
   if (key.length === 1 && key >= "1" && key <= String(GO_PAGES.length)) return pages[Number(key) - 1] ?? null;
   return PLAIN[key] ?? null;
+}
+
+/**
+ * Back and Forward by the arrows, recognised from keydown on every platform (they are no menu's: a menu
+ * would take them from text fields, where they move the caret): Cmd+Left and Cmd+Right on a Mac, as Linear
+ * offers beside Cmd+[ and Cmd+] for layouts where [ takes Option (Swedish among them); Alt+Left and Alt+Right
+ * on Windows, as its browsers and Explorer do. The caller leaves out keys typed into a text field.
+ */
+export function historyKeyFor(e: KeyChord, mac: boolean): "nav-back" | "nav-forward" | null {
+  if (e.shiftKey) return null;
+  const chord = mac ? e.metaKey && !e.ctrlKey && !e.altKey : e.altKey && !e.ctrlKey && !e.metaKey;
+  if (!chord) return null;
+  if (e.key === "ArrowLeft") return "nav-back";
+  if (e.key === "ArrowRight") return "nav-forward";
+  return null;
 }
 
 /**

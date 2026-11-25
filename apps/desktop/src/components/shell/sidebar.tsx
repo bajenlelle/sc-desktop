@@ -1,6 +1,7 @@
 import * as React from "react";
 import { motion } from "framer-motion";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { markNextNavRoot } from "@/lib/nav-history";
 import { BookOpen, FileText, Film, ListVideo, Plus, Search, Share2, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -52,7 +53,10 @@ function NavItem({
         if (active && onClickWhileActive) {
           e.preventDefault();
           onClickWhileActive();
+          return;
         }
+        // A page of the sidebar's is a fresh start: no "‹ {page}" back in its toolbar (⌘[ still goes back).
+        markNextNavRoot();
       }}
       className={cn(
         "flex h-7 items-center gap-2 rounded-md px-2 text-sm font-medium outline-none transition-[background-color,transform] duration-100 active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-selection",

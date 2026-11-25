@@ -1,7 +1,5 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 import { Check, ChevronDown } from "lucide-react";
-import { ToolbarBackButton } from "@/components/shell/toolbar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,28 +9,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth-context";
-import { recallGameView } from "@/lib/game-tabs";
 import { IS_MACOS } from "@/lib/platform";
 import { useSidebarCollapsed } from "@/lib/sidebar-store";
 import { GameTabPicker } from "./game-tab-picker";
 import { setGamePickerOpen, useGamePickerOpen, useGameTabActions } from "./use-game-tab-actions";
 
-/**
- * The game page's way back, at the toolbar's leading edge: to the playlist the game was opened from (the
- * editor's Show in Game, a game named in its subtitle, or the game under a shared playlist's footage), the way the editor's "‹ {game}" goes back to a
- * game; otherwise to the Library. Remembered per game for the visit (lib/game-tabs.ts `from`), so it holds
- * across the Game | Details switch and a return through the open games.
- */
-export function GameBackButton({ matchId }: { matchId: string }) {
-  const navigate = useNavigate();
-  const from = recallGameView(matchId)?.from ?? null;
-  return (
-    <ToolbarBackButton
-      label={from ? from.title : "Games"}
-      onClick={() => (from ? navigate(from.path, { state: { restore: { playlistId: from.playlistId } } }) : navigate("/matches"))}
-    />
-  );
-}
+/** Where a game goes back to when nothing was before it (the app started on it, a reload): the Library. */
+export const GAMES_FALLBACK = { label: "Games", path: "/matches" } as const;
 
 
 /**

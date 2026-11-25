@@ -338,8 +338,6 @@ export interface GameViewMemory {
   /** The play list's scroll, and whether it was following playback. */
   list: { top: number; following: boolean } | null;
   view: GameViewMode | null;
-  /** The playlist the game was opened from (the editor's Show in Game, its games in the subtitle): the toolbar's back button returns to it. */
-  from: { playlistId: string; title: string; path: "/playlists" | "/my-playlists" } | null;
   /** The Stats view as it was left: its scroll, and whether the players' table showed the season. */
   stats: { top: number; season: boolean } | null;
 }
@@ -351,7 +349,7 @@ export function recallGameView(matchId: string): GameViewMemory | null {
 }
 
 export function rememberGameView(matchId: string, patch: Partial<GameViewMemory>): void {
-  const was = gameViews.get(matchId) ?? { filters: EMPTY_GAME_FILTERS, zoomPeriod: null, list: null, view: null, from: null, stats: null };
+  const was = gameViews.get(matchId) ?? { filters: EMPTY_GAME_FILTERS, zoomPeriod: null, list: null, view: null, stats: null };
   gameViews.set(matchId, { ...was, ...patch });
 }
 

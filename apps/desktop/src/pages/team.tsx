@@ -20,7 +20,8 @@ import { TeamPlayersSection } from "@/components/team/team-players-section";
 import { useTeamPlayers } from "@/lib/use-team-players";
 import { EmptyState } from "@/components/empty-state";
 import { Page, PageContent } from "@/components/shell/page";
-import { Toolbar, ToolbarBackButton } from "@/components/shell/toolbar";
+import { Toolbar } from "@/components/shell/toolbar";
+import { usePageTitle } from "@/lib/nav-history";
 import { TeamHeader } from "@/components/team/team-header";
 import { TeamKeysSection } from "@/components/team/team-keys-section";
 import { TeamProfileSection } from "@/components/team/team-profile-section";
@@ -41,12 +42,11 @@ import { TeamReportToolbarButton } from "@/components/report/team-report-button"
 export type TeamPageFrom = "teams" | "game" | "search" | "team" | "open_teams" | "other";
 
 /**
- * What a link to a team's page carries: where it came from, where Back goes
- * when that isn't Teams, and in Plays what Watch picked and which side.
+ * What a link to a team's page carries: where it came from, and in Plays what
+ * Watch picked and which side. Back is the page before (lib/nav-history.ts).
  */
 export interface TeamPageState {
   from?: TeamPageFrom;
-  back?: { label: string; path: string };
   pick?: PlaysPick | null;
   side?: PlaysSide;
   /** How Plays was opened, for team_plays_viewed. */
@@ -60,6 +60,9 @@ const PLAYS_FROM: Record<"watch_all" | "watch_key" | "watch_shots" | "watch_play
   watch_shots: "shots",
   watch_player: "player",
 };
+
+/** Where a team goes back to when nothing was before it (the app started on it, a reload). */
+const TEAMS_FALLBACK = { label: "Teams", path: "/teams" };
 
 function Skeleton() {
   return (
@@ -82,7 +85,6 @@ export function TeamPage() {
   const teamId = Number(params.teamId);
   const navigate = useNavigate();
   const state = (useLocation().state ?? {}) as TeamPageState;
-  const back = state.back ?? { label: "Teams", path: "/teams" };
 
   const leagues = useLeagues();
   const where_ = useMemo(() => {
@@ -106,6 +108,8 @@ export function TeamPage() {
 
   const profile = league?.teams.get(teamId) ?? null;
   const name = useMemo(() => teamNames(fixtures).get(teamId)?.name ?? "", [fixtures, teamId]);
+  // The name the next page's back button gives this team.
+  usePageTitle(name);
   const rows = useMemo(() => (payload ? teamGameRows(fixtures, payload, teamId, new Date()) : []), [fixtures, payload, teamId]);
   const keys = useMemo(() => (profile && league ? teamKeys(profile, league) : null), [profile, league]);
   const group = league?.groups.find((g) => g.group === profile?.group) ?? null;
@@ -134,11 +138,11 @@ export function TeamPage() {
     });
   }, [profile, keys, library, rows, where_, mine, teamId, state.from]);
   const action = useCallback((a: "open_game" | "import" | "open_team" | "show_all_players" | "show_all_games") => trackEvent("team_page_action", { action: a }), []);
-  // Watch: Plays with this pick and side; Back still goes where it went.
+  // Watch: Plays with this pick and side, in place of Season (as the switch does): Back leaves the team.
   const watch = useCallback(
     (pick: PlaysPick | null, side: PlaysSide, a: "watch_all" | "watch_key" | "watch_shots" | "watch_player", extra: Record<string, string> = {}) => {
       trackEvent("team_page_action", { action: a, ...extra });
-      navigate(`${location.pathname}?view=plays`, { state: { ...state, pick, side, playsFrom: PLAYS_FROM[a] } satisfies TeamPageState });
+      navigate(`${location.pathname}?view=plays`, { replace: true, state: { ...state, pick, side, playsFrom: PLAYS_FROM[a] } satisfies TeamPageState });
     },
     [navigate, location.pathname, state],
   );
@@ -177,7 +181,6 @@ export function TeamPage() {
       key: `team:${teamKey}`,
       games: teamGames.flatMap((g) => plays.matches.get(g.gameId) ?? []),
       title: `Scout ${name || "Team"}`,
-      from: null,
       surface: "team_plays",
     }),
     [teamKey, teamGames, plays.matches, name],
@@ -211,18 +214,14 @@ export function TeamPage() {
   // New report / Open report: one report per game to come against the space's team.
   const reportTeam = useMemo(() => (competitionId && profile ? { competitionId, teamId } : null), [competitionId, teamId, profile]);
   const reportGame = useMemo(() => nextMeeting(rows, mine), [rows, mine]);
-  const report = useTeamReport(reportTeam, reportGame, "team_page", name || undefined);
+  const report = useTeamReport(reportTeam, reportGame, "team_page");
 
   return (
     <Page>
       <Toolbar
         compactBelow="auto"
-        leading={
-          <>
-            <ToolbarBackButton label={back.label} onClick={() => navigate(back.path)} />
-            {profile && <TeamViewSwitch value={view} onChange={setView} />}
-          </>
-        }
+        back={TEAMS_FALLBACK}
+        leading={profile && <TeamViewSwitch value={view} onChange={setView} />}
         title={name || (status === "ready" ? "Team" : "")}
         subtitle={seasonLabel}
         actions={

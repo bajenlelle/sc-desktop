@@ -15,6 +15,7 @@ import { toggleBrowser, useBrowserCollapsed, useBrowserPresent } from "@/lib/pla
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useBack, type BackFallback } from "@/lib/nav-history";
 import { usePageScroll } from "./page";
 
 /**
@@ -49,22 +50,26 @@ export function ToolbarAction({ label, children }: { label: string; children: (c
 }
 
 /**
- * "‹ {where it goes}" at a toolbar's leading edge; in a compact toolbar the chevron alone, as iOS drops a back
+ * "‹ {where it goes}" at a toolbar's leading edge (lib/nav-history.ts): the page the coach came from, by name,
+ * and Back goes there as ⌘[ does; with nothing behind, up to the page's place in the app (`fallback`), or no
+ * button at all on the sidebar's own pages. In a compact toolbar the chevron alone, as iOS drops a back
  * button's title before anything else, with the destination as its name and "Back to …" as its tooltip.
  */
-export function ToolbarBackButton({ label, onClick }: { label: string; onClick: () => void }) {
+export function ToolbarBackButton({ fallback }: { fallback?: BackFallback }) {
+  const back = useBack(fallback);
+  if (!back) return null;
   return (
-    <ToolbarAction label={`Back to ${label}`}>
+    <ToolbarAction label={`Back to ${back.label}`}>
       {(compact) => (
         <Button
           variant="ghost"
           size={compact ? "icon-sm" : "sm"}
-          aria-label={compact ? label : undefined}
+          aria-label={compact ? back.label : undefined}
           className={cn("min-w-0 shrink text-muted-foreground", compact ? "-ml-1.5" : "-ml-1")}
-          onClick={onClick}
+          onClick={back.go}
         >
           <ChevronLeft className="shrink-0" />
-          {!compact && <span className="max-w-48 truncate">{label}</span>}
+          {!compact && <span className="max-w-48 truncate">{back.label}</span>}
         </Button>
       )}
     </ToolbarAction>
@@ -301,6 +306,7 @@ export function PlaylistBrowserToggle() {
 export function Toolbar({
   title,
   subtitle,
+  back,
   leading,
   principal,
   search,
@@ -311,6 +317,12 @@ export function Toolbar({
 }: {
   title: React.ReactNode;
   subtitle?: React.ReactNode;
+  /**
+   * The way back at the leading edge (ToolbarBackButton): the page the coach came from, else this fallback (a
+   * game's is Games). Without one, the button shows only when a page is behind this one and the sidebar didn't
+   * open it; false for a page whose leading edge goes back within itself.
+   */
+  back?: BackFallback | false;
   leading?: React.ReactNode;
   principal?: React.ReactNode;
   search?: React.ReactNode;
@@ -361,6 +373,7 @@ export function Toolbar({
     >
       <SidebarToggle />
       <PlaylistBrowserToggle />
+      {back !== false && <ToolbarBackButton fallback={back} />}
       {leading}
       {/* The title takes the room the bar has between its leading items and its actions, so the actions stay
           put at the right and the title at the left whatever their lengths. A subtitle that is text gives way

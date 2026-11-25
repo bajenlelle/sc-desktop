@@ -23,17 +23,15 @@ export function teamTabOfPath(pathname: string): string | null {
 
 /**
  * What of a team page's router state a row of Open teams brings back: the
- * side and the pick, and Back only while it leads to a team page or the
- * league (a game it once led to may be closed, deleted or moved since). How
- * the page was first opened (`from`, `playsFrom`) is not brought back: the
- * row is a new way in.
+ * side and the pick. How the page was first opened (`from`, `playsFrom`) is
+ * not brought back: the row is a new way in, and Back is the page the row
+ * was pressed on (the history's, apps/desktop/src/lib/nav-history.ts).
  */
-export function teamStateToRestore(state: unknown): { side?: unknown; pick?: unknown; back?: { label: string; path: string } } {
+export function teamStateToRestore(state: unknown): { side?: unknown; pick?: unknown } {
   if (!state || typeof state !== "object") return {};
-  const { side, pick, back } = state as { side?: unknown; pick?: unknown; back?: { label?: unknown; path?: unknown } };
-  const out: { side?: unknown; pick?: unknown; back?: { label: string; path: string } } = {};
+  const { side, pick } = state as { side?: unknown; pick?: unknown };
+  const out: { side?: unknown; pick?: unknown } = {};
   if (side !== undefined) out.side = side;
   if (pick !== undefined) out.pick = pick;
-  if (back && typeof back.label === "string" && typeof back.path === "string" && /^\/teams(\/|$)/.test(back.path)) out.back = { label: back.label, path: back.path };
   return out;
 }

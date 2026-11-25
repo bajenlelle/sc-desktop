@@ -6,7 +6,7 @@ import type { OpenKind, PlaySet } from "@/components/game/stats/stat-cell";
 import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { Loader2 } from "lucide-react";
-import { GameBackButton } from "@/components/game/game-toolbar-parts";
+import { GAMES_FALLBACK } from "@/components/game/game-toolbar-parts";
 import { GameViewSwitch, type GameViewMode } from "@/components/game/game-view-switch";
 import { GameWatchView } from "@/components/game/game-watch-view";
 import { Page, PageContent } from "@/components/shell/page";
@@ -24,6 +24,7 @@ import {
   useGameTabs,
 } from "@/lib/game-tabs";
 import { getMatch, listMatchesByIds } from "@/lib/matches-db";
+import { usePageTitle } from "@/lib/nav-history";
 import { isLocalPath } from "@/lib/stream";
 import { probeVideoPath, type VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
@@ -50,8 +51,9 @@ import { MatchDetailPage } from "./match-detail";
  * per user and space, there from any page (components/shell/open-games.tsx).
  * Switching from one game to another replaces the history entry, so Back
  * leaves the games. A switch opens the view the game was left on
- * (lib/game-tabs.ts). A game opened from a playlist goes back to it: the
- * toolbar's back button names the playlist (GameBackButton).
+ * (lib/game-tabs.ts). The toolbar's back button is the page the game was
+ * opened from, by name (a team's plays, a playlist), else the Library
+ * (lib/nav-history.ts).
  */
 export function GamePage() {
   const { id } = useParams<{ id: string }>();
@@ -68,21 +70,6 @@ export function GamePage() {
   // A tab switch: by the tab bar, by a game marked Open in the Library, or by the search finding a game that has a tab.
   const viaTab = via === "tab" || via === "library_tab" || via === "search_tab";
   const startEventId = Number(searchParams.get("play")) || null;
-  // Opened from a playlist (the editor's Show in Game, a game in its subtitle): Back goes to it. Opened any other
-  // way but a switch between open games (the sidebar's rows, the keys, the menus), Back is the Library's again.
-  useState(() => {
-    const from = (location.state as { from?: { playlistId?: unknown; title?: unknown; path?: unknown } } | null)?.from;
-    if (from && typeof from.playlistId === "string") {
-      rememberGameView(matchId, {
-        from: {
-          playlistId: from.playlistId,
-          title: typeof from.title === "string" ? from.title : "Playlist",
-          path: from.path === "/my-playlists" ? "/my-playlists" : "/playlists",
-        },
-      });
-    } else if (via !== "tab") rememberGameView(matchId, { from: null });
-    return null;
-  });
   // A tab switch shows the game as this visit read it, without the spinner.
   const [loaded, setLoaded] = useState<{ match: StoredMatch; videoStatus: VideoFileStatus | "none" } | null>(() =>
     viaTab ? recallLoadedGame(matchId) : null,
@@ -201,6 +188,8 @@ export function GamePage() {
   const scopeAtMount = useRef(scope);
   const title = loaded?.match.title ?? "";
   const date = loaded?.match.date || null;
+  // The name the next page's back button gives this game.
+  usePageTitle(title);
   useLayoutEffect(() => {
     scopeAtMount.current ??= scope;
     const madeRoom = rememberGameTab(scopeAtMount.current, { id: matchId, title, date });
@@ -247,7 +236,7 @@ export function GamePage() {
   if (!loaded || view === null) {
     return (
       <Page>
-        <Toolbar title="Game" leading={<GameBackButton matchId={matchId} />} />
+        <Toolbar title="Game" back={GAMES_FALLBACK} />
         <PageContent width="narrow">
           <div className="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />

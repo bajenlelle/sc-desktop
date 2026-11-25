@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type { TeamGameRow } from "@scoutable/shared/lib/team-schedule";
 import { Button } from "@/components/ui/button";
 import { GroupHeader } from "@/components/ui/group";
@@ -41,7 +41,6 @@ export function TeamGamesSection({
   onAction?: (action: "open_game" | "import" | "open_team" | "show_all_games") => void;
 }) {
   const [all, setAll] = useState(false);
-  const { pathname } = useLocation();
   const navigate = useNavigate();
   const upcoming = rows.filter((r) => r.status === "upcoming").slice(0, NEXT);
   const played = rows.filter((r) => r.status === "played").reverse();
@@ -109,7 +108,7 @@ export function TeamGamesSection({
                       <span className="text-muted-foreground">{r.home ? "vs" : "at"}</span>
                       <Link
                         to={`/teams/${competitionId}/${r.opponentId}`}
-                        state={{ from: "team", back: { label: teamName, path: pathname } }}
+                        state={{ from: "team" }}
                         onClick={() => onAction?.("open_team")}
                         className="truncate rounded text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
                       >

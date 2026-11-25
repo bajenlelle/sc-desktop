@@ -275,7 +275,17 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     // ⌘G for Game: ⇧⌘J was taken by other apps' global keys (Notion's search), and the app has no Find Next.
     let show_clip_in_game = item("show-clip-in-game", "Show Clip in Game", Some("CmdOrCtrl+G"))?;
     show_clip_in_game.set_enabled(false)?;
+    // Back and Forward through the pages walked, as Safari's and Finder's Go menus (docs/navigation.md);
+    // on while there is a page that way (lib/nav-history.ts). ⌘← and ⌘→ do the same from the page's
+    // own keydown, outside text fields (packages/shared/lib/menu-shortcuts.ts historyKeyFor).
+    let nav_back = item("nav-back", "Back", Some("CmdOrCtrl+["))?;
+    let nav_forward = item("nav-forward", "Forward", Some("CmdOrCtrl+]"))?;
+    nav_back.set_enabled(false)?;
+    nav_forward.set_enabled(false)?;
     let go_menu = SubmenuBuilder::new(app, "Go")
+        .item(&nav_back)
+        .item(&nav_forward)
+        .separator()
         .item(&search)
         .separator()
         .item(&go_playlists)
