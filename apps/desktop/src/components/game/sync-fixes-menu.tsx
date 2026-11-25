@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { ChevronDown, MapPin, Undo2 } from "lucide-react";
+import { ChevronDown, MapPin, Undo2, X } from "lucide-react";
 import { describePlay, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { describeShiftSeconds, type SyncFix } from "@scoutable/shared/lib/sync-check";
 import {
@@ -28,8 +28,10 @@ function fixWords(fix: SyncFix, playOf: (eventId: number) => PlayByPlayEvent | u
 
 /**
  * The fixes made in the game view, beside Check sync, for a game that has
- * any: each can be taken back on its own, or all at once. A fix taken back
- * says so in a toast with Undo, as a fix made does: no confirmation first.
+ * any: each can be taken back on its own with the × at its end (the row
+ * itself does nothing: a click on it wasn't read as taking the fix back), or
+ * all at once. A fix taken back says so in a toast with Undo, as a fix made
+ * does: no confirmation first. The menu stays open for the next one.
  */
 export function SyncFixesMenu({
   fixes,
@@ -52,15 +54,30 @@ export function SyncFixesMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel className="text-footnote font-normal text-muted-foreground">Remove a fix to place its plays by the sync again</DropdownMenuLabel>
+        <DropdownMenuLabel className="text-footnote font-normal text-muted-foreground">A removed fix's plays are placed by the sync again</DropdownMenuLabel>
         {fixes.map((fix) => {
           const words = fixWords(fix, playOf);
           return (
-            <DropdownMenuItem key={`${fix.kind}-${fix.realWorldTime}-${fix.eventId ?? ""}`} data-fix={fix.kind} onSelect={() => onRemove(fix)}>
+            <div
+              key={`${fix.kind}-${fix.realWorldTime}-${fix.eventId ?? ""}`}
+              data-fix={fix.kind}
+              className="flex items-center gap-2 rounded-[5px] py-1 pr-1 pl-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0"
+            >
               {fix.kind === "cut" ? <span className="w-4 shrink-0 text-center text-muted-foreground" aria-hidden>//</span> : <MapPin className="text-muted-foreground" />}
               <span className="min-w-0 flex-1 truncate nums">{words.main}</span>
-              <span className="ml-auto shrink-0 text-footnote text-muted-foreground nums">{words.what}</span>
-            </DropdownMenuItem>
+              <span className="shrink-0 text-footnote text-muted-foreground nums">{words.what}</span>
+              {/* The open game's × in the sidebar, here always shown: it is the one thing the row does. */}
+              <DropdownMenuItem
+                aria-label={`Remove fix: ${words.main}`}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  onRemove(fix);
+                }}
+                className="size-5 shrink-0 justify-center rounded-md p-0 text-muted-foreground transition-[background-color,color] duration-100 hover:bg-fill-3 hover:text-foreground focus:bg-fill-3 focus:text-foreground active:bg-fill-4 [&_svg]:size-3"
+              >
+                <X />
+              </DropdownMenuItem>
+            </div>
           );
         })}
         {fixes.length > 1 && (

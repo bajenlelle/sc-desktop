@@ -285,11 +285,13 @@ test("narrowing down keeps the earlier plays seen right, Stop here saves what is
   const fixes = page.locator('[data-sync="fixes"]');
   await expect(fixes).toHaveText("1 fix");
   await fixes.click();
-  const item = page.getByRole("menuitem").filter({ hasText: "Q2 from" });
+  const item = page.locator('[data-fix="cut"]').filter({ hasText: "Q2 from" });
   await expect(item).toContainText(/Moved [\d.]+ s later/);
   await page.waitForTimeout(300); // the menu's fade in
   await shot(page, `${browserName}-W-fixes-menu`);
-  await item.click();
+  await item.getByText("Q2 from").click();
+  await expect(toastWith(page, "Fix removed"), "a click on the row itself takes nothing back").toHaveCount(0);
+  await item.getByRole("menuitem", { name: /^Remove fix: Q2 from/ }).click();
   await expect(toastWith(page, "Fix removed")).toBeVisible();
   expect(saved.at(-1)!.cuts, "the cut is gone").toBeUndefined();
   await expect(fixes, "no fix is left to list").toHaveCount(0);

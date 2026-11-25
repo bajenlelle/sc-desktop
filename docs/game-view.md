@@ -529,7 +529,8 @@ sync whether or not it is checked; a check only says someone has seen it.
 
 **Fixes** (`sync-fixes-menu.tsx`, beside Check sync for a game that has any)
 lists the cuts and the plays placed on their own (`syncFixes`), each with what
-it did, and takes one back, or all: the plays follow the sync before it again
+it did, and takes one back with the × at its end (the row itself does
+nothing: a click on it was not read as removing), or all: the plays follow the sync before it again
 (`withoutFix`, `withoutFixes`), with the toast's Undo and no confirmation. A
 play placed on its own also has "Put back with the others" in its row's menu.
 A fix that moved a whole quarter changed that quarter's sync and isn't listed:
