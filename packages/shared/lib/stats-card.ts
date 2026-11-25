@@ -11,7 +11,7 @@
  * players choose the columns, may override the heading and details, and may add a note.
  */
 import type { PlayByPlayEvent } from "../types/match";
-import { playerName } from "./events";
+import { personKey, playerName } from "./events";
 import { gameEfficiency, gameRebounds, type GameLine, type SeasonLine } from "./stat-lines";
 
 export const STATS_CARD_VERSION = 1 as const;
@@ -493,7 +493,7 @@ export function rankPlayersByClips(events: readonly PlayByPlayEvent[]): ClipPlay
   const byId = new Map<string, ClipPlayer>();
   for (const e of events) {
     if (!e.player) continue;
-    const id = String(e.player.playerId);
+    const id = personKey(e)!;
     const row = byId.get(id);
     if (row) row.clips++;
     else

@@ -12,6 +12,8 @@ import { PlaysCountLine } from "@/components/plays/plays-count-line";
 
 export interface GamePerson {
   id: number;
+  /** The filters' key for the person (clip-filters playerKey). */
+  key: string;
   name: string;
   number: string | null;
   side: 1 | 2;

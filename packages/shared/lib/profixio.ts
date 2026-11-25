@@ -223,6 +223,7 @@ export function normalizeProfixioEvents(
               firstName: name.firstName,
               familyName: name.familyName,
               teamNumber: side ?? 1,
+              source: "profixio" as const,
             }
           : null,
       eventTeam: side ? { teamCode: "", teamName: teamName(side), teamNumber: side } : null,

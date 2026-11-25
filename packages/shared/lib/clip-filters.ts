@@ -223,18 +223,18 @@ export function toggleFilter(f: ClipFilters, group: keyof ClipFilters, value: st
 }
 
 /**
- * A player across games: "id:<personId>", the person id the play's provider
- * gives (Genius, or Profixio: its importer sets `playerId` to the Profixio
- * `personId`, so both providers' ids share this namespace); else
- * "name:<playerName>" for a play with no positive id; null for a play without
- * a player.
+ * A player across games: "id:<personId>" for a Genius person, "px:<personId>"
+ * for a Profixio one (the two providers' ids are numbers from the same range);
+ * else "name:<playerName>" for a play with no positive id; null for a play
+ * without a player.
  */
 export function playerKey(e: PlayByPlayEvent): string | null {
   if (!e.player) return null;
   const name = playerName(e);
   if (!name || name === "—") return null;
   const id = e.player.playerId;
-  return Number.isFinite(id) && id > 0 ? `id:${id}` : `name:${name}`;
+  if (!(Number.isFinite(id) && id > 0)) return `name:${name}`;
+  return e.player.source === "profixio" ? `px:${id}` : `id:${id}`;
 }
 
 export interface PlayerOption {

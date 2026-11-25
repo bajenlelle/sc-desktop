@@ -27,6 +27,7 @@ import { isClipItem } from "../types/match";
 import { itemKey } from "./playlist-edits";
 import { pushEdit, type Edit, type History } from "./playlist-history";
 import { parseCardSpec, type StatsCardPlayer, type StatsCardSpec } from "./stats-card";
+import { personKey } from "./events";
 
 export const REPORT_DRAFT_VERSION = 1 as const;
 
@@ -538,7 +539,7 @@ export function placementOf(draft: ReportDraft, item: PlaylistClipItem, event: P
   const placed = draft.placements[itemKey(item)];
   if (placed === LEFT_OUT) return LEFT_OUT;
   if (placed !== undefined && isTarget(draft, placed)) return placed;
-  const playerId = event?.player ? String(event.player.playerId) : null;
+  const playerId = event ? personKey(event) : null;
   const own = playerId === null ? undefined : sectionOf(draft, playerId);
   return own ? own.id : TEAM_SECTION;
 }

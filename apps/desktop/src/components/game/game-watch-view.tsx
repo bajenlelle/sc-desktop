@@ -9,7 +9,7 @@ import { Check, Play, Tag, VideoOff } from "lucide-react";
 import { eventLabel, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, afterTimeoutPlays, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
-import { playersByTeam } from "@scoutable/shared/lib/clip-filters";
+import { playerKey, playersByTeam } from "@scoutable/shared/lib/clip-filters";
 import { activeGroups } from "@scoutable/shared/lib/play-filters";
 import { buildGameTimeline, momentAt, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
@@ -209,7 +209,7 @@ export function GameWatchView({
       if (!e.player || byId.has(e.player.playerId)) continue;
       const name = `${e.player.firstName} ${e.player.familyName}`.trim();
       if (!name) continue;
-      byId.set(e.player.playerId, { id: e.player.playerId, name, number: e.player.pno ? String(e.player.pno) : null, side: e.player.teamNumber === 2 ? 2 : 1 });
+      byId.set(e.player.playerId, { id: e.player.playerId, key: playerKey(e) ?? `name:${name}`, name, number: e.player.pno ? String(e.player.pno) : null, side: e.player.teamNumber === 2 ? 2 : 1 });
     }
     return [...byId.values()].sort((a, b) => a.side - b.side || (Number(a.number) || 999) - (Number(b.number) || 999));
   }, [match.events]);
@@ -253,7 +253,7 @@ export function GameWatchView({
   };
 
   // One player chosen: their stints on the floor, for the strip and the "while on the floor" switch.
-  const chosenPlayer = filters.play.players.size === 1 ? (people.find((p) => `id:${p.id}` === [...filters.play.players][0]) ?? null) : null;
+  const chosenPlayer = filters.play.players.size === 1 ? (people.find((p) => p.key === [...filters.play.players][0]) ?? null) : null;
   const stints = useMemo(() => (chosenPlayer ? onCourtStints(flow, chosenPlayer.id) : null), [flow, chosenPlayer]);
   const onCourtIds = useMemo(() => {
     if (!filters.onCourt || !stints || stints.length === 0) return null;

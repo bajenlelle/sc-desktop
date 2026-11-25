@@ -165,7 +165,7 @@ describe("normalizeProfixioEvents", () => {
       gameClockTime: "",
       realWorldTime: "2026-02-15T15:41:00Z",
       isSuccessful: 1,
-      player: { playerId: expect.any(Number), pno: expect.any(Number), firstName: "Spelare", familyName: "2", teamNumber: 1 },
+      player: { playerId: expect.any(Number), pno: expect.any(Number), firstName: "Spelare", familyName: "2", teamNumber: 1, source: "profixio" },
       eventTeam: { teamCode: "", teamName: "Hemma BK", teamNumber: 1 },
       qualifiers: [],
       x: null, y: null, area: null, shotClock: null, previousAction: null,

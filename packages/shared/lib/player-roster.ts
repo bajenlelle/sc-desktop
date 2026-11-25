@@ -16,6 +16,7 @@ import { itemKey } from "./playlist-edits";
 import { rankPlayersByClips } from "./stats-card";
 import { eventPeople, type GameStats } from "./stats-card-data";
 import type { StatsClip } from "./stats-card-defaults";
+import { personKey } from "./events";
 
 export interface PlayerChoice {
   playerId: string;
@@ -69,7 +70,7 @@ export function playerRoster(input: {
   const perGame = new Map<string, Map<string, number>>();
   for (const c of clips) {
     if (!c.event.player) continue;
-    const id = String(c.event.player.playerId);
+    const id = personKey(c.event)!;
     const games = perGame.get(id) ?? new Map<string, number>();
     games.set(c.matchId, (games.get(c.matchId) ?? 0) + 1);
     perGame.set(id, games);

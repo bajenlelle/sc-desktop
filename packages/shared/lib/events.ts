@@ -189,6 +189,17 @@ export function sortPlaysChronologically<T extends Pick<PlayByPlayEvent, "eventI
 }
 
 /** "First Last", or an em dash when the event has no player attached. */
+/**
+ * A play's person across games and providers: Genius's personId as it is
+ * ("1690412"), a Profixio one as "px:<personId>", since the two providers'
+ * ids are numbers from the same range. Null for a play without a player.
+ * Photos and season lines are looked up by the bare Genius ids only.
+ */
+export function personKey(e: Pick<PlayByPlayEvent, "player">): string | null {
+  if (!e.player) return null;
+  return e.player.source === "profixio" ? `px:${e.player.playerId}` : String(e.player.playerId);
+}
+
 export function playerName(e: PlayByPlayEvent): string {
   if (!e.player) return "—";
   return `${e.player.firstName} ${e.player.familyName}`.trim();

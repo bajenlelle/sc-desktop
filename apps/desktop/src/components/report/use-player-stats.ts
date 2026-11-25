@@ -3,6 +3,7 @@ import { leagueSeasonsOf, loadGameStats, loadSeasonPlayer, makeGameCard, makeSea
 import type { StatsCardPlayer, StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import type { League } from "@scoutable/shared/types/league";
 import type { PlayByPlayEvent, StoredMatch } from "@/types/match";
+import { personKey } from "@scoutable/shared/lib/events";
 
 /** Who a section's numbers are read for: the roster's view of a player, and the game they are mostly in. */
 export interface StatsPerson {
@@ -53,7 +54,7 @@ export function usePlayerStats({
     (person: { playerId: string; matchId?: string }, preferMatchId?: string): string | undefined => {
       const counts = new Map<string, number>();
       for (const c of statsClips) {
-        if (String(c.event.player?.playerId) === person.playerId) counts.set(c.matchId, (counts.get(c.matchId) ?? 0) + 1);
+        if (personKey(c.event) === person.playerId) counts.set(c.matchId, (counts.get(c.matchId) ?? 0) + 1);
       }
       const withClips = preferMatchId && counts.has(preferMatchId) ? preferMatchId : [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
       return withClips ?? person.matchId;
