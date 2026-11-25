@@ -181,8 +181,8 @@ export interface PlayRowCellsProps {
   /** Every team code the list shows (the game view with both teams listed): the column is as wide as the widest. Null draws no column. */
   team: readonly string[] | null;
   labels: readonly Label[];
-  /** The game ("vs Zeta") in a list of several games; undefined draws no column. */
-  context?: string | null;
+  /** The game ("vs Zeta") in a list of several games, as text or a link to it; undefined draws no column. */
+  context?: ReactNode;
   /** The score after a scoring play; undefined draws no column, null an empty one. */
   score?: { home: number; away: number; scored: 1 | 2 } | null;
   /** The play can't play here: its words dim, its actions don't. */

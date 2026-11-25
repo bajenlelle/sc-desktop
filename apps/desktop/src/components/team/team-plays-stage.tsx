@@ -105,7 +105,8 @@ export function TeamPlaysStage({
           moment={null}
           score={null}
           breakScore={null}
-          details={[gameTitle(cur.game)]}
+          details={[]}
+          game={{ id: cur.game.gameId, title: cur.game.title ?? gameTitle(cur.game), label: gameTitle(cur.game) }}
           labels={labels.filter((l) => assigned.has(l.id))}
           collect={status}
           targetName={targetName}

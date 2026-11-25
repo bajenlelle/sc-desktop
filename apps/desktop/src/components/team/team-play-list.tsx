@@ -9,6 +9,7 @@ import { pressable } from "@/lib/pressable";
 import { useListWindow } from "@/lib/use-list-window";
 import { useScrollMemory } from "@/lib/page-memory";
 import { cn } from "@/lib/utils";
+import { GameLink, TeamLink } from "@/components/entity-link";
 import { playedDay } from "./dates";
 
 export { PLAY_ROW_HEIGHT };
@@ -30,7 +31,26 @@ export function gameTitle(g: TeamGame): string {
   return `${g.home ? "vs" : "at"} ${g.opponentName} · ${playedDay(g.at)}${result}`;
 }
 
-function GameHeader({ game, plays, pinned = false }: { game: TeamGame; plays: number; pinned?: boolean }) {
+/**
+ * A game's header over its plays: "at {opponent} · {day} · {result}", where the opponent opens their team's
+ * page and the day and result open the game (docs/navigation.md), as Music's artist and album in a song's row.
+ * The pinned copy over the list's top is a picture of the one below for the eye: its links work for the
+ * pointer, and the keyboard and VoiceOver reach the header's own.
+ */
+function GameHeader({
+  game,
+  plays,
+  competitionId,
+  pinned = false,
+}: {
+  game: TeamGame;
+  plays: number;
+  competitionId: number | null;
+  pinned?: boolean;
+}) {
+  const result = game.result && game.score ? ` · ${game.result} ${game.score.own}–${game.score.opp}` : "";
+  const name = game.title ?? gameTitle(game);
+  const focus = pinned ? { tabIndex: -1 } : {};
   return (
     <div
       className={cn(
@@ -40,7 +60,30 @@ function GameHeader({ game, plays, pinned = false }: { game: TeamGame; plays: nu
       style={{ height: PLAY_ROW_HEIGHT }}
       aria-hidden={pinned || undefined}
     >
-      <span className="truncate text-headline text-foreground">{gameTitle(game)}</span>
+      <span className="truncate text-headline text-foreground">
+        {game.title ? (
+          <GameLink gameId={game.gameId} title={name} {...focus}>
+            {game.title}
+          </GameLink>
+        ) : (
+          <>
+            {game.home ? "vs" : "at"}{" "}
+            <TeamLink
+              team={competitionId && game.opponentId ? { competitionId, teamId: game.opponentId } : null}
+              name={game.opponentName}
+              state={{ from: "team" }}
+              {...focus}
+            >
+              {game.opponentName}
+            </TeamLink>
+            {" · "}
+            <GameLink gameId={game.gameId} title={name} {...focus}>
+              {playedDay(game.at)}
+              {result}
+            </GameLink>
+          </>
+        )}
+      </span>
       <span className="ml-auto shrink-0 text-subheadline text-muted-foreground nums">
         {plays} {plays === 1 ? "play" : "plays"}
       </span>
@@ -149,8 +192,11 @@ export function TeamPlayList({
   onRemove,
   onLabel,
   selectionBar,
+  competitionId,
 }: {
   rows: readonly ListRow[];
+  /** The season the plays are in: an opponent's name in a game's header opens their page in it. */
+  competitionId: number | null;
   current: string | null;
   selected: ReadonlySet<string>;
   playable: (gameId: string) => "ok" | "video" | "sync";
@@ -195,7 +241,7 @@ export function TeamPlayList({
 
   return (
     <div className="relative min-h-0 flex-1">
-      {pinned && <GameHeader game={pinned.game} plays={pinned.plays} pinned />}
+      {pinned && <GameHeader game={pinned.game} plays={pinned.plays} competitionId={competitionId} pinned />}
       <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
         <ContextMenuTrigger asChild>
       <div
@@ -219,7 +265,7 @@ export function TeamPlayList({
         {rows.slice(range.start, range.end).map((r) =>
           r.kind === "game" ? (
             <div key={`g:${r.game.gameId}`} role="listitem">
-              <GameHeader game={r.game} plays={r.plays} />
+              <GameHeader game={r.game} plays={r.plays} competitionId={competitionId} />
             </div>
           ) : r.kind === "note" ? (
             <p key={`n:${r.game.gameId}`} className="flex items-center gap-1 truncate px-4 text-subheadline text-muted-foreground" style={{ height: PLAY_ROW_HEIGHT }}>

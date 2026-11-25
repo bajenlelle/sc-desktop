@@ -7,6 +7,7 @@ import { PopUpButton } from "@/components/ui/pop-up-button";
 import { teamTints } from "../team-tints";
 import { courtPercent, HalfCourt } from "./half-court";
 import { StatCell, type OpenPlays } from "./stat-cell";
+import { SideTeamLink } from "./side-team-link";
 
 const ZONE: Record<ShotZone, { label: string; set: string }> = {
   rim: { label: "At the rim", set: "shots at the rim" },
@@ -44,8 +45,8 @@ export function ShotsSection({
         </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          <TeamShots name={match.homeTeam.name || "Home"} shots={shots.home} tint={tints.home} people={people} byId={byId} onOpen={onOpen} />
-          <TeamShots name={match.awayTeam.name || "Away"} shots={shots.away} tint={tints.away} people={people} byId={byId} onOpen={onOpen} />
+          <TeamShots side={1} name={match.homeTeam.name || "Home"} shots={shots.home} tint={tints.home} people={people} byId={byId} onOpen={onOpen} />
+          <TeamShots side={2} name={match.awayTeam.name || "Away"} shots={shots.away} tint={tints.away} people={people} byId={byId} onOpen={onOpen} />
         </div>
       )}
     </section>
@@ -53,6 +54,7 @@ export function ShotsSection({
 }
 
 function TeamShots({
+  side,
   name,
   shots,
   tint,
@@ -60,6 +62,7 @@ function TeamShots({
   byId,
   onOpen,
 }: {
+  side: 1 | 2;
   name: string;
   shots: readonly ChartShot[];
   tint: string;
@@ -81,7 +84,7 @@ function TeamShots({
   return (
     <div className="rounded-window bg-card p-4 ring-1 ring-separator">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <span className="truncate font-medium">{name}</span>
+        <SideTeamLink side={side} name={name} className="truncate font-medium" />
         <PopUpButton
           size="sm"
           align="end"

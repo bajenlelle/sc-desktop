@@ -19,6 +19,7 @@ import { teamTints } from "../team-tints";
 import { FactorBar, WithHover } from "./factor-bar";
 import { StatCell, type OpenPlays } from "./stat-cell";
 import type { SeasonStatus } from "./use-season-context";
+import { SideTeamLink } from "./side-team-link";
 
 /** The rows in the order coaches read them: efficiency first, then the four factors. */
 export const FACTORS: { key: FactorKey; label: string; help: string; format: (v: number) => string }[] = [
@@ -107,9 +108,9 @@ export function FactorsSection({
           </p>
         ) : (
         <div className="grid grid-cols-[6.5rem_minmax(0,1fr)_minmax(9rem,13rem)_minmax(0,1fr)_6.5rem] items-center gap-x-3 gap-y-2.5 text-sm">
-          <span className="col-span-2 truncate text-right text-caption-1 text-muted-foreground">{home}</span>
+          <SideTeamLink side={1} name={home} className="col-span-2 truncate text-right text-caption-1 text-muted-foreground" />
           <span />
-          <span className="col-span-2 truncate text-caption-1 text-muted-foreground">{away}</span>
+          <SideTeamLink side={2} name={away} className="col-span-2 truncate text-caption-1 text-muted-foreground" />
           {FACTORS.map((f) => {
             const h = factors.home[f.key];
             const a = factors.away[f.key];

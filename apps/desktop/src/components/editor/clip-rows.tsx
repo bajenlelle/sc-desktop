@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { GameLink } from "@/components/entity-link";
 import { ActiveRowPill, PlayRowCells, playRowClass, REVEAL, RowLabelButton } from "@/components/plays/play-row";
 
 export interface LabelRowControls {
@@ -169,6 +170,7 @@ export function ClipRow({
   onTrim,
   onFixSync,
   onShowInGame,
+  gameLink,
   onRemove,
   removeCount = 1,
   labelControls,
@@ -207,6 +209,8 @@ export function ClipRow({
   onFixSync?: () => void;
   /** The clip in its game at this play (Final Cut's Reveal Source); absent for a game the coach can't open. */
   onShowInGame?: () => void;
+  /** The game named in the row (several games in the playlist) opens it at this play, as the editor opens a game. */
+  gameLink?: { id: string; open: () => void };
   onRemove: () => void;
   /** What Remove takes: more than 1 when the row is one of several selected items, which all go. */
   removeCount?: number;
@@ -250,7 +254,17 @@ export function ClipRow({
               strong={isActive}
               team={null}
               labels={assigned}
-              context={isMultiMatch && matchTitle ? matchTitle : undefined}
+              context={
+                isMultiMatch && matchTitle ? (
+                  gameLink ? (
+                    <GameLink gameId={gameLink.id} title={matchTitle} play={event.eventId} via={gameLink.open}>
+                      {matchTitle}
+                    </GameLink>
+                  ) : (
+                    matchTitle
+                  )
+                ) : undefined
+              }
               pill={groupPos === "first" || groupPos === "only" ? <GroupPill size={groupSize} onUngroup={onUngroup} /> : undefined}
               marks={
                 preOffset !== 0 || postOffset !== 0 || note ? (

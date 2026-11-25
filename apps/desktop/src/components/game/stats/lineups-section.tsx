@@ -3,6 +3,7 @@ import { gameLineups, LINEUP_MIN_SECONDS, LINEUPS_SHOWN, type Lineup } from "@sc
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { GroupHeader } from "@/components/ui/group";
 import { StatCell, type OpenPlays } from "./stat-cell";
+import { SideTeamLink } from "./side-team-link";
 
 type People = ReadonlyMap<number, { number: string; name: string }>;
 
@@ -26,15 +27,15 @@ export function LineupsSection({ match, hasFives, people, onOpen }: { match: Sto
         </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          <TeamLineups name={match.homeTeam.name || "Home"} lineups={lineups.home} people={people} onOpen={onOpen} />
-          <TeamLineups name={match.awayTeam.name || "Away"} lineups={lineups.away} people={people} onOpen={onOpen} />
+          <TeamLineups side={1} name={match.homeTeam.name || "Home"} lineups={lineups.home} people={people} onOpen={onOpen} />
+          <TeamLineups side={2} name={match.awayTeam.name || "Away"} lineups={lineups.away} people={people} onOpen={onOpen} />
         </div>
       )}
     </section>
   );
 }
 
-function TeamLineups({ name, lineups, people, onOpen }: { name: string; lineups: readonly Lineup[]; people: People; onOpen: OpenPlays }) {
+function TeamLineups({ side, name, lineups, people, onOpen }: { side: 1 | 2; name: string; lineups: readonly Lineup[]; people: People; onOpen: OpenPlays }) {
   const [all, setAll] = useState(false);
   const main = lineups.filter((l) => l.seconds >= LINEUP_MIN_SECONDS).slice(0, LINEUPS_SHOWN);
   const shown = all ? lineups : main;
@@ -46,7 +47,9 @@ function TeamLineups({ name, lineups, people, onOpen }: { name: string; lineups:
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="text-caption-1 text-muted-foreground">
-            <th className="py-2 pl-4 text-left font-medium text-foreground">{name}</th>
+            <th className="py-2 pl-4 text-left font-medium text-foreground">
+              <SideTeamLink side={side} name={name} />
+            </th>
             <th className="w-16 px-2 py-2 text-right font-normal">Time</th>
             <th className="w-14 py-2 pr-4 pl-2 text-right font-normal">+/-</th>
           </tr>

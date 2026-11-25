@@ -4,6 +4,7 @@ import type { TeamGameRow } from "@scoutable/shared/lib/team-schedule";
 import { Button } from "@/components/ui/button";
 import { GroupHeader } from "@/components/ui/group";
 import { cn } from "@/lib/utils";
+import { GameLink, TeamLink } from "@/components/entity-link";
 import { gameDay, playedDay, tipOff } from "./dates";
 
 /** Played games shown before "Show all", and games still to play shown at all. */
@@ -106,14 +107,15 @@ export function TeamGamesSection({
                   <td className="py-2 pr-3">
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="text-muted-foreground">{r.home ? "vs" : "at"}</span>
-                      <Link
-                        to={`/teams/${competitionId}/${r.opponentId}`}
+                      <TeamLink
+                        team={{ competitionId, teamId: r.opponentId }}
+                        name={r.opponentName}
                         state={{ from: "team" }}
-                        onClick={() => onAction?.("open_team")}
-                        className="truncate rounded text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+                        onOpen={() => onAction?.("open_team")}
+                        className="truncate text-foreground"
                       >
                         {r.opponentName}
-                      </Link>
+                      </TeamLink>
                       {mine.has(r.opponentId) && <span className="shrink-0 rounded-md bg-fill-2 px-1.5 text-caption-1 text-muted-foreground">You</span>}
                     </span>
                   </td>
@@ -123,13 +125,15 @@ export function TeamGamesSection({
                     {r.status === "upcoming" ? (
                       <span className="text-muted-foreground nums">{tipOff(r.at)}</span>
                     ) : gameId ? (
-                      <Link
-                        to={`/matches/${gameId}?view=stats`}
-                        onClick={() => onAction?.("open_game")}
-                        className="rounded text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+                      <GameLink
+                        gameId={gameId}
+                        title={r.home ? `${teamName} vs ${r.opponentName}` : `${r.opponentName} vs ${teamName}`}
+                        view="stats"
+                        onOpen={() => onAction?.("open_game")}
+                        className="text-foreground"
                       >
                         Imported
-                      </Link>
+                      </GameLink>
                     ) : r.importable ? (
                       // Without a pick (a league the catalogue doesn't list) the import page opens as it does from the sidebar.
                       <Link

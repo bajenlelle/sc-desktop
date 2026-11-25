@@ -4,6 +4,7 @@ import type { PlayByPlayEvent, PlaylistTextCard } from "@/types/match";
 import { ActiveRowPill } from "@/components/editor/clip-rows";
 import { pressable } from "@/lib/pressable";
 import { cn } from "@/lib/utils";
+import { GameLink } from "@/components/entity-link";
 
 const rowClass =
   "group relative flex min-h-11 w-full cursor-default select-none items-stretch gap-2 pr-3 text-left outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection";
@@ -20,6 +21,7 @@ export function WatchClipRow({
   rowKey,
   event,
   matchTitle,
+  gameLink,
   note,
   drawings = 0,
   watched,
@@ -30,6 +32,8 @@ export function WatchClipRow({
   event: PlayByPlayEvent;
   /** Shown in multi-game playlists only. */
   matchTitle?: string;
+  /** For a coach, the game's name opens it at this play, as the caption under the player does. */
+  gameLink?: { id: string; open: () => void };
   note?: string;
   /** How many drawings the coach made on the clip. */
   drawings?: number;
@@ -62,7 +66,13 @@ export function WatchClipRow({
           {matchTitle && (
             <>
               <span aria-hidden>·</span>
-              <span className="truncate">{matchTitle}</span>
+              {gameLink ? (
+                <GameLink gameId={gameLink.id} title={matchTitle} play={event.eventId} via={gameLink.open} className="truncate">
+                  {matchTitle}
+                </GameLink>
+              ) : (
+                <span className="truncate">{matchTitle}</span>
+              )}
             </>
           )}
         </span>

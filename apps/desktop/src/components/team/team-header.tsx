@@ -2,6 +2,7 @@ import type { TeamProfile } from "@scoutable/shared/lib/league-season";
 import { standingLine } from "@scoutable/shared/lib/season-copy";
 import { coverageLine, failedReadsLine, meetingLine } from "@scoutable/shared/lib/team-copy";
 import { Button } from "@/components/ui/button";
+import { GameLink } from "@/components/entity-link";
 import { meeting, type TeamGameRow } from "@scoutable/shared/lib/team-schedule";
 import { gameDay, playedDay } from "./dates";
 import { FormStrip } from "./form-strip";
@@ -12,6 +13,7 @@ import { WatchLink } from "./watch-link";
  * it, the season game by game, and how many of its games the coach has.
  */
 export function TeamHeader({
+  name,
   profile,
   rows,
   library,
@@ -19,6 +21,8 @@ export function TeamHeader({
   watchAll,
   failedReads = null,
 }: {
+  /** The team's name: a meeting's game is named after it in Open games. */
+  name: string;
   profile: TeamProfile;
   rows: readonly TeamGameRow[];
   library: ReadonlyMap<number, string>;
@@ -36,12 +40,25 @@ export function TeamHeader({
       : null;
   const played = rows.filter((r) => r.status === "played");
   const inLibrary = played.filter((r) => library.has(r.matchId)).length;
+  // A meeting already played, in the coach's library: the sentence opens that game (docs/navigation.md).
+  const meetGame = m && m.kind !== "next" && !mine.has(profile.teamId) ? (library.get(m.row.matchId) ?? null) : null;
+  const meetTitle = m ? (m.row.home ? `${name} vs ${m.row.opponentName}` : `${m.row.opponentName} vs ${name}`) : "";
 
   return (
     <section aria-label="Season" className="space-y-2">
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
         {profile.standing && <span className="text-headline text-foreground nums">{standingLine(profile.standing)}</span>}
-        {meetLine && <span className="text-body text-muted-foreground">{meetLine}</span>}
+        {meetLine && (
+          <span className="text-body text-muted-foreground">
+            {meetGame ? (
+              <GameLink gameId={meetGame} title={meetTitle} view="stats">
+                {meetLine}
+              </GameLink>
+            ) : (
+              meetLine
+            )}
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <FormStrip rows={rows} library={library} />

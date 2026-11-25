@@ -3,7 +3,9 @@ import { GroupedList, GroupFooter, GroupHeader, GroupRow } from "@/components/ui
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { useMyTeam } from "@/lib/my-team";
-import { TeamCrest, TeamLabel } from "@/components/team-picker";
+import { TeamCrest } from "@/components/team-picker";
+import { TeamLink } from "@/components/entity-link";
+import { Badge } from "@/components/ui/badge";
 import { TeamDialog } from "@/components/team-dialog";
 import {
   groupChoicesForProfile,
@@ -47,7 +49,15 @@ export function MyTeamCard() {
               leading={row.team ? <TeamCrest team={row.team} size={28} /> : undefined}
               label={
                 row.team ? (
-                  <TeamLabel team={row.team} className="text-sm" />
+                  // The team's name opens its page (docs/navigation.md).
+                  <span className="flex min-w-0 items-center gap-2 text-sm">
+                    <TeamLink team={{ leagueTeamId: row.team.id }} name={row.team.name} className="truncate font-medium text-foreground">
+                      {row.team.name}
+                    </TeamLink>
+                    <Badge variant="outline" className="font-normal text-muted-foreground">
+                      {row.team.leagueName}
+                    </Badge>
+                  </span>
                 ) : row.unlistedTeam ? (
                   row.unlistedTeam
                 ) : (

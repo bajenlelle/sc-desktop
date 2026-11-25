@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { gamePath, teamPath } from "@/components/entity-link";
 import { Film } from "lucide-react";
 import { toast } from "sonner";
 import { playersByTeam } from "@scoutable/shared/lib/clip-filters";
@@ -76,7 +77,10 @@ export function TeamPlaysView({
   labelHandlers,
   collect,
   active,
+  competitionId,
 }: {
+  /** The season the plays are in, for an opponent's name to open their page. */
+  competitionId: number | null;
   orgId: string | null;
   plays: TeamPlays;
   side: PlaysSide;
@@ -264,8 +268,23 @@ export function TeamPlaysView({
       onDone={() => {
         if (selected.has(key)) setSelected(new Set());
       }}
+      goTo={selected.has(key) && selected.size > 1 ? undefined : goToOf(key)}
     />
   );
+  // Where one play leads: its game at the play, and the opponent's page when the play is theirs.
+  const navigate = useNavigate();
+  const goToOf = (key: string) => {
+    const r = playRows.find((x) => x.key === key);
+    if (!r) return undefined;
+    const g = r.game;
+    const out = [{ label: "Show in game", onSelect: () => navigate(gamePath(g.gameId, { play: r.event.eventId })) }];
+    const theirs = sideOf(r.event) !== null && sideOf(r.event) !== g.side;
+    if (theirs && competitionId && g.opponentId) {
+      const team = { competitionId, teamId: g.opponentId };
+      out.push({ label: `Go to ${g.opponentName}`, onSelect: () => navigate(teamPath(team), { state: { from: "team" } }) });
+    }
+    return out;
+  };
   // A row's label picker: one row at a time, as the game view's.
   const [labelFor, setLabelFor] = useState<string | null>(null);
   const renderLabelPicker = (key: string) => {
@@ -526,6 +545,7 @@ export function TeamPlaysView({
             {rows.length > 0 ? (
               <TeamPlayList
                 rows={rows}
+                competitionId={competitionId}
                 current={playback.currentKey}
                 selected={selected}
                 playable={plays.playable}

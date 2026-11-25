@@ -237,6 +237,7 @@ export function TeamPage() {
         <div className={cn("flex min-h-0 flex-1 flex-col pt-[var(--toolbar-height)]", view !== "plays" && "pointer-events-none invisible absolute inset-0")}>
           <TeamPlaysView
             key={teamKey}
+            competitionId={competitionId}
             orgId={activeOrgId}
             plays={plays}
             side={side}
@@ -273,6 +274,7 @@ export function TeamPage() {
         ) : (
           <div className="space-y-8">
             <TeamHeader
+              name={name}
               profile={profile}
               rows={rows}
               library={library.games}

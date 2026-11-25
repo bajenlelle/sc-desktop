@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
+import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
+import { sideOf } from "@scoutable/shared/lib/team-video";
+import { teamPath } from "@/components/entity-link";
+import { useLeagues } from "@/lib/use-leagues";
+import { useGameTeams } from "./use-game-teams";
 import { Check, Play, Tag, VideoOff } from "lucide-react";
 import { eventLabel, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, afterTimeoutPlays, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
@@ -219,6 +225,16 @@ export function GameWatchView({
     [match],
   );
   const collect = useCollect({ scope: collectScope, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
+  // A play's team, from its row's menu: "Go to {team}" (docs/navigation.md), once the season says where its page is.
+  const navigate = useNavigate();
+  const gameTeams = useGameTeams(match, useLeagues());
+  const goToTeamOf = (event: PlayByPlayEvent) => {
+    const side = sideOf(event);
+    const team = side === 1 ? gameTeams.home : side === 2 ? gameTeams.away : null;
+    if (!team) return undefined;
+    const name = (side === 1 ? match.homeTeam.name : match.awayTeam.name) || (side === 1 ? "Home" : "Away");
+    return [{ label: `Go to ${name}`, onSelect: () => navigate(teamPath(team), { state: { from: "game" } }) }];
+  };
 
   // One player chosen: their stints on the floor, for the strip and the "while on the floor" switch.
   const chosenPlayer = filters.play.players.size === 1 ? (people.find((p) => `id:${p.id}` === [...filters.play.players][0]) ?? null) : null;
@@ -1141,6 +1157,7 @@ export function GameWatchView({
                       ? () => void sync.removeFix({ kind: "own", period: play.event.period, realWorldTime: play.event.realWorldTime, eventId: play.event.eventId })
                       : undefined
                   }
+                  goTo={selected.has(play.key) ? undefined : goToTeamOf(play.event)}
                 />
               )}
               selecting={selected.size > 0}

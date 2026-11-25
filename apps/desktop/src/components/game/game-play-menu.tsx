@@ -28,7 +28,13 @@ export function GamePlayMenuContent({
   onDone,
   onFixSync,
   onPutBack,
+  goTo,
 }: {
+  /**
+   * Where the one play the menu is about leads (docs/navigation.md), last in the menu as Music's Go to Album:
+   * its game at the play ("Show in Game"), its team ("Go to {team}"). Absent for a selection.
+   */
+  goTo?: readonly { label: string; onSelect: () => void }[];
   plays: readonly TimedPlay[];
   collect: Collect;
   moment: string | null;
@@ -119,6 +125,16 @@ export function GamePlayMenuContent({
           <Undo2 />
           Put back with the others
         </ContextMenuItem>
+      )}
+      {goTo && goTo.length > 0 && (
+        <>
+          <ContextMenuSeparator />
+          {goTo.map((g) => (
+            <ContextMenuItem key={g.label} onSelect={g.onSelect}>
+              <span className="min-w-0 truncate">{g.label}</span>
+            </ContextMenuItem>
+          ))}
+        </>
       )}
     </ContextMenuContent>
   );

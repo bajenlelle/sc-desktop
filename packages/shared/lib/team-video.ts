@@ -31,6 +31,8 @@ export interface TeamGame {
   at: string;
   home: boolean;
   opponentName: string;
+  /** The opponent's (Genius) team id in the game's competition, for its name to open its page; absent for a game that is no team's. */
+  opponentId?: number;
   result: "W" | "L" | null;
   score: { own: number; opp: number } | null;
   /** A game that is no team's (Add clips lists the library's games): its title, which its header shows instead. */
@@ -71,6 +73,7 @@ export function teamLibraryGames(rows: readonly TeamGameRow[], library: Readonly
       at: r.at,
       home: r.home,
       opponentName: r.opponentName,
+      opponentId: r.opponentId,
       result: r.result,
       score: r.score,
     });

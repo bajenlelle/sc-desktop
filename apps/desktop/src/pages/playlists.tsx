@@ -171,6 +171,7 @@ import { toast } from "sonner";
 import { readRecentOpens, recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { lastOpenedPlaylist } from "@scoutable/shared/lib/recent-opens";
 import { usePageTitle } from "@/lib/nav-history";
+import { GameLink } from "@/components/entity-link";
 import { useRecalled, useRememberPage } from "@/lib/page-memory";
 import { Page } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
@@ -5718,7 +5719,7 @@ export function PlaylistsPage() {
 
   const gamesInPlaylist = useMemo(() => (selected ? playlistGames(selected.items, matchLookup) : []), [selected, matchLookup]);
   const openGame = useCallback(
-    (matchId: string, eventId: number | null, via: "subtitle" | "subtitle_menu" | "clip_menu" | "menu") => {
+    (matchId: string, eventId: number | null, via: "subtitle" | "subtitle_menu" | "clip_menu" | "clip_row" | "menu") => {
       const pl = selectedRef.current;
       if (!pl || !matchLookup.has(matchId)) return;
       setCollectTarget(matchId, pl.id);
@@ -5797,9 +5798,26 @@ export function PlaylistsPage() {
         </span>
       }
     >
-      {syncHint.pastEnd > 0
-        ? `${syncHint.pastEnd} ${syncHint.pastEnd === 1 ? "clip" : "clips"} from ${syncHint.title} ${syncHint.pastEnd === 1 ? "starts" : "start"} after the video ends, probably because it skips the breaks between quarters. ${syncHint.firstClip ? "Fix the sync" : "Set the quarters"} to line them up.`
-        : `The plays of ${syncHint.title} run past the end of its video, probably because it skips the breaks between quarters. ${syncHint.firstClip ? "Fix the sync" : "Set the quarters"} to line them up.`}
+      {/* The game is named as a link to it (docs/navigation.md). */}
+      {syncHint.pastEnd > 0 ? (
+        <>
+          {syncHint.pastEnd} {syncHint.pastEnd === 1 ? "clip" : "clips"} from{" "}
+          <GameLink gameId={syncHint.matchId} title={syncHint.title}>
+            {syncHint.title}
+          </GameLink>{" "}
+          {syncHint.pastEnd === 1 ? "starts" : "start"} after the video ends, probably because it skips the breaks between quarters.{" "}
+          {syncHint.firstClip ? "Fix the sync" : "Set the quarters"} to line them up.
+        </>
+      ) : (
+        <>
+          The plays of{" "}
+          <GameLink gameId={syncHint.matchId} title={syncHint.title}>
+            {syncHint.title}
+          </GameLink>{" "}
+          run past the end of its video, probably because it skips the breaks between quarters.{" "}
+          {syncHint.firstClip ? "Fix the sync" : "Set the quarters"} to line them up.
+        </>
+      )}
     </Callout>
   ) : null;
   const playerStack = localVideoUrl || stageCard ? (
@@ -6344,6 +6362,11 @@ export function PlaylistsPage() {
                 }
                 onShowInGame={
                   matchLookup.has(queueItem.matchId) ? () => openGame(queueItem.matchId, queueItem.event.eventId, "clip_menu") : undefined
+                }
+                gameLink={
+                  matchLookup.has(queueItem.matchId)
+                    ? { id: queueItem.matchId, open: () => openGame(queueItem.matchId, queueItem.event.eventId, "clip_row") }
+                    : undefined
                 }
                 onRemove={inSelection ? handleRemoveSelected : () => { if (clip) handleRemoveSingleClip(clip); }}
                 removeCount={inSelection ? selectedClipIds.size : 1}

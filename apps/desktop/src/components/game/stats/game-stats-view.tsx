@@ -10,6 +10,7 @@ import { PlayersSection } from "./players-section";
 import { ShotsSection } from "./shots-section";
 import { useGameBoxScore } from "./use-game-box-score";
 import { useSeasonContext } from "./use-season-context";
+import { GameTeamsProvider, type GameTeams } from "./side-team-link";
 import { useLeagues } from "@/lib/use-leagues";
 import type { StoredMatch } from "@scoutable/shared/types/match";
 import { EmptyState } from "@/components/empty-state";
@@ -109,6 +110,17 @@ export function GameStatsView({
     return out;
   }, [box, boxScore.byPerson]);
 
+  // Where each team's page is, once the season is in: every team name in Stats opens it.
+  const competitionId = seasonMatchOf(match, leagues)?.competitionId ?? null;
+  const seasonTeams = season.context;
+  const gameTeams = useMemo<GameTeams>(
+    () =>
+      competitionId && seasonTeams
+        ? { home: { competitionId, teamId: seasonTeams.home.teamId }, away: { competitionId, teamId: seasonTeams.away.teamId } }
+        : { home: null, away: null },
+    [competitionId, seasonTeams],
+  );
+
   const open: OpenPlays = (set, meta) => {
     trackEvent("game_stats_plays_opened", { kind: meta.kind, stat: meta.stat ?? null, plays: set.eventIds.length });
     onOpenPlays(set, meta);
@@ -136,19 +148,13 @@ export function GameStatsView({
             }
           />
         ) : (
-          <>
-            <ScoreSection
-              match={match}
-              flow={flow}
-              season={season.context}
-              competitionId={seasonMatchOf(match, leagues)?.competitionId ?? null}
-              onOpen={open}
-            />
+          <GameTeamsProvider value={gameTeams}>
+            <ScoreSection match={match} flow={flow} season={season.context} onOpen={open} />
             <FactorsSection match={match} box={box} season={season} onOpen={open} />
             <PlayersSection match={match} box={box} flow={flow} boxScore={boxScore} leagues={leagues} onOpen={open} />
             <ShotsSection match={match} shots={shots} people={people} onOpen={open} />
             <LineupsSection match={match} hasFives={hasFives} people={people} onOpen={open} />
-          </>
+          </GameTeamsProvider>
         )}
       </PageContent>
     </Page>

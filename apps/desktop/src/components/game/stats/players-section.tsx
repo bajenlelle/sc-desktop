@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { SEASON_COLS, seasonLineValue, type SeasonCol } from "./season-columns";
 import { StatCell, type OpenPlays, type PlaySet } from "./stat-cell";
 import { useSeasonPlayers, type useGameBoxScore } from "./use-game-box-score";
+import { SideTeamLink } from "./side-team-link";
 
 /** One player's row (game-players.ts), with the league's season beside it. */
 interface Row extends PlayerRow {
@@ -181,7 +182,9 @@ export function PlayersSection({
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="text-caption-1 text-muted-foreground">
-                  <th className="sticky left-0 z-10 min-w-48 bg-card py-2 pr-3 pl-4 text-left font-medium text-foreground">{name}</th>
+                  <th className="sticky left-0 z-10 min-w-48 bg-card py-2 pr-3 pl-4 text-left font-medium text-foreground">
+                    <SideTeamLink side={team.side} name={name} />
+                  </th>
                   {(showingSeason ? SEASON_COLS : gameCols).map((c) => (
                     <th key={c.key} className="px-2 py-2 text-right font-normal whitespace-nowrap">
                       <button

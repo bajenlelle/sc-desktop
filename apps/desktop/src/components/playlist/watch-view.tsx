@@ -15,6 +15,7 @@ import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { useReducedMotionSafe } from "@/lib/motion";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
+import { ENTITY_LINK } from "@/components/entity-link";
 import { WatchClipRow, WatchTextCardRow } from "./ClipRow";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
@@ -343,7 +344,7 @@ export function WatchView({
                           type="button"
                           onClick={() => onOpenGame(activeClip.matchId, activeClip.event.eventId)}
                           title={`Open ${game} at this play`}
-                          className="rounded-sm underline-offset-2 outline-none transition-colors duration-100 hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+                          className={ENTITY_LINK}
                         >
                           {game}
                         </button>
@@ -392,6 +393,7 @@ export function WatchView({
                     rowKey={item.key}
                     event={item.event}
                     matchTitle={matchTitleFor(item.matchId)}
+                    gameLink={onOpenGame ? { id: item.matchId, open: () => onOpenGame(item.matchId, item.event.eventId) } : undefined}
                     note={item.note}
                     drawings={item.drawings?.length ?? 0}
                     watched={isWatched(item.matchId, item.event.eventId)}

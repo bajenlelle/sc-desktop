@@ -45,12 +45,12 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { ENTITY_LINK } from "@/components/entity-link";
 
 export type ClockSort = "none" | "asc" | "desc";
 
-/** A reference in running text: quiet until pointed at, then the link it is. */
-const REFERENCE =
-  "cursor-pointer rounded-sm underline-offset-2 outline-none transition-colors duration-100 hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-selection data-[state=open]:text-primary";
+/** A reference in running text: quiet until pointed at, then the link it is, as every name of a game or team is. */
+const REFERENCE = cn(ENTITY_LINK, "data-[state=open]:underline");
 
 /**
  * The playlist's games, in its subtitle: one game is named, a link that opens it; several are counted

@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { IS_MACOS } from "@/lib/platform";
 import { labelDotClasses } from "@/lib/label-colors";
 import { cn } from "@/lib/utils";
+import { GameLink } from "@/components/entity-link";
 import type { CollectStatus } from "./game-play-row";
 import type { GameMoment } from "./use-game-playback";
 
@@ -63,6 +64,7 @@ export function GameNowBar({
   score,
   breakScore,
   details,
+  game,
   labels,
   collect,
   targetName,
@@ -84,6 +86,8 @@ export function GameNowBar({
   breakScore: Score | null;
   /** After the clock and score: the play's qualifiers, what it did to the game, where it is outside the video. */
   details: readonly string[];
+  /** Last on the line: the play's game by name, opening it at this play (a team's plays, across its games). */
+  game?: { id: string; title: string; label: string };
   labels: readonly Label[];
   collect: CollectStatus;
   targetName: string | null;
@@ -123,8 +127,16 @@ export function GameNowBar({
   return (
     <div className="@container/now flex h-11 shrink-0 items-center gap-2 px-1">
       {/* The play's details follow the clock and score: in a narrow bar the line gives way at its end, whole in its tooltip. */}
-      <span data-now="where" title={where} className="min-w-0 truncate text-callout text-muted-foreground nums">
+      <span data-now="where" title={game ? [where, game.label].filter(Boolean).join(" · ") : where} className="min-w-0 truncate text-callout text-muted-foreground nums">
         {where}
+        {game && (
+          <>
+            {where ? " · " : ""}
+            <GameLink gameId={game.id} title={game.title} play={e.eventId}>
+              {game.label}
+            </GameLink>
+          </>
+        )}
       </span>
       <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium", colors.badge)}>{eventLabel(e)}</span>
       {/* The name has room for a number and a few letters before anything else gives way: in a narrow column the

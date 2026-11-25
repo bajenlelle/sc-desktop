@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { ChevronDown, EyeOff, Loader2, MoreHorizontal, Play, Plus } from "lucide-react";
+import { ArrowRight, ChevronDown, EyeOff, Loader2, MoreHorizontal, Play, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,6 +17,7 @@ import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { useReportFrame } from "@/lib/report-frames";
 import { cn } from "@/lib/utils";
+import { GameLink, TeamLink } from "@/components/entity-link";
 import { eventColors, eventLabel, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import {
   LEFT_OUT,
@@ -248,6 +249,18 @@ function ReportHeader({
           onBlur={() => onOpponent(opponent)}
           onKeyDown={(e) => fieldKeys(e, { enterBlurs: true })}
         />
+        {/* The team the report is on, a step away (docs/navigation.md): beside the name, which is a field to type in. */}
+        {draft.team && (
+          <TeamLink
+            team={{ competitionId: draft.team.competitionId, teamId: draft.team.teamId }}
+            name={draft.team.name}
+            aria-label={`Go to ${draft.team.name}`}
+            title={`Go to ${draft.team.name}`}
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-fill-1 hover:text-foreground hover:no-underline"
+          >
+            <ArrowRight className="size-3.5" aria-hidden />
+          </TeamLink>
+        )}
       </div>
       <input
         aria-label="Title"
@@ -482,7 +495,15 @@ const ClipTileCard = memo(function ClipTileCard({
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className={cn("rounded-full px-2 py-0.5 text-caption font-medium", eventColors(event).badge)}>{eventLabel(event)}</span>
           <span className="text-callout text-muted-foreground nums">{when}</span>
-          {gameTitle && <span className="truncate text-callout text-muted-foreground">· {gameTitle}</span>}
+          {gameTitle && (
+            <span className="truncate text-callout text-muted-foreground">
+              ·{" "}
+              {/* The clip's game, at this play (docs/navigation.md). */}
+              <GameLink gameId={clip.item.matchId} title={gameTitle} play={event.eventId}>
+                {gameTitle}
+              </GameLink>
+            </span>
+          )}
         </div>
         {labels.length > 0 && (
           <div className="flex flex-wrap gap-1">
