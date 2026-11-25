@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
 import { sideOf } from "@scoutable/shared/lib/team-video";
 import { teamPath } from "@/components/entity-link";
 import { useLeagues } from "@/lib/use-leagues";
@@ -42,18 +41,20 @@ import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { getGameTimelineTipSeen, setGameTimelineTipSeen } from "@/lib/prefs";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
+import { useVideoCuts } from "@/lib/video-cut-scan";
 import { useClipLabels } from "@/lib/use-clip-labels";
 import { useFilterPresets } from "@/lib/use-filter-presets";
 import { useGameMarks } from "@/lib/use-game-marks";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
-import type { StoredMatch, SyncPoint } from "@/types/match";
+import type { PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { VideoJump } from "@scoutable/shared/lib/video-jumps";
 import { CollectControl } from "./collect-control";
 import { GameFilterBar, type GamePerson } from "./game-filters";
 import { GameLabelKeys } from "./game-label-keys";
 import { GameNowBar, betweenPlays } from "./game-now-bar";
-import { GameSyncBar, syncWords } from "./game-sync-bar";
+import { GameSyncBar } from "./game-sync-bar";
 import { GamePlayList } from "./game-play-list";
 import { playDetails } from "./game-play-row";
 import { GamePlayMenuContent } from "./game-play-menu";
@@ -70,6 +71,8 @@ import { useWheelScrub } from "./use-wheel-scrub";
 const SPEED_KEY = "scoutable_watch_speed";
 /** Under the stage, in its column: the Now bar with its air, then the timeline. */
 const UNDER_STAGE = 52 + GAME_TIMELINE_HEIGHT;
+/** The sync's panel over the footage (game-sync-bar.tsx: 104 px with its two lines of what to do) takes the Now bar's 52 under it, and this much more. */
+const SYNC_PANEL_EXTRA = 52;
 /** Where a game opens: this long before tip-off, so the jump ball is seen. */
 const TIPOFF_LEAD_SECONDS = 5;
 
@@ -107,6 +110,19 @@ function StagePanel({ title, body, action }: { title: string; body: string; acti
  * its plays and its moments, and its plays can still be collected and
  * labelled.
  */
+
+/** "The video has 2 jumps in it (Q1 6:58, Q2 1:10). Plays after a jump may be off." */
+function jumpWords(jumps: readonly VideoJump<PlayByPlayEvent>[]): string {
+  const where = jumps
+    .slice(0, 3)
+    .map((j) => [periodLabel(j.period), j.after.gameClockTime ? formatGameClock(j.after.gameClockTime).replace(/^0(\d:)/, "$1") : null].filter(Boolean).join(" "))
+    .join(", ");
+  const more = jumps.length > 3 ? ", …" : "";
+  return jumps.length === 1
+    ? `The video has a jump in it (${where}). Plays after it may be off.`
+    : `The video has ${jumps.length} jumps in it (${where}${more}). Plays after a jump may be off.`;
+}
+
 export function GameWatchView({
   match,
   videoStatus,
@@ -292,7 +308,9 @@ export function GameWatchView({
     },
     [playback, video, refollow],
   );
-  const sync = useGameSync({ match, timeline, flow, video, duration, footage, seek: syncSeek, onSyncChange });
+  // The recording's hard cuts, found in the background and shared by its fingerprint (lib/video-cut-scan.ts).
+  const { cuts } = useVideoCuts(footage && match.syncPoint && match.videoUrl ? match.videoUrl : null);
+  const sync = useGameSync({ match, timeline, flow, video, duration, footage, seek: syncSeek, onSyncChange, cuts });
 
   // ---- The selection: plays picked to add together, as the editor's list picks clips (list-selection.ts) ----
   // The anchor is where Shift ranges grow from, the focus where the last Shift move landed; a plain arrow lets go of both.
@@ -924,7 +942,7 @@ export function GameWatchView({
 
   // ---- The stage's size: as large as the column allows, 16:9 --------------------
   // A game whose sync can be checked has the sync row under its timeline.
-  const { ref: stageBoxRef, width: stageWidth } = useStageFit(UNDER_STAGE + (sync.active && sync.parts.length > 0 ? GAME_SYNC_ROW_HEIGHT : 0));
+  const { ref: stageBoxRef, width: stageWidth } = useStageFit(UNDER_STAGE + (sync.active ? SYNC_PANEL_EXTRA + (sync.parts.length > 0 ? GAME_SYNC_ROW_HEIGHT : 0) : 0));
 
   // ---- What stands in the way of the footage, and of its timing -----------------
   const fileName = match.videoUrl ? videoBasename(match.videoUrl) : null;
@@ -966,13 +984,17 @@ export function GameWatchView({
         ? `This video skips the breaks, so ${timeline.pastEnd} ${timeline.pastEnd === 1 ? "play falls" : "plays fall"} past its end. Set each quarter to line them up.`
         : `${timeline.pastEnd} ${timeline.pastEnd === 1 ? "play falls" : "plays fall"} past the end of the video. The sync may be off.`}
     </Callout>
+  ) : sync.jumpsLeft.length > 0 && !sync.active ? (
+    <Callout tone="warning" action={<Button variant="outline" size="sm" onClick={sync.startJumps}>Check the jumps</Button>}>
+      {jumpWords(sync.jumpsLeft)}
+    </Callout>
   ) : timeline.overlaps && !sync.active && sync.progress.left > 0 ? (
     <Callout tone="warning" action={<Button variant="outline" size="sm" onClick={() => sync.startCheck("banner")}>Check sync</Button>}>
       Two quarters overlap in the video, so some plays are in the wrong place.
     </Callout>
   ) : timeline.beforeStart > 0 ? (
     <Callout>
-      {match.syncPoint?.footageStart !== undefined ? "The video jumps into the game after the tip-off" : "The recording starts after tip-off"}: the first{" "}
+      {match.syncPoint?.footageStart !== undefined ? "The start of the game isn’t in the video" : "The recording starts after tip-off"}: the first{" "}
       {timeline.beforeStart} {timeline.beforeStart === 1 ? "play isn’t" : "plays aren’t"} in it.
     </Callout>
   ) : null;
@@ -993,32 +1015,22 @@ export function GameWatchView({
       }),
     }));
   }, [sync.parts, sync.event, playByEvent, match.syncPoint]);
-  const words = syncWords(sync);
   const quietLink = "shrink-0 rounded-sm text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection";
-  const syncHint = !words ? null : (
-    <span data-sync="hint" className="flex min-w-0 items-center gap-2 text-subheadline text-muted-foreground">
-      {/* In a column too narrow for the bar's own label, it leads this line. */}
-      {sync.mode.kind !== "confirm" && <span className="shrink-0 font-medium text-foreground @min-[600px]/player:hidden">{words.label}</span>}
-      <span className="min-w-0 truncate" title={words.hint}>
-        {words.hint}
-      </span>
-      {sync.mode.kind === "ask" && (
+  // Under the sync's panel, beside what to do: the clip again, or another play.
+  const syncLinks =
+    sync.mode.kind === "ask" ? (
+      <>
         <button type="button" className={quietLink} onClick={sync.actions.replay}>
           Replay
         </button>
-      )}
-      {sync.mode.kind === "ask" && sync.mode.purpose === "check" && (
-        <button type="button" className={quietLink} onClick={sync.actions.another}>
-          Try another play
-        </button>
-      )}
-    </span>
-  );
-  const syncControl = !footage || sync.parts.length === 0 ? null : sync.mode.kind === "ask" ? (
-    <button type="button" className={cn(quietControl, "h-6 px-1.5 text-callout text-foreground")} onClick={sync.actions.escape}>
-      Stop checking
-    </button>
-  ) : sync.active ? null : (
+        {sync.mode.purpose !== "narrow" && (
+          <button type="button" className={quietLink} onClick={sync.actions.another}>
+            Try another play
+          </button>
+        )}
+      </>
+    ) : null;
+  const syncControl = !footage || sync.parts.length === 0 || sync.active ? null : (
     <>
       <SyncFixesMenu fixes={sync.fixes} playOf={(id) => playByEvent.get(id)?.event} onRemove={(fix) => void sync.removeFix(fix)} disabled={sync.busy} />
       {sync.progress.left === 0 ? (
@@ -1088,6 +1100,14 @@ export function GameWatchView({
         {/* The list on the left and the play on the right, as in Teams' Plays, Add clips and the editor. The ids keep each panel's saved size. */}
         <ResizablePanel id="plays" defaultSize="34" minSize="26" maxSize="48">
           {/* While a play is checked or found the list stands back: a click in it would take the video away from the play. */}
+          <div className="relative h-full min-h-0">
+          {sync.active && (
+            <div data-sync="list-paused" className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-4">
+              <span className="rounded-full bg-material-popover px-3 py-1.5 text-callout text-foreground shadow-menu ring-1 ring-separator backdrop-blur-xl">
+                Paused while you check the sync
+              </span>
+            </div>
+          )}
           <div className={cn("flex h-full min-h-0 flex-col transition-opacity duration-200", sync.active && "pointer-events-none opacity-40")} inert={sync.active}>
             <GameFilterBar
               filters={filters}
@@ -1166,12 +1186,22 @@ export function GameWatchView({
               }
             />
           </div>
+          </div>
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel id="player" defaultSize="66" minSize="45">
           <div className="flex h-full min-h-0 flex-col px-4 pt-4">
             <div ref={stageBoxRef} className="flex min-h-0 flex-1 flex-col items-center">
-              <div className="@container/player flex flex-col" style={{ width: stageWidth || "100%" }}>
+              {/* While the sync is checked or fixed the column is one object with a frame round it: a mode, not playback. */}
+              <div
+                data-sync-frame={sync.active ? "on" : undefined}
+                className={cn(
+                  "@container/player flex flex-col rounded-[14px] outline-2 outline-offset-[6px] transition-[outline-color] duration-300",
+                  sync.active ? "outline-primary/45" : "outline-transparent",
+                )}
+                style={{ width: stageWidth || "100%", outlineStyle: "solid" }}
+              >
+                {sync.active && !playerFs.active && <GameSyncBar sync={sync} links={syncLinks} />}
                 <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
                   <div ref={stageWrapRef} className={playerFs.active ? "relative min-h-0 flex-1" : "relative w-full"}>
                     <PlayerStage
@@ -1243,9 +1273,7 @@ export function GameWatchView({
                     {labelKeysShown && <GameLabelKeys labels={labels.labels} on={current ? labels.assignments.get(current.key) : undefined} />}
                   </div>
                 </div>
-                {sync.active ? (
-                  <GameSyncBar sync={sync} />
-                ) : (
+                {!sync.active && (
                 <GameNowBar
                   play={current}
                   footage={footage}
@@ -1283,7 +1311,7 @@ export function GameWatchView({
                       playback.seekTo(t);
                       refollow();
                     }}
-                    hint={syncHint}
+                    hint={null}
                   />
                 ) : (
                 <GameTimelineStrip
@@ -1317,7 +1345,7 @@ export function GameWatchView({
                   landmarkTime={landmarkTime}
                   onScrubEnd={(via) => trackSeek(via, "time", null)}
                   handleRef={timelineHandle}
-                  hint={syncHint ?? (tipSeen || timeline.plays.length === 0 ? null : "Drag the timeline to move through the game. Double-click a quarter to zoom in.")}
+                  hint={sync.active || tipSeen || timeline.plays.length === 0 ? null : "Drag the timeline to move through the game. Double-click a quarter to zoom in."}
                   // The sync row is for checking and fixing: it is there while that goes on, and out of the way otherwise.
                   syncParts={sync.active ? stripSyncParts : undefined}
                   onCheckPart={sync.mode.kind === "ask" && sync.mode.purpose === "check" ? (index) => sync.startCheck("lane", index) : undefined}

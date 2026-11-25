@@ -5,12 +5,14 @@ import { markNextNavRoot } from "@/lib/nav-history";
 import { BookOpen, FileText, Film, ListVideo, Plus, Search, Share2, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { UpdateCard } from "@/components/UpdateChecker";
 import { useAuth } from "@/lib/auth-context";
 import { useImportQuota } from "@/lib/use-import-quota";
 import { IS_MACOS } from "@/lib/platform";
-import { springs, useReducedMotionSafe } from "@/lib/motion";
-import { useSidebarCollapsed } from "@/lib/sidebar-store";
+import { setSidebarCollapsed, useSidebarCollapsed } from "@/lib/sidebar-store";
+import { setSidebarWidth, SIDEBAR_WIDTH, useSidebarWidth } from "@/lib/sidebar-width";
+import { useColumnResize } from "@/lib/use-column-resize";
 import { toggleBrowser } from "@/lib/playlist-browser-store";
 import { openQuickSearch } from "@/lib/quick-search-store";
 import { cn } from "@/lib/utils";
@@ -24,9 +26,6 @@ import { OpenGames } from "./open-games";
 import { OpenTeams } from "./open-teams";
 import { SpaceSwitcher } from "./space-switcher";
 import { UserMenu } from "./user-menu";
-
-/** Keep in step with --sidebar-width in index.css. */
-const SIDEBAR_WIDTH = 220;
 
 /** The action row above the pages (Search): a page row's look, never selected. */
 const ACTION_ROW =
@@ -115,7 +114,14 @@ function edgeMask({ top, bottom }: { top: boolean; bottom: boolean }): React.CSS
  * The macOS source list: labelled rows, the space at the top, the account
  * at the bottom, the traffic lights inset in the strip above it all. On
  * macOS the system paints vibrancy behind it; on Windows it is an opaque
- * column with a separator. Collapsing animates the width with a spring.
+ * column with a separator. Its right edge drags it wider or narrower, as
+ * Mail's and Notion's do (lib/use-column-resize.ts): the width is kept per
+ * machine (lib/sidebar-width.ts), and hiding or showing it is one spring of
+ * the width. A click on the edge hides it, and shows it again at the width
+ * it had; a flick inward hides it too, and then it comes back at the default
+ * width. Hidden, the window's left edge is its edge: a click or a pull brings
+ * it out. Hovered, the edge lights up as a blue line: the window's one
+ * accented divider; the inner ones are gray.
  * The space and the account stay put; everything between them scrolls when
  * the window is too short for it, as Finder's and Mail's lists do, fading
  * out at an edge only while there is more past it.
@@ -134,7 +140,33 @@ export function Sidebar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const collapsed = useSidebarCollapsed();
-  const reduced = useReducedMotionSafe();
+  const width = useSidebarWidth();
+  /** The edge's "Hide sidebar"/"Show sidebar" label. */
+  const [tipOpen, setTipOpen] = React.useState(false);
+  /** A drag keeps the label away until the pointer comes back onto the edge afresh (as the playlist browser's). */
+  const tipSuppressed = React.useRef(false);
+  const { w, innerW, dragMode, edgeProps } = useColumnResize({
+    collapsed,
+    width,
+    limits: SIDEBAR_WIDTH,
+    onWidthChange: setSidebarWidth,
+    // Dragged shut, it comes back at the default width: the width it was dragged through says nothing.
+    onCollapse: () => {
+      setSidebarWidth(SIDEBAR_WIDTH.default);
+      setSidebarCollapsed(true);
+    },
+    // A click on the open edge hides it and keeps its width for when it comes back.
+    onEdgeClick: () => setSidebarCollapsed(true),
+    // From the hidden edge: a click opens at the kept width, a pull at the width it was pulled to.
+    onExpand: (next) => {
+      setSidebarWidth(next);
+      setSidebarCollapsed(false);
+    },
+    onDragStart: () => {
+      tipSuppressed.current = true;
+      setTipOpen(false);
+    },
+  });
   const importQuota = useImportQuota();
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
   const edges = useScrollEdges(scrollRef);
@@ -186,17 +218,15 @@ export function Sidebar() {
 
   return (
     <motion.aside
-      initial={false}
-      animate={{ width: collapsed ? 0 : SIDEBAR_WIDTH }}
-      transition={reduced ? { duration: 0 } : springs.standard}
-      aria-hidden={collapsed || undefined}
+      style={{ width: w }}
       className={cn(
-        "relative h-screen shrink-0 overflow-hidden select-none",
+        "relative h-screen shrink-0 select-none",
         IS_MACOS ? "bg-material-sidebar" : "border-r border-separator bg-sidebar",
       )}
     >
-      {/* Fixed inner width so the content never reflows while the width springs. */}
-      <div className="flex h-full flex-col" style={{ width: SIDEBAR_WIDTH }}>
+      <div className="h-full overflow-hidden" aria-hidden={collapsed || undefined}>
+      {/* The content keeps its width while the column springs, so nothing re-wraps; dragged, it follows the edge. */}
+      <motion.div className="flex h-full flex-col" style={{ width: innerW }}>
         <div
           data-tauri-drag-region
           className={cn("shrink-0", IS_MACOS ? "h-[var(--titlebar-inset)]" : "h-3")}
@@ -278,7 +308,41 @@ export function Sidebar() {
         </div>
 
         <div className="shrink-0 p-2">{user && <UserMenu user={user} />}</div>
+      </motion.div>
       </div>
+
+      {/* The edge. Open, a hit area straddling the sidebar's right edge, above the content beside it. Hidden, it moves
+          wholly onto the window's left edge, so it is there to hover, click or pull. One element both ways, so its line
+          never doubles up while the sidebar opens or closes under the pointer. */}
+      <Tooltip open={tipOpen && !dragMode} onOpenChange={(open) => setTipOpen(open && !tipSuppressed.current)}>
+        <TooltipTrigger asChild>
+          <div
+            {...edgeProps}
+            aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
+            aria-keyshortcuts={IS_MACOS ? "Control+Meta+S" : undefined}
+            onPointerEnter={() => {
+              if (!dragMode) tipSuppressed.current = false;
+            }}
+            className={cn(
+              "group/edge absolute inset-y-0 z-30 cursor-col-resize outline-none",
+              collapsed ? "left-0 w-2" : "-right-1.5 w-3",
+            )}
+          >
+            <div
+              data-edge-line
+              className={cn(
+                "absolute inset-y-0 w-0.5 bg-selection transition-opacity duration-150 motion-reduce:transition-none group-hover/edge:opacity-100 group-focus-visible/edge:opacity-100",
+                collapsed ? "left-0" : "left-1/2 -translate-x-1/2",
+                dragMode ? "opacity-100" : "opacity-0",
+              )}
+            />
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="flex items-center gap-1.5">
+          {collapsed ? "Show sidebar" : "Hide sidebar"}
+          {IS_MACOS && <Kbd>{"\u2303\u2318S"}</Kbd>}
+        </TooltipContent>
+      </Tooltip>
     </motion.aside>
   );
 }

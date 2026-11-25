@@ -14,6 +14,7 @@ import type { PeriodMark, PlayByPlayEvent, SyncPoint } from "../types/match";
 import { computeVideoTime, ownVideoTime } from "./clip-timing";
 import { isBookkeepingEvent, periodLabel } from "./events";
 import { periodSpans } from "./period-sync";
+import { lostInJump } from "./video-jumps";
 
 /**
  * How far ahead of the playhead a play already counts as "now". The feed
@@ -34,7 +35,8 @@ export interface TimedPlay {
   /** Where a click on the play starts playing: its pre-roll before it, never before 0. */
   start: number;
   /** Whether the play is inside the video file: "before" its start, "after" its end. */
-  reach: "in" | "before" | "after";
+  /** "lost": in the stretch a jump in the recording lost (lib/video-jumps.ts). */
+  reach: "in" | "before" | "after" | "lost";
   /** The coach gave the play a place of its own in the video (SyncPoint.playTimes): the sync doesn't move it. */
   own?: true;
 }
@@ -60,6 +62,8 @@ export interface GameTimeline {
   unplaced: number;
   /** Plays that land before the file starts (a recording that began after tip-off). */
   beforeStart: number;
+  /** Plays in a stretch a fixed jump in the recording lost (reach "lost"). */
+  lostInJumps: number;
   /** Plays that land past the end of the file (a video that skips the breaks, quarters not set). */
   pastEnd: number;
   /** Two periods overlap on the video: a quarter's sync is wrong. */
@@ -134,6 +138,7 @@ export function buildGameTimeline(input: {
   const plays: TimedPlay[] = [];
   let unplaced = 0;
   let beforeStart = 0;
+  let lostInJumps = 0;
   let pastEnd = 0;
   for (const event of events) {
     const own = sync ? ownVideoTime(event, sync) : null;
@@ -150,6 +155,9 @@ export function buildGameTimeline(input: {
     } else if (sync && duration !== null && time > duration) {
       reach = "after";
       pastEnd++;
+    } else if (sync && own === null && lostInJump(event, sync)) {
+      reach = "lost";
+      lostInJumps++;
     }
     plays.push({ key: `${matchId}:${event.eventId}`, event, time, start: Math.max(0, time - preRoll), reach, ...(own !== null ? { own: true as const } : {}) });
   }
@@ -197,7 +205,7 @@ export function buildGameTimeline(input: {
     domain = { start, end: Math.max(end, start + 1) };
   }
 
-  return { axis: sync ? "video" : "wall", plays, byTime, bands, domain, unplaced, beforeStart, pastEnd, overlaps, timeOf };
+  return { axis: sync ? "video" : "wall", plays, byTime, bands, domain, unplaced, beforeStart, lostInJumps, pastEnd, overlaps, timeOf };
 }
 
 /** The time-ordered plays a filter keeps: what the lookups below search when a filter is on. */

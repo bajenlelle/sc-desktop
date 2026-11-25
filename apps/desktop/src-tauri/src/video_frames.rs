@@ -284,6 +284,9 @@ pub async fn find_cuts(app: tauri::AppHandle, path: String, start: f64, duration
     let args: Vec<String> = vec![
         "-hide_banner".into(),
         "-nostats".into(),
+        // A whole game is searched in the background while the coach works: two threads leave the rest free.
+        "-threads".into(),
+        "2".into(),
         "-ss".into(),
         format!("{start:.3}"),
         "-t".into(),

@@ -232,7 +232,9 @@ export function useTipoffSuggestion(
           const previewed = userRef.current === "none";
           setState({ kind: "suggested", seconds: result.estimate.seconds, confidence: result.estimate.confidence, basis: result.estimate.basis, previewed });
           if (previewed) seek(result.estimate.seconds, false);
-          saveVideoSyncHint({ fp: fingerprinted.fp, sourceGameId, tipoffVideoTime: result.estimate.seconds, method: "auto", confidence: result.estimate.confidence })
+          // From a scoreboard graphic typed in by hand (often seconds late): a place to look for a basket, never a
+          // tip-off to hand the next coach.
+          if (result.estimate.basis !== "first_score") saveVideoSyncHint({ fp: fingerprinted.fp, sourceGameId, tipoffVideoTime: result.estimate.seconds, method: "auto", confidence: result.estimate.confidence })
             .then(() => track("tipoff_hint_saved", { method: "auto" }))
             .catch((err) => Sentry.captureException(err, { tags: { feature: "tipoff_detect", step: "save_auto" } }));
         } else if (result.outcome === "starts_after_tipoff") {

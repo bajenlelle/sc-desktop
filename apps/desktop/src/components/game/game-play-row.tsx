@@ -19,6 +19,7 @@ export function reachWords(play: TimedPlay): string | null {
   // Before the recording, or before it jumps into the game (SyncPoint.footageStart): either way, no footage.
   if (play.reach === "before") return "Not in the video";
   if (play.reach === "after") return "After the video ends";
+  if (play.reach === "lost") return "Missing at a jump in the video";
   return null;
 }
 

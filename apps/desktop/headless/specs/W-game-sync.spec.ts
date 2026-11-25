@@ -24,7 +24,10 @@ type Row = Record<string, unknown>;
  * turnover typed in after the final play, as a scorer's table does with a play it missed. Every save of a game's
  * sync, and every write to a playlist clip that follows one, is answered here; the syncs saved are returned.
  */
-async function twoQuarterGame(page: Page, opts: { footageStartAfterTipoff?: number } = {}): Promise<Sync[]> {
+async function twoQuarterGame(
+  page: Page,
+  opts: { footageStartAfterTipoff?: number; onSync?: (sync: Sync) => void } = {},
+): Promise<Sync[]> {
   const saved: Sync[] = [];
   const reshape = (events: Row[]) => {
     if (events.length === 0) return;
@@ -41,6 +44,10 @@ async function twoQuarterGame(page: Page, opts: { footageStartAfterTipoff?: numb
     if (opts.footageStartAfterTipoff !== undefined && node && typeof node === "object" && !Array.isArray(node)) {
       const sync = (node as Row).sync_point as (Sync & { footageStart?: number }) | null | undefined;
       if (sync && typeof sync.syncVideoTime === "number") sync.footageStart = sync.syncVideoTime + opts.footageStartAfterTipoff;
+    }
+    if (opts.onSync && node && typeof node === "object" && !Array.isArray(node)) {
+      const sync = (node as Row).sync_point as Sync | null | undefined;
+      if (sync && typeof sync.syncVideoTime === "number") opts.onSync(sync);
     }
     if (Array.isArray(node)) {
       if (node.length > 0 && node.every((n) => n && typeof n === "object" && "game_clock_time" in (n as Row))) return reshape(node as Row[]);
@@ -114,6 +121,10 @@ test("Check sync asks about one play of each part of the game, on a sync row tha
 
   await status(page).click();
   await expect(parts(page), "one part a quarter").toHaveCount(2);
+  // A mode, not playback: the panel names it, the column has a frame, and the list says why it is paused.
+  await expect(bar(page).locator('[data-sync="mode-title"]')).toHaveAttribute("title", "Checking sync");
+  await expect(page.locator('[data-sync-frame="on"]')).toHaveCount(1);
+  await expect(page.locator('[data-sync="list-paused"]')).toHaveText("Paused while you check the sync");
   await expect(label(page), "the first part is asked about first").toHaveText("Check 1 of 2 · Q1");
   await expect(page.locator('[data-sync="hint"]'), "the first play says what a check is").toContainText("One play from each part of the game. Nothing moves unless one is off.");
   await expect(bar(page).locator('[data-sync="change"]'), "the play is named by what it does to the score").toBeVisible();
@@ -142,6 +153,7 @@ test("Check sync asks about one play of each part of the game, on a sync row tha
   await expect(parts(page), "the row goes with the check").toHaveCount(0);
   await expect(status(page)).toHaveText("Sync checked");
   await expect(page.locator("[inert]"), "the list is back").toHaveCount(0);
+  await expect(page.locator('[data-sync-frame="on"]'), "the frame goes with the mode").toHaveCount(0);
   await shot(page, `${browserName}-W-checked`);
 
   const events = (await tracked()).filter((e) => e.event.startsWith("sync_check"));
@@ -171,7 +183,8 @@ test("Escape ends a check where it stands, and a click on a part of the sync row
   await expect(label(page)).toHaveText("Check 2 of 2 · Q2");
   await bar(page).getByRole("button", { name: "Skip" }).click();
   await expect(label(page), "a part passed on is not asked about again; the other one is").toHaveText("Check 1 of 2 · Q1");
-  await page.getByRole("button", { name: "Stop checking" }).click();
+  // Done, in the panel's own place, leaves the mode.
+  await bar(page).getByRole("button", { name: "Done" }).click();
   await expect(bar(page)).toHaveCount(0);
 });
 
@@ -400,7 +413,7 @@ test("in a small window the sync's bar and its buttons stay inside the player's 
   };
 
   await status(page).click();
-  await expect(page.locator('[data-sync="hint"]'), "the label moves to the line under the timeline").toContainText("Check 1 of 2 · Q1");
+  await expect(bar(page).getByText("Check 1 of 2 · Q1", { exact: true }).last(), "the label moves to the panel's second line").toBeVisible();
   await expect(label(page)).toBeHidden();
   await fits("a question");
   await shot(page, `${browserName}-W-small-ask`);
@@ -426,7 +439,7 @@ test("in a small window the sync's bar and its buttons stay inside the player's 
 test("a recording that jumps into the game after the tip-off: the plays before have no footage, and that can be taken back", async ({ page }) => {
   const saved = await twoQuarterGame(page, { footageStartAfterTipoff: 25 });
   await openSampleGame(page);
-  await expect(page.getByText(/The video jumps into the game after the tip-off: the first \d+ plays? (isn’t|aren’t) in it\./)).toBeVisible();
+  await expect(page.getByText(/The start of the game isn’t in the video: the first \d+ plays? (isn’t|aren’t) in it\./)).toBeVisible();
 
   // Listed among the fixes, first, with what it leaves out; the × takes it back.
   const fixes = page.locator('[data-sync="fixes"]');
@@ -437,5 +450,37 @@ test("a recording that jumps into the game after the tip-off: the plays before h
   await start.getByRole("menuitem", { name: /^Remove fix: Game footage starts/ }).click();
   await expect(toastWith(page, "Fix removed")).toBeVisible();
   expect((saved.at(-1) as { footageStart?: number }).footageStart, "the footage starts with the recording again").toBeUndefined();
-  await expect(page.getByText(/The video jumps into the game/)).toHaveCount(0);
+  await expect(page.getByText(/The start of the game isn’t in the video/)).toHaveCount(0);
+});
+
+test("a jump in the video is found, warned about, and checked: the fix starts at the jump itself", async ({ page, browserName }) => {
+  const tracked = await recordAnalytics(page);
+  // The stream dropped two and a half minutes after the tip-off (the cuts are handed in: headless videos aren't files).
+  let tip = 0;
+  const saved = await twoQuarterGame(page, { onSync: (s) => (tip = s.syncVideoTime) });
+  await page.exposeFunction("__headlessCutsFn", () => [tip + 150]);
+  await openSampleGame(page);
+  const jump = tip + 150;
+
+  const banner = page.getByText(/^The video has a jump in it \(Q1 \d+:\d\d\)\. Plays after it may be off\.$/);
+  await expect(banner).toBeVisible();
+  await shot(page, `${browserName}-W-jump-banner`);
+  await page.getByRole("button", { name: "Check the jumps" }).click();
+  await expect(label(page)).toHaveText(/^Jump · Q1 \d+:\d\d$/);
+  await expect(page.locator('[data-sync="hint"]')).toContainText("The video has a jump here");
+  await expect.poll(() => inClip(page), { message: "the basket after the jump plays" }).toBe(true);
+
+  // Off: the stream lost five seconds, so the basket is five seconds earlier than the sync has it.
+  await bar(page).getByRole("button", { name: "It’s off" }).click();
+  await expect(label(page)).toHaveText("After the jump");
+  await step(page, "ArrowLeft", 5);
+  await page.keyboard.press("Enter");
+  await expect(toastWith(page, /plays? moved 5 s earlier/)).toBeVisible();
+  const fixed = saved.at(-1)! as Sync & { cuts?: { syncVideoTime: number; jump?: boolean }[] };
+  expect(fixed.cuts, "one fix, at the jump itself").toHaveLength(1);
+  expect(fixed.cuts![0].jump).toBe(true);
+  expect(fixed.cuts![0].syncVideoTime).toBeCloseTo(jump, 1);
+  await expect(bar(page), "no jump left: back to watching").toHaveCount(0);
+  await expect(banner, "the jump is answered").toHaveCount(0);
+  expect((await tracked()).find((e) => e.event === "sync_fix_applied")?.properties).toMatchObject({ scope: "jump", surface: "game_view" });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
+import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { scoreAfter, scoreBefore, type GameFlow } from "@scoutable/shared/lib/game-flow";
 import type { GameTimeline } from "@scoutable/shared/lib/game-timeline";
 import { projectedSync, sameSyncPoint } from "@scoutable/shared/lib/period-sync";
@@ -40,9 +41,10 @@ import { updateSyncPoint } from "@/lib/matches-db";
 import { Sentry } from "@/lib/sentry";
 import { afterSyncChange } from "@/lib/sync-change";
 import type { PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import { JUMP_ASK_AFTER_S, lostInJump, lostPlays, syncFromJump, videoJumps, type VideoJump } from "@scoutable/shared/lib/video-jumps";
 
-/** Where a fix was started: Check sync's "It's off", the Now bar's Fix sync, or a row's menu. */
-export type SyncOrigin = "check" | "now_bar" | "menu";
+/** Where a fix was started: Check sync's "It's off", the Now bar's Fix sync, a row's menu, or checking the video's jumps. */
+export type SyncOrigin = "check" | "now_bar" | "menu" | "jump";
 
 /**
  * Narrowing down where a shift starts (lib/sync-check.ts, NarrowGap). The fix
@@ -68,7 +70,7 @@ export type SyncMode =
   /** A play is played with the moment the sync has it at marked: is it right? Checking a part, or narrowing a shift down. */
   | {
       kind: "ask";
-      purpose: "check" | "narrow";
+      purpose: "check" | "narrow" | "jump";
       event: PlayByPlayEvent;
       at: number;
       part: SyncPart | null;
@@ -77,9 +79,11 @@ export type SyncMode =
       narrow: Narrow | null;
       /** The first play of a check: the bar says what a check is. */
       first?: boolean;
+      /** Checking a jump in the video (purpose "jump"): where it is, in seconds. */
+      jumpAt?: number;
     }
   /** The coach scrubs to where the play really happens. While narrowing, the video starts where the shift would put the play. */
-  | { kind: "find"; event: PlayByPlayEvent; mapped: number; origin: SyncOrigin; narrow: Narrow | null }
+  | { kind: "find"; event: PlayByPlayEvent; mapped: number; origin: SyncOrigin; narrow: Narrow | null; jumpAt?: number }
   /** The play is found: how far it moved, and what moves with it. */
   | { kind: "confirm"; event: PlayByPlayEvent; mapped: number; found: number; plan: FixPlan; suggested: "play" | "on"; origin: SyncOrigin }
   /** A fix made from a play is saved: the plays before it may be off too. */
@@ -109,6 +113,7 @@ export function useGameSync({
   footage,
   seek,
   onSyncChange,
+  cuts,
 }: {
   match: StoredMatch;
   timeline: GameTimeline;
@@ -120,6 +125,8 @@ export function useGameSync({
   seek: (t: number, play: boolean) => void;
   /** The game's sync was saved: the page's copy of the game follows. */
   onSyncChange: (next: SyncPoint) => void;
+  /** The recording's hard cuts, once found in the background (lib/video-cut-scan.ts); null until then. */
+  cuts: readonly number[] | null;
 }) {
   const [mode, setMode] = useState<SyncMode>({ kind: "idle" });
   const [busy, setBusy] = useState(false);
@@ -137,7 +144,7 @@ export function useGameSync({
   const inFile = useCallback(
     (e: PlayByPlayEvent, sync: SyncPoint) => {
       const t = computeVideoTime(e, sync);
-      return t !== null && t >= (sync.footageStart ?? 0) && (duration === null || t <= duration);
+      return t !== null && t >= (sync.footageStart ?? 0) && (duration === null || t <= duration) && !lostInJump(e, sync);
     },
     [duration],
   );
@@ -212,12 +219,21 @@ export function useGameSync({
 
   // ---- Asking about a play ---------------------------------------------------------
   const ask = useCallback(
-    (purpose: "check" | "narrow", event: PlayByPlayEvent, part: SyncPart | null, partName: string, total: number, narrow: Narrow | null, first = false) => {
+    (
+      purpose: "check" | "narrow" | "jump",
+      event: PlayByPlayEvent,
+      part: SyncPart | null,
+      partName: string,
+      total: number,
+      narrow: Narrow | null,
+      first = false,
+      jumpAt?: number,
+    ) => {
       // A play asked about while narrowing is where the work in hand has it.
       const sync = narrow ? narrow.work : syncRef.current;
       const at = sync ? computeVideoTime(event, sync) : null;
       if (at === null) return false;
-      setMode({ kind: "ask", purpose, event, at, part, partName, total, narrow, first });
+      setMode({ kind: "ask", purpose, event, at, part, partName, total, narrow, first, jumpAt });
       seek(Math.max(0, at - CHECK_LEAD_SECONDS), true);
       return true;
     },
@@ -277,7 +293,7 @@ export function useGameSync({
 
   // ---- Finding a play --------------------------------------------------------------
   const enterFind = useCallback(
-    (event: PlayByPlayEvent, origin: SyncOrigin, narrow: Narrow | null = null) => {
+    (event: PlayByPlayEvent, origin: SyncOrigin, narrow: Narrow | null = null, jumpAt?: number) => {
       const sync = narrow ? narrow.work : syncRef.current;
       const mapped = sync ? computeVideoTime(event, sync) : null;
       if (!sync || mapped === null) {
@@ -294,11 +310,71 @@ export function useGameSync({
           ? mapped
           : (computeVideoTime(event, projectedSync(sync, match.events)) ?? mapped);
       video.pause();
-      setMode({ kind: "find", event, mapped, origin, narrow });
+      setMode({ kind: "find", event, mapped, origin, narrow, jumpAt });
       seek(Math.max(0, duration === null ? start : Math.min(start, duration - 1)), false);
     },
     [video, duration, match.events, seek],
   );
+
+  // ---- The video's jumps ----------------------------------------------------------
+  /** The recording's jumps inside the game (lib/video-jumps.ts), and the ones not answered yet. */
+  const jumps = useMemo(
+    () => (cuts && match.syncPoint && footage ? videoJumps(cuts, match.syncPoint, plays) : []),
+    [cuts, match.syncPoint, plays, footage],
+  );
+  const jumpsLeft = useMemo(() => jumps.filter((j) => !j.answered), [jumps]);
+  const skippedJumps = useRef(new Set<number>());
+
+  /** The basket to ask about after a jump: the first one well after it the coach hasn't passed on, by the sync now. */
+  const jumpCandidate = useCallback(
+    (jump: VideoJump<PlayByPlayEvent>, sync: SyncPoint, all: VideoJump<PlayByPlayEvent>[]) => {
+      const next = all.find((j) => j.at > jump.at)?.at ?? Infinity;
+      const baskets = plays
+        .filter((e) => e.period === jump.period && (e.type === "2pt" || e.type === "3pt") && e.isSuccessful === 1 && !tried.current.has(e.eventId))
+        .map((e) => ({ e, t: computeVideoTime(e, sync) }))
+        .filter((p): p is { e: PlayByPlayEvent; t: number } => p.t !== null && p.t >= jump.at && p.t < next && inFile(p.e, sync))
+        .sort((a, b) => a.t - b.t);
+      return (baskets.find((p) => p.t >= jump.at + JUMP_ASK_AFTER_S) ?? baskets[0])?.e ?? null;
+    },
+    [plays, inFile],
+  );
+
+  const finishJumps = useCallback(() => {
+    setMode({ kind: "idle" });
+    video.pause();
+    const sync = syncRef.current;
+    const left = cuts && sync ? videoJumps(cuts, sync, plays).filter((j) => !j.answered).length : 0;
+    trackEvent("sync_check_finished", { left, purpose: "jump" });
+    if (left === 0) toast.success("Jumps checked", { id: DONE_TOAST, description: "Every jump in the video has been looked at." });
+  }, [video, cuts, plays]);
+
+  /** The next jump to ask about, by the sync as it is now; done when none is left. */
+  const nextJump = useCallback(
+    (first = false) => {
+      const sync = syncRef.current;
+      if (!sync || !cuts) return finishJumps();
+      const all = videoJumps(cuts, sync, plays);
+      for (const [i, jump] of all.entries()) {
+        if (jump.answered || skippedJumps.current.has(jump.at)) continue;
+        const event = jumpCandidate(jump, sync, all);
+        if (!event) continue;
+        const clock = jump.after.gameClockTime ? formatGameClock(jump.after.gameClockTime).replace(/^0(\d:)/, "$1") : "";
+        const name = `${periodLabel(jump.period)} ${clock}`.trim();
+        if (ask("jump", event, null, all.length > 1 ? `Jump ${i + 1} of ${all.length} · ${name}` : `Jump · ${name}`, all.length, null, first, jump.at)) return;
+      }
+      finishJumps();
+    },
+    [cuts, plays, jumpCandidate, ask, finishJumps],
+  );
+
+  /** Check the jumps: the first basket after each jump not answered yet, in turn. */
+  const startJumps = useCallback(() => {
+    if (!footage || !syncRef.current || !cuts) return;
+    tried.current = new Set();
+    skippedJumps.current = new Set();
+    trackEvent("sync_check_started", { entry: "jumps", parts: jumps.length, left: jumpsLeft.length });
+    nextJump(true);
+  }, [footage, cuts, jumps.length, jumpsLeft.length, nextJump]);
 
   // ---- Taking fixes back -----------------------------------------------------------
   /** The fixes made in the game view that can be taken back one at a time (lib/sync-check.ts, SyncFix). */
@@ -392,25 +468,36 @@ export function useGameSync({
         return nextNarrow({ ...n, work: step.sync, gaps: [...step.gaps, ...n.gaps.slice(1)] });
       }
       const sync = syncRef.current;
-      if (sync && (await commit(withCheck(sync, mode.event)))) advance();
+      if (!sync || !(await commit(withCheck(sync, mode.event)))) return;
+      if (mode.purpose === "jump") nextJump();
+      else advance();
     };
     const itsOff = () => {
       if (mode.kind !== "ask" || busy) return;
       trackEvent("sync_check_answered", { answer: "off", purpose: mode.purpose, period: mode.event.period });
       // Off while narrowing: looked for where the shift would put it.
       if (mode.purpose === "narrow" && mode.narrow) return enterFind(mode.event, mode.narrow.origin, mode.narrow);
+      if (mode.purpose === "jump") {
+        trackEvent("sync_fix_opened", { entry: "game_jump" });
+        return enterFind(mode.event, "jump", null, mode.jumpAt);
+      }
       trackEvent("sync_fix_opened", { entry: "game_check" });
       enterFind(mode.event, "check");
     };
     const another = () => {
-      if (mode.kind !== "ask" || mode.purpose !== "check") return;
-      trackEvent("sync_check_answered", { answer: "another", purpose: "check", period: mode.event.period });
+      if (mode.kind !== "ask" || mode.purpose === "narrow") return;
+      trackEvent("sync_check_answered", { answer: "another", purpose: mode.purpose, period: mode.event.period });
       tried.current.add(mode.event.eventId);
-      advance();
+      if (mode.purpose === "jump") nextJump();
+      else advance();
     };
     const skip = () => {
-      if (mode.kind !== "ask" || mode.purpose !== "check") return;
-      trackEvent("sync_check_answered", { answer: "skip", purpose: "check", period: mode.event.period });
+      if (mode.kind !== "ask" || mode.purpose === "narrow") return;
+      trackEvent("sync_check_answered", { answer: "skip", purpose: mode.purpose, period: mode.event.period });
+      if (mode.purpose === "jump") {
+        if (mode.jumpAt !== undefined) skippedJumps.current.add(mode.jumpAt);
+        return nextJump();
+      }
       if (mode.part) skipped.current.add(partKey(mode.part));
       advance();
     };
@@ -419,6 +506,7 @@ export function useGameSync({
     };
     const stop = () => {
       if (mode.kind === "ask" && mode.narrow) void finishNarrow(mode.narrow);
+      else if (mode.kind === "ask" && mode.purpose === "jump") finishJumps();
       else if (mode.kind === "ask") finish();
     };
     const here = async () => {
@@ -434,6 +522,25 @@ export function useGameSync({
         return nextNarrow({ ...n, work: step.sync, gaps: [...step.gaps, ...n.gaps.slice(1)] });
       }
       const delta = found - mode.mapped;
+      // A jump: the fix starts at the jump itself, known to the frame, and is made at once (no scope to choose).
+      if (mode.origin === "jump" && mode.jumpAt !== undefined) {
+        if (Math.abs(delta) < SAME_PLACE_SECONDS) {
+          if (await commit(withCheck(sync, mode.event))) nextJump();
+          return;
+        }
+        const next = withCheck(syncFromJump(sync, mode.jumpAt, mode.event, found), mode.event);
+        const lost = lostPlays(match.events, next) - lostPlays(match.events, sync);
+        const moved = plays.filter((e) => {
+          const a = computeVideoTime(e, sync);
+          const b = computeVideoTime(e, next);
+          return a !== null && b !== null && Math.abs(a - b) > 0.05;
+        }).length;
+        const message = `${plural(moved, "play")} moved ${describeShiftSeconds(delta)}${lost > 0 ? ` · ${plural(lost, "play")} missing at the jump` : ""}`;
+        video.pause();
+        if (!(await commit(next, { moved: true, message, undoTo: sync, scope: "jump" }))) return;
+        trackEvent("sync_fix_applied", { scope: "jump", period: mode.event.period, delta_s: Math.round(delta * 10) / 10, surface: "game_view", plays: moved, lost });
+        return nextJump();
+      }
       if (Math.abs(delta) < SAME_PLACE_SECONDS) {
         if (mode.origin === "check") {
           if (await commit(withCheck(sync, mode.event))) advance();
@@ -453,6 +560,7 @@ export function useGameSync({
       // Back to the question the search came from.
       if (mode.narrow) nextNarrow(mode.narrow);
       else if (mode.origin === "check") advance();
+      else if (mode.origin === "jump") nextJump();
       else setMode({ kind: "idle" });
     };
     const back = () => {
@@ -506,6 +614,16 @@ export function useGameSync({
     const done = () => {
       if (mode.kind === "offer") backToPlay(mode.narrow.fixed);
     };
+    /** Done: out of the mode at once, from any step. What was answered is kept; a narrowing saves what it knows. */
+    const exit = async () => {
+      if (busy) return;
+      if ((mode.kind === "ask" || mode.kind === "find") && mode.narrow) return finishNarrow(mode.narrow);
+      if (mode.kind === "offer") return done();
+      if (mode.kind === "ask" && mode.purpose === "jump") return finishJumps();
+      if (mode.kind === "ask" && mode.purpose === "check") return finish();
+      video.pause();
+      setMode({ kind: "idle" });
+    };
     /** Return: the bar's main button. */
     const primary = () => {
       if (mode.kind === "ask") void looksRight();
@@ -520,8 +638,8 @@ export function useGameSync({
       else if (mode.kind === "confirm") back();
       else if (mode.kind === "offer") done();
     };
-    return { looksRight, itsOff, another, skip, replay, stop, here, cancel, back, moveOnlyThis, moveOn, checkEarlier, done, primary, escape };
-  }, [mode, busy, video, match.events, plays, lead, seek, commit, advance, finish, enterFind, nextNarrow, finishNarrow, backToPlay, inFile]);
+    return { looksRight, itsOff, another, skip, replay, stop, here, cancel, back, moveOnlyThis, moveOn, checkEarlier, done, primary, escape, exit };
+  }, [mode, busy, video, match.events, plays, lead, seek, commit, advance, finish, enterFind, nextNarrow, finishNarrow, backToPlay, inFile, nextJump, finishJumps]);
 
   // A question plays its clip once: from before the play to a little after it.
   const askAt = mode.kind === "ask" ? mode.at : null;
@@ -558,6 +676,10 @@ export function useGameSync({
     clip: mode.kind === "ask" ? { start: Math.max(0, mode.at - CHECK_LEAD_SECONDS), end: mode.at + CHECK_TAIL_SECONDS, mark: mode.at } : null,
     startCheck,
     fixPlay,
+    /** The recording's jumps inside the game, the ones left to look at, and the way to check them. */
+    jumps,
+    jumpsLeft,
+    startJumps,
     /** The game view's fixes, and taking one or all of them back. */
     fixes,
     removeFix,

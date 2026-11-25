@@ -86,7 +86,10 @@ stretch where a game turned.
   for the picker.
 - Six at most: a seventh game closes the one shown least recently, and a
   notice says which, with Reopen. The notice stays eight seconds, twice the
-  app's others: nobody asked for that game to close. New games go last.
+  app's others: nobody asked for that game to close. New games go first, at the
+  top of the list, where the newest is easiest to find (since 2026-11-25; an
+  open game shown again keeps its place, so a row never jumps from under the
+  pointer). Open teams do the same.
 - **The keys and menus work from any page** (`components/game/game-tab-keys.tsx`,
   drawn by the window's layout, so it answers wherever the coach is):
   - ⌃Tab and ⌃⇧Tab, and the Window menu's Show Next Game Tab (⌘⇧]) and Show
@@ -540,11 +543,24 @@ Details sets it again.
 each unchecked part in turn, with its last made basket: the play's clip plays
 (6 s before to 4 s after), and over the footage the app's own score turns to
 the play's score, and lights up, at the moment the sync has the play at
-(`sync-cue.tsx`). The Now bar's place holds the question (`game-sync-bar.tsx`):
-the score change, the play in a sentence, and Skip, It's off, Looks right.
-The line under the timeline says what to look for, with Replay and Try
-another play. Looks right saves a check and moves on. The list stands back
-(inert) for as long as a play is being checked or found.
+(`sync-cue.tsx`). Looks right saves a check and moves on.
+
+Checking and fixing is a mode, and reads as one (NN/g on mode slips: a strong
+signal, the mode named, the way out in view; Apple's modal tasks end in Done).
+While it lasts (`game-sync-bar.tsx`):
+- **A panel over the footage**, tinted in the accent and in the Now bar's
+  stead: the mode's name ("Checking sync", "Checking the jumps", "Finding where
+  it starts", "Fixing sync"), the step ("Check 1 of 2 · Q1"), the score change,
+  the answers (Skip, It's off, Looks right), and **Done**, which leaves the mode
+  from any step and keeps what was answered. Its second line has the play in a
+  sentence and then what to do, in full (two lines are kept for it, so the
+  footage doesn't move as the words change), with Replay and Try another play.
+  In a column under 600 px the step and Done move to that line.
+- **A frame round the player's column**, which fades in with the mode.
+- **The list stands back** (inert, dimmed) with "Paused while you check the
+  sync" over it.
+The panel takes 52 px more than the Now bar did, so the footage is that much
+smaller while it shows.
 
 **Fix sync** (the Now bar, a row's menu, or It's off): the video stops where
 the sync has the play, and a close-up of the video around it takes the
@@ -626,9 +642,12 @@ starts after the tip-off.
 - **The detector lines the graphic up with the feed** (`tipoff-detect.ts`,
   signal 5): given how long after the tip-off the feed has the first points
   (`firstScoreAfterS`), the moment a clockless graphic leaves 0-0 (read twice a
-  second) places the tip-off without looking at the court ("Tip-off worked out
-  from the first points on the scoreboard"); too soon for the recording, it is
-  a late start by that much. Play seen starting on a hard cut (`find_cuts`,
+  second) says roughly where the game starts. Only roughly: the graphic is
+  typed in by hand, and on the replay measured it ran 3–18 s behind the feed.
+  So the suggestion offers "Set a basket", the picker looks for one from 15 s
+  before the graphic's estimate, and the estimate is never offered as a tip-off
+  or saved as a shared hint (a wrong hint from an earlier import put the
+  picker 16 s out on the same replay). Play seen starting on a hard cut (`find_cuts`,
   ffmpeg's scene score, a fraction of a second for the first minutes) is a jump
   into the game, not the tip-off, and is reported as a late start.
 - **Where the game's footage starts** (`SyncPoint.footageStart`): setting the
@@ -636,12 +655,54 @@ starts after the tip-off.
   (`footageStartFromCuts`). Before it the recording shows something else, so
   the plays the sync puts there are "Not in the video" like plays before the
   recording: grey in the list, no clip, never asked about by Check sync. The
-  banner says "The video jumps into the game after the tip-off". It is the
+  banner says "The start of the game isn't in the video". It is the
   first entry in the Fixes menu ("Game footage starts at 1:25 · 4 plays not in
   the video"), with its ×. A re-import onto the same video keeps it.
 - Not done: other surfaces (Add clips, the editor, players' apps) still clip a
   play before the footage start from the warm-up, as before; drops inside the
   game (this replay has two more) are left to Fix sync.
+
+## Jumps in the video
+
+A replay whose stream dropped is joined back on with a hard cut: the play in
+between is lost, and every later play is off by as much until a fix places
+them again. On a coach's game (Basketettan Dam, 2026-11-22) the replay jumped
+at 1:25, 6:26 and 41:11.
+
+- **Finding the cuts** (`apps/desktop/src/lib/video-cut-scan.ts`): after an
+  import, when a game opens in the game view, and when the app starts with a
+  search left unfinished, the recording is looked up by its fingerprint among
+  the scans coaches have shared (`video_cut_scans`, migration
+  20261125100000; RPCs `find_video_cut_scans`, `save_video_cut_scan`). One
+  nobody has searched is read here with ffmpeg's scene score (`find_cuts`,
+  two threads), fifteen minutes at a time, one recording at a time; the
+  progress is kept on this computer (`scoutable_cut_scan:<fingerprint>`,
+  `scoutable_cut_scans_pending`), so a quit loses at most fifteen minutes of
+  work and the next start picks it up. A finished search is shared. Nothing
+  waits on it: about 1.5 minutes for a 2.5-hour game. Only the fingerprint and
+  the cut times leave the machine.
+- **Which cuts are jumps** (`packages/shared/lib/video-jumps.ts`): measured
+  on nine downloaded games, a dropped stream is a cut on its own and a
+  production's graphics in a break a run of cuts a few seconds apart. A jump
+  is a cut with no other within 30 s, inside a quarter's play by the sync
+  (not before the tip-off, in a break or after the final play), after where
+  the game's footage starts.
+- **The warning**: "The video has 2 jumps in it (Q1 6:58, Q2 1:10).
+  Plays after a jump may be off." with **Check the jumps**, while a
+  jump is unanswered. A jump is answered by a fix within 30 s of it or a play
+  after it seen in the right place.
+- **Check the jumps** asks about a made basket at least 45 s after each jump
+  (the plays just after it may be in what was lost), as Check sync does:
+  Looks right saves a check; It's off finds the basket ("After the jump",
+  likely earlier by what the jump left out), and The play is here saves the fix
+  at once, starting at the jump itself (`syncFromJump`, `SyncCut.jump`): no
+  scope to choose and nothing to narrow down, since the jump is known to the
+  frame. The plays the old sync put after the jump that came before the new
+  sync starts were lost: they read "Missing at a jump in the video" (reach
+  "lost") and are not asked about. The toast says how many plays moved and
+  how many were lost, with Undo.
+- Not done: the editor, Add clips and the players' apps don't read lost
+  plays yet.
 
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 

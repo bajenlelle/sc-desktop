@@ -337,6 +337,11 @@ export function recallLoadedGame(id: string): LoadedGame | null {
   return cached.entry;
 }
 
+/** A game changed elsewhere (Details saved it): its next visit reads it afresh, a tab switch included. */
+export function forgetLoadedGame(id: string): void {
+  loadedGames.delete(id);
+}
+
 export function rememberLoadedGame(id: string, entry: LoadedGame): void {
   loadedGames.delete(id);
   loadedGames.set(id, { entry, at: Date.now() });

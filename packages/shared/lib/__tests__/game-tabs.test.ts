@@ -22,9 +22,9 @@ const st = (ids: string[], recent = [...ids].reverse()): GameTabs => ({ tabs: id
 const ids = (s: GameTabs) => s.tabs.map((tab) => tab.id);
 
 describe("showGameTab", () => {
-  it("adds a new game at the end and makes it the most recent", () => {
+  it("adds a new game at the top and makes it the most recent", () => {
     const s = showGameTab(st(["a", "b"]), t("c"));
-    expect(ids(s)).toEqual(["a", "b", "c"]);
+    expect(ids(s)).toEqual(["c", "a", "b"]);
     expect(s.recent).toEqual(["c", "b", "a"]);
   });
 
@@ -42,7 +42,7 @@ describe("showGameTab", () => {
 
   it("at the cap, the game shown least recently makes room", () => {
     const s = showGameTab(st(["a", "b", "c", "d", "e", "f"]), t("g"));
-    expect(ids(s)).toEqual(["b", "c", "d", "e", "f", "g"]);
+    expect(ids(s)).toEqual(["g", "b", "c", "d", "e", "f"]);
     expect(s.recent).toEqual(["g", "f", "e", "d", "c", "b"]);
   });
 

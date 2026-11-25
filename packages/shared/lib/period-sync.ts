@@ -61,6 +61,7 @@ export function normalizeSyncPoint(raw: SyncPoint): SyncPoint {
           syncRealWorldTime: c.syncRealWorldTime,
           syncVideoTime: c.syncVideoTime,
           ...(Number.isInteger(c.eventId) ? { eventId: c.eventId } : {}),
+          ...(c.jump === true ? { jump: true as const } : {}),
         })),
       );
     } else delete out.cuts;
@@ -101,7 +102,7 @@ function editedParts(sync: SyncPoint | undefined): unknown {
   const periods = Object.entries(n.periods ?? {})
     .sort(([a], [b]) => Number(a) - Number(b))
     .map(([k, ps]) => [k, ps.syncVideoTime, ps.syncRealWorldTime]);
-  const cuts = (n.cuts ?? []).map((c) => [c.period, c.syncVideoTime, c.syncRealWorldTime, c.eventId ?? null]);
+  const cuts = (n.cuts ?? []).map((c) => [c.period, c.syncVideoTime, c.syncRealWorldTime, c.eventId ?? null, c.jump ?? false]);
   const playTimes = Object.entries(n.playTimes ?? {}).sort(([a], [b]) => Number(a) - Number(b));
   const checks = (n.checks ?? []).map((c) => [c.eventId, c.videoTime]);
   return [n.syncVideoTime, n.syncRealWorldTime, n.breaksCut ?? null, periods, cuts, playTimes, checks, n.footageStart ?? null];
@@ -121,7 +122,7 @@ const timeOf = (iso: string) => new Date(iso).getTime();
 const sortCuts = (cuts: SyncCut[]) => [...cuts].sort((a, b) => timeOf(a.syncRealWorldTime) - timeOf(b.syncRealWorldTime));
 
 /** The sync with `cuts` in place of its own (none = the field goes). */
-function withCuts(sync: SyncPoint, cuts: SyncCut[]): SyncPoint {
+export function withCuts(sync: SyncPoint, cuts: SyncCut[]): SyncPoint {
   const next: SyncPoint = { ...sync };
   if (cuts.length > 0) next.cuts = sortCuts(cuts);
   else delete next.cuts;

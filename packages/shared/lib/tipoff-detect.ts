@@ -24,8 +24,12 @@
  *    ball, and the 1 fps pass runs there. In whole frames a clock estimate that
  *    contradicts its own window (an arena clock misread) is rejected.
  * 5. The first points (2026-11-25): given how long after the tip-off the feed
- *    has them (`firstScoreAfterS`), the moment the graphic leaves 0-0 places the
- *    tip-off by itself, and the court is not needed. It also holds when the
+ *    has them (`firstScoreAfterS`), the moment the graphic leaves 0-0 says
+ *    roughly where the tip-off is, without the court. Only roughly: such a
+ *    graphic is typed in by hand and ran 3–18 s behind the feed on the replay
+ *    measured, so the app uses it to put the picker near a basket for the coach
+ *    to set (components/first-basket.tsx), never as a tip-off or a shared hint.
+ *    It also holds when the
  *    tip-off isn't in the recording at all (lost in a dropped stream, or before
  *    it started): the estimate is then before the jump into the game, or
  *    negative. A court estimate that lands on a hard cut (`DetectDeps.cuts`) is

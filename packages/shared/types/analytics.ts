@@ -58,16 +58,17 @@ export type AnalyticsEvent =
   | "period_sync_set" // surface, period, anchor_kind, predicted_delta_s
   | "period_sync_skipped" // surface, period
   | "period_sync_cleared" // surface, period (all = every quarter)
-  | "sync_fix_opened" // entry (clip_menu | this_clip | banner; in the game view game_now_bar | game_row_menu | game_check: Check sync's "It's off")
-  | "sync_fix_applied" // scope (quarter | play | game | clip; in the game view play_only: the play alone, on the game | play: from the play on | narrowed: what looking at earlier plays moved after such a fix), period, delta_s; from the game view also surface (game_view), suggested (the app proposed that scope), plays (how many moved), late (the play was logged late)
+  | "sync_fix_opened" // entry (clip_menu | this_clip | banner; in the game view game_now_bar | game_row_menu | game_check: Check sync's "It's off" | game_jump: checking the video's jumps)
+  | "sync_fix_applied" // scope (quarter | play | game | clip; in the game view jump: from a jump in the video on, with lost (plays the jump lost) | play_only: the play alone, on the game | play: from the play on | narrowed: what looking at earlier plays moved after such a fix), period, delta_s; from the game view also surface (game_view), suggested (the app proposed that scope), plays (how many moved), late (the play was logged late)
   | "sync_first_basket_opened" // surface (import | game_page), from (link | strip: the suggestion's "Use the first basket"), baskets (how many the first quarter has)
   | "sync_first_basket_set" // surface, basket (1-based: which of the first quarter's baskets), after_tipoff_s, tipoff_s (negative: before the recording), footage_start (a jump into the game was found before the basket)
   | "sync_fix_removed" // kind (cut | own | all): a fix taken back in the game view, from the Fixes menu or a row's menu; surface (game_view)
   | "sync_fix_undone" // scope: the toast's Undo put the sync back; surface (game_view) from the game view
   // Check sync in the game view (desktop): one play of each part of the game, right or off
-  | "sync_check_started" // entry (button | lane: a click on a part of the timeline's sync row | banner), parts, left (parts without a check)
+  | "sync_check_started" // entry (button | lane: a click on a part of the timeline's sync row | banner | jumps: the video's jumps, then parts = jumps, left = not answered), parts, left (parts without a check)
   | "sync_check_answered" // answer (right | off | another | skip; while narrowing also same: found where the shift puts it | own: found somewhere else), purpose (check | narrow: finding where a shift starts), period
-  | "sync_check_finished" // left
+  | "sync_check_finished" // left; purpose (jump) when the video's jumps were checked
+  | "video_cut_scan_done" // source (shared: another coach's scan of the same recording | local: searched here), cuts, jumps (isolated cuts), seconds (search time, local only)
   | "sync_fix_peeked" // period: another quarter's play looked at inside Fix sync
   | "sync_cut_removed" // surface: a "From this play on" fix removed
   | "sync_hint_shown" // reason (past_end | looks_cut), clips

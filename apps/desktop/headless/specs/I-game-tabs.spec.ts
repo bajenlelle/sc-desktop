@@ -83,7 +83,7 @@ test("the open games are sidebar rows, the game on screen selected, with no tab 
 
   const g1 = await openLibraryGame(page, 1);
   await expect(rows(page)).toHaveCount(2);
-  expect(await titles(page), "new games go last").toEqual([g0.title, g1.title]);
+  expect(await titles(page), "new games go first").toEqual([g1.title, g0.title]);
   await expect(row(page, g1.title)).toHaveAttribute("aria-current", "page");
   await expect(row(page, g0.title)).not.toHaveAttribute("aria-current", "page");
   // The rows are in the sidebar, under its pages.
@@ -169,7 +169,7 @@ test("the + opens a picker of the games: a new one opens as a new row, an open o
   await page.keyboard.press("Enter");
   await expect(picker(page)).toHaveCount(0);
   await expect(heading(page)).toHaveText(g2.title, { timeout: 30_000 });
-  expect(await titles(page), "the new game goes last").toEqual([g0.title, g1.title, g2.title]);
+  expect(await titles(page), "the new game goes first").toEqual([g2.title, g1.title, g0.title]);
 
   await plus(page).click();
   await option(g0).click();
@@ -179,7 +179,7 @@ test("the + opens a picker of the games: a new one opens as a new row, an open o
 
 test("a row dragged past its neighbour changes places with it, and the order stays", async ({ page }) => {
   const [g0, g1, g2] = await openGames(page, 3);
-  expect(await titles(page)).toEqual([g0.title, g1.title, g2.title]);
+  expect(await titles(page)).toEqual([g2.title, g1.title, g0.title]);
 
   /**
    * Presses a row and drags it until its middle is `past` px beyond the middle of another, then holds still before
@@ -201,23 +201,23 @@ test("a row dragged past its neighbour changes places with it, and the order sta
     await page.mouse.up();
   };
 
-  await drag(g0, g1, 12);
-  await expect.poll(() => titles(page), { message: "the first row is now the second" }).toEqual([g1.title, g0.title, g2.title]);
+  await drag(g2, g1, 12);
+  await expect.poll(() => titles(page), { message: "the first row is now the second" }).toEqual([g1.title, g2.title, g0.title]);
   // A drag only moves the row: the game on screen stays (a row opens on a click, not on the press).
   await expect(heading(page)).toHaveText(g2.title);
 
-  await drag(g2, g1, -12);
-  await expect.poll(() => titles(page), { message: "the last row is now the first" }).toEqual([g2.title, g1.title, g0.title]);
+  await drag(g0, g1, -12);
+  await expect.poll(() => titles(page), { message: "the last row is now the first" }).toEqual([g0.title, g1.title, g2.title]);
 
   await goViaSidebar(page, "Games");
-  expect(await titles(page), "the order after leaving the games").toEqual([g2.title, g1.title, g0.title]);
+  expect(await titles(page), "the order after leaving the games").toEqual([g0.title, g1.title, g2.title]);
 });
 
 test("Close Tab closes the game on screen, and leaves the last one", async ({ page }) => {
   const [g0, g1, g2] = await openGames(page, 3);
   await expect(heading(page)).toHaveText(g2.title);
   await menu(page, "menu-close-game-tab");
-  await expect.poll(() => titles(page), { message: "the closed row leaves" }).toEqual([g0.title, g1.title]);
+  await expect.poll(() => titles(page), { message: "the closed row leaves" }).toEqual([g1.title, g0.title]);
   await expect(heading(page), "the neighbour's game is shown").toHaveText(g1.title, { timeout: 10_000 });
   await menu(page, "menu-close-game-tab");
   await expect(rows(page)).toHaveCount(1);
@@ -266,18 +266,19 @@ test("the keyboard works the rows as a list: one stop, ↓ and ↑ to move, Retu
     "the close buttons aren't Tab stops",
   ).toBe(true);
 
+  // The newest game is the first row: g2, g1, g0.
   await row(page, g2.title).focus();
-  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowDown");
   expect(await focusedRow(page)).toBe(g1.title);
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("ArrowUp");
-  expect(await focusedRow(page), "↑ from the first row goes round to the last").toBe(g2.title);
+  expect(await focusedRow(page), "↑ from the first row goes round to the last").toBe(g0.title);
   await page.keyboard.press("Home");
-  expect(await focusedRow(page)).toBe(g0.title);
-  await page.keyboard.press("End");
   expect(await focusedRow(page)).toBe(g2.title);
+  await page.keyboard.press("End");
+  expect(await focusedRow(page)).toBe(g0.title);
   await page.keyboard.press("ArrowDown");
-  expect(await focusedRow(page), "↓ from the last row goes round to the first").toBe(g0.title);
+  expect(await focusedRow(page), "↓ from the last row goes round to the first").toBe(g2.title);
   await expect(heading(page), "moving the focus hasn't changed the game").toHaveText(g2.title);
 
   await page.keyboard.press("ArrowDown");
@@ -287,8 +288,8 @@ test("the keyboard works the rows as a list: one stop, ↓ and ↑ to move, Retu
 
   await page.keyboard.press("Delete");
   await expect(rows(page)).toHaveCount(2);
-  expect(await titles(page)).toEqual([g0.title, g2.title]);
-  await expect.poll(() => focusedRow(page), { message: "the focus is on the row that followed" }).toBe(g2.title);
+  expect(await titles(page)).toEqual([g2.title, g0.title]);
+  await expect.poll(() => focusedRow(page), { message: "the focus is on the row that followed" }).toBe(g0.title);
 });
 
 test("a click on a row leaves the keyboard with the page", async ({ page }) => {
@@ -314,7 +315,7 @@ test("New Tab opens the picker, a row's menu closes others, and closed games com
   await menu(page, "menu-reopen-game-tab");
   await expect(rows(page)).toHaveCount(2);
   await menu(page, "menu-reopen-game-tab");
-  expect(await titles(page), "both are back in their places").toEqual([g0.title, g1.title, g2.title]);
+  expect(await titles(page), "both are back in their places").toEqual([g2.title, g1.title, g0.title]);
 });
 
 test("a seventh game says which it closed, and can bring it back", async ({ page }) => {

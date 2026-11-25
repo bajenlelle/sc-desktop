@@ -10,6 +10,7 @@ import { newestRequest } from "@scoutable/shared/lib/latest";
 import { isSuggestionPending, offeredSeconds, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
 import { FirstBasketPanel, FirstBasketSwitch, useFirstBasket } from "@/components/first-basket";
 import { firstScoreAfterS } from "@scoutable/shared/lib/sync-anchor";
+import { scanVideoCuts } from "@/lib/video-cut-scan";
 import { ImportGuideBubble } from "@/components/import/import-guide";
 import { usePublishImportGuide } from "@/lib/import-guide-store";
 import { AutoHeight } from "@/components/ui/auto-height";
@@ -795,6 +796,8 @@ export function UploadZone({
         picked_from: pickedFromRef.current,
         team_game: !!selectedGame && fromTeamSide(selectedGame, allTeamIds) !== null,
       })
+      // The recording's jumps are looked for in the background; nothing waits on it (lib/video-cut-scan.ts).
+      if (videoPath) scanVideoCuts(videoPath);
       if (syncPoint) {
         // The confirmed offset becomes this recording's shared hint; never blocks the import.
         tipoffSuggestion.recordResolved(syncPoint.syncVideoTime);
