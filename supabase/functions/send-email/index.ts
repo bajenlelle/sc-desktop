@@ -117,13 +117,14 @@ function wrapEmail(
 
           <!-- Header -->
           <tr>
-            <td style="background-color:#000408;padding:24px 40px 26px 40px;text-align:center;">
-              <!-- alt="" on purpose: the wordmark below already names the brand,
-                   so alt text would read "Scoutable SCOUTABLE" wherever images
-                   are blocked. Width/height attributes are for Outlook, which
-                   ignores CSS sizing on images. -->
-              <img src="${APP_URL}/email/logo-mark.png" width="40" height="36" alt="" style="display:block;width:40px;height:36px;margin:0 auto 10px auto;border:0;outline:none;text-decoration:none;">
-              <span style="font-family:'Barlow Condensed',Impact,'Arial Narrow',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:3px;text-transform:uppercase;">SCOUTABLE</span>
+            <td style="background-color:#000408;padding:0;line-height:0;font-size:0;text-align:center;">
+              <!-- The whole header is one opaque image (mark + wordmark on #000408).
+                   Gmail's dark mode inverts the HTML colours but not images, so a
+                   dark cell with a light transparent mark turned into a white header
+                   with an invisible mark. Width/height attributes are for Outlook,
+                   which ignores CSS sizing on images; the alt styling shows when
+                   images are blocked. -->
+              <img src="${APP_URL}/email/header.png" width="540" height="120" alt="SCOUTABLE" style="display:block;width:100%;max-width:540px;height:auto;border:0;outline:none;text-decoration:none;font-family:'Barlow Condensed',Impact,'Arial Narrow',Arial,sans-serif;font-size:20px;font-weight:700;line-height:120px;color:#ffffff;letter-spacing:3px;text-align:center;">
             </td>
           </tr>
 

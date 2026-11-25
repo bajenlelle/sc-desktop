@@ -11,7 +11,21 @@ Used by:
 - `supabase/templates/confirm.html` and `reset.html` (absolute production URL —
   static files with no templating)
 
+## header.png
+
+The whole email header: the `s.` mark above the SCOUTABLE wordmark on solid
+`#000408`, `1620x360`, displayed at `540x120` (3x). It is one opaque image on
+purpose: Gmail's dark mode (iOS especially) inverts the email's HTML colours
+but leaves images alone, so a dark header cell with a light transparent mark
+turned white and the mark vanished. An image keeps its own background in both
+modes. Regenerate by rendering the old header markup (mark 40x36, 24px top
+padding, 10px gap, Barlow Condensed 700 20px, letter-spacing 3px, white) in a
+540x120 page at device scale 3 with Playwright, and screenshot it.
+
 ## logo-mark.png
+
+No longer used by the templates (the header above replaced it); kept for old
+emails still in inboxes.
 
 The `s.` mark, white on transparent, `120x108`, displayed at `40x36` (3x for
 retina). Regenerate from the SVG source if the brand mark changes:
