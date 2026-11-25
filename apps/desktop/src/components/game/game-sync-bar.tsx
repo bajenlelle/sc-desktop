@@ -39,7 +39,10 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
       label: mode.total > 1 ? `Check ${mode.part.index + 1} of ${mode.total} · ${mode.partName}` : `Check · ${mode.partName}`,
       change,
       main: cue.sentence,
-      hint: change ? `Right if the ball goes in as the score over the video turns ${change.after}, give or take a second.` : "Right if it happens as its name lights up over the video, give or take a second.",
+      // The first play says what a check is: one play a part, and the sync stays as it is unless one is off.
+      hint: `${mode.first ? (mode.total > 1 ? "One play from each part of the game. Nothing moves unless one is off. " : "Nothing moves unless the play is off. ") : ""}${
+        change ? `Right if the ball goes in as the score over the video turns ${change.after}, give or take a second.` : "Right if it happens as its name lights up over the video, give or take a second."
+      }`,
     };
   }
   if (mode.kind === "find" && mode.narrow) {

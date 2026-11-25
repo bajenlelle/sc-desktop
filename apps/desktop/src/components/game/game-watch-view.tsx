@@ -12,7 +12,7 @@ import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } f
 import { labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, pruneSelection, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
-import { partChecked, partOf } from "@scoutable/shared/lib/sync-check";
+import { cutShiftSeconds, partChecked, partOf } from "@scoutable/shared/lib/sync-check";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
 import { PlaysSelectionBar } from "@/components/plays/plays-selection-bar";
@@ -966,6 +966,7 @@ export function GameWatchView({
       index: part.index,
       period: part.period,
       cutAt: part.cut ? part.cut.syncVideoTime : null,
+      cutShift: part.cut && match.syncPoint ? cutShiftSeconds(match.syncPoint, part.cut) : null,
       name: part.name,
       state: on === part ? "current" : partChecked(part) ? "checked" : "open",
       checks: part.checks.flatMap((c) => {
@@ -973,7 +974,7 @@ export function GameWatchView({
         return play ? [play.time] : [];
       }),
     }));
-  }, [sync.parts, sync.event, playByEvent]);
+  }, [sync.parts, sync.event, playByEvent, match.syncPoint]);
   const words = syncWords(sync);
   const quietLink = "shrink-0 rounded-sm text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection";
   const syncHint = !words ? null : (
@@ -1005,9 +1006,20 @@ export function GameWatchView({
       Sync checked
     </span>
   ) : (
-    <button type="button" data-sync="status" className={cn(quietControl, "h-6 px-1.5 text-callout text-foreground")} onClick={() => sync.startCheck("button")}>
+    <button
+      type="button"
+      data-sync="status"
+      className={cn(quietControl, "h-6 px-1.5 text-callout text-foreground")}
+      onClick={() => sync.startCheck("button")}
+      title="Look at one play in each part of the game: a quarter, or the stretch of one between two fixes. Nothing moves unless a play is off."
+    >
       <span className="size-2 rounded-full border border-dashed border-muted-foreground" aria-hidden />
-      {sync.progress.checked === 0 ? "Check sync" : `Check sync · ${sync.progress.left} left`}
+      {/* Once some of the game is checked, what is left is named: a count alone said nothing of what a part is. */}
+      {sync.progress.checked === 0
+        ? "Check sync"
+        : sync.progress.left === 1
+          ? `Check sync · ${sync.parts.find((p) => !partChecked(p))?.name ?? "1 part left"}`
+          : `Check sync · ${sync.progress.left} parts left`}
     </button>
   );
 

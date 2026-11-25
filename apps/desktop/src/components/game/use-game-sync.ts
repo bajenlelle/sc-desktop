@@ -62,7 +62,18 @@ interface Narrow {
 export type SyncMode =
   | { kind: "idle" }
   /** A play is played with the moment the sync has it at marked: is it right? Checking a part, or narrowing a shift down. */
-  | { kind: "ask"; purpose: "check" | "narrow"; event: PlayByPlayEvent; at: number; part: SyncPart | null; partName: string; total: number; narrow: Narrow | null }
+  | {
+      kind: "ask";
+      purpose: "check" | "narrow";
+      event: PlayByPlayEvent;
+      at: number;
+      part: SyncPart | null;
+      partName: string;
+      total: number;
+      narrow: Narrow | null;
+      /** The first play of a check: the bar says what a check is. */
+      first?: boolean;
+    }
   /** The coach scrubs to where the play really happens. While narrowing, the video starts where the shift would put the play. */
   | { kind: "find"; event: PlayByPlayEvent; mapped: number; origin: SyncOrigin; narrow: Narrow | null }
   /** The play is found: how far it moved, and what moves with it. */
@@ -197,12 +208,12 @@ export function useGameSync({
 
   // ---- Asking about a play ---------------------------------------------------------
   const ask = useCallback(
-    (purpose: "check" | "narrow", event: PlayByPlayEvent, part: SyncPart | null, partName: string, total: number, narrow: Narrow | null) => {
+    (purpose: "check" | "narrow", event: PlayByPlayEvent, part: SyncPart | null, partName: string, total: number, narrow: Narrow | null, first = false) => {
       // A play asked about while narrowing is where the work in hand has it.
       const sync = narrow ? narrow.work : syncRef.current;
       const at = sync ? computeVideoTime(event, sync) : null;
       if (at === null) return false;
-      setMode({ kind: "ask", purpose, event, at, part, partName, total, narrow });
+      setMode({ kind: "ask", purpose, event, at, part, partName, total, narrow, first });
       seek(Math.max(0, at - CHECK_LEAD_SECONDS), true);
       return true;
     },
@@ -249,7 +260,7 @@ export function useGameSync({
       skipped.current = new Set();
       const next = nextCheck(partIndex);
       trackEvent("sync_check_started", { entry, parts: progress.total, left: progress.left });
-      if (!next || !ask("check", next.event, next.part, next.part.name, next.total, null)) {
+      if (!next || !ask("check", next.event, next.part, next.part.name, next.total, null, true)) {
         toast(progress.left === 0 ? "Sync is already checked" : "No play to check with", {
           id: TOAST,
           description: progress.left === 0 ? "Use Fix sync on a play that looks off." : "The parts left have no made basket inside the video. Use Fix sync on a play instead.",

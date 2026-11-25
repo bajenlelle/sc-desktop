@@ -511,7 +511,17 @@ in Details or a save from an older desktop unchecks what it moved). The
 timeline's last row draws the parts: dotted until checked, then a green line
 with a tick where the checked play is; a cut breaks the row. The row's line
 under the pointer says which part it is and whether it is checked, and a
-click on an unchecked part checks it.
+click on an unchecked part checks it. On a break it says what the fix there
+did, as a move ("Plays after this were moved 8 s later in the video",
+`cutShiftSeconds`: the cut's own moment against where the sync before it had
+that moment); "8 s later" alone read as the plays running late.
+
+The control beside the zoom names what is left: "Check sync" before anything
+is checked, the part itself when one is left ("Check sync · Q1 to 6:14"),
+else how many parts ("Check sync · 3 parts left"), and on hover what a part
+is. The first play a check asks about says what a check is: one play from
+each part, and nothing moves unless one is off. The game is placed by its
+sync whether or not it is checked; a check only says someone has seen it.
 
 **Check sync** (the control beside the zoom, or a part of the row) asks about
 each unchecked part in turn, with its last made basket: the play's clip plays

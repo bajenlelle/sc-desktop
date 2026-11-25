@@ -110,6 +110,7 @@ test("the timeline has a sync row of the game's parts, and Check sync asks about
 
   await status(page).click();
   await expect(label(page), "the first part is asked about first").toHaveText("Check 1 of 2 · Q1");
+  await expect(page.locator('[data-sync="hint"]'), "the first play says what a check is").toContainText("One play from each part of the game. Nothing moves unless one is off.");
   await expect(bar(page).locator('[data-sync="change"]'), "the play is named by what it does to the score").toBeVisible();
   await expect(page.locator('[data-sync="cue"]'), "the app's own score is over the footage").toBeVisible();
   await expect.poll(() => paused(page), { message: "the play's clip plays" }).toBe(false);
@@ -267,6 +268,14 @@ test("narrowing down keeps the earlier plays seen right, and Stop here saves wha
   expect(last.checks, "the play seen right is a check, with the found one").toHaveLength(2);
   expect(await parts(page).count()).toBe(3);
   expect(await states(page)).toEqual(["open", "checked", "checked"]);
+  await expect(status(page), "the one part left is named").toHaveText("Check sync · Q1");
+
+  // On the break in the row: what the fix did there, said as a move.
+  const cutBox = await page.locator('[data-strip="sync-cut"]').boundingBox();
+  expect(cutBox).not.toBeNull();
+  await page.mouse.move(cutBox!.x + cutBox!.width / 2, cutBox!.y + cutBox!.height / 2);
+  await expect(page.locator('[data-readout="head"]')).toHaveText("Sync changes here");
+  await expect(page.locator('[data-readout="what"]')).toHaveText(/^Plays after this were moved [\d.]+ s later in the video$/);
 });
 
 test("Fix sync on the play on screen: a small shift moves that play alone, on the game, and Undo puts it back", async ({ page, browserName }) => {

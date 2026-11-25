@@ -17,6 +17,7 @@ import {
   type StripTimeout,
   type StripZone,
 } from "@scoutable/shared/lib/game-strip";
+import { describeShiftSeconds } from "@scoutable/shared/lib/sync-check";
 import { gameScale, playIndexAt, type GameScale, type GameTimeline, type ScaleSegment, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
 import { swipeTime } from "@scoutable/shared/lib/wheel-scrub";
@@ -69,6 +70,8 @@ export interface StripSyncPart {
   period: number;
   /** Where the part starts in the video when a cut starts it; null when it starts with its quarter. */
   cutAt: number | null;
+  /** How far that cut moved the plays after it, in seconds of video (below zero: earlier); null when it can't be told. */
+  cutShift: number | null;
   name: string;
   /** "open": no play in it checked yet. "current": the one being checked or fixed. */
   state: "open" | "checked" | "current";
@@ -86,6 +89,8 @@ interface PlacedPart extends StripSyncPart {
 
 /** How near (px) the pointer must be to a play for a click to mean that play. */
 const SNAP_PX = 4;
+/** How near (px) the pointer must be to a break in the sync row to be on it. */
+const CUT_HIT = 8;
 /** Movement (px) that makes a press a scrub and not a click. */
 const DRAG_PX = 4;
 /** How near (px) a press must be to the playhead to grab it where it is. */
@@ -605,6 +610,8 @@ interface Hover {
   segment: ScaleSegment | null;
   /** The sync part the pointer is on, in the sync row; null anywhere else. */
   part: number | null;
+  /** The part whose cut the pointer is on, in the sync row: the break is what the line under the track describes. */
+  cut: number | null;
 }
 
 /** A run (by its first basket's event) or a timeout (by its event) on the strip. */
@@ -895,8 +902,10 @@ export function GameTimelineStrip({
       const i = playIndexAt(timeline.plays, timeline.byTime, time);
       play = i >= 0 ? timeline.plays[timeline.byTime[i]] : null;
     }
-    const part = y >= Y.sync - 3 && segment?.kind === "period" ? (placedParts?.find((p) => at >= p.x0 && at <= p.x1)?.index ?? null) : null;
-    return { x: at, target: part !== null ? { kind: "time" } : target, play: part !== null ? null : play, time, segment, part };
+    const onRow = y >= Y.sync - 3 && segment?.kind === "period";
+    const part = onRow ? (placedParts?.find((p) => at >= p.x0 && at <= p.x1)?.index ?? null) : null;
+    const cut = onRow ? (placedParts?.find((p) => p.cutX !== null && Math.abs(at - p.cutX) <= CUT_HIT)?.index ?? null) : null;
+    return { x: at, target: part !== null ? { kind: "time" } : target, play: part !== null ? null : play, time, segment, part, cut };
   }
 
   /** Moves the held playhead to the pointer: 1:1 inside the strip, resisting past its ends. */
@@ -1077,6 +1086,19 @@ export function GameTimelineStrip({
   // What the tooltip says: the score first, then where and what.
   const tip = useMemo(() => {
     if (!hover) return null;
+    if (hover.cut !== null) {
+      const part = placedParts?.find((p) => p.index === hover.cut);
+      if (!part) return null;
+      // What a fix did here, said as the move it was: "8 s later" on its own reads as the plays running late.
+      const shift = part.cutShift;
+      return {
+        head: "Sync changes here",
+        name: null,
+        where: null,
+        what: shift !== null && Math.abs(shift) >= 0.05 ? `Plays after this were moved ${describeShiftSeconds(shift)} in the video` : "Plays after this are placed from a fix made here",
+        extra: null,
+      };
+    }
     if (hover.part !== null) {
       const part = placedParts?.find((p) => p.index === hover.part);
       if (!part) return null;
@@ -1167,6 +1189,7 @@ export function GameTimelineStrip({
   };
   /** The hover line sits on what a click would mean: the play's mark, the timeout's line, else the pointer. */
   const hoverLineX = (h: Hover) => {
+    if (h.cut !== null) return placedParts?.find((p) => p.index === h.cut)?.cutX ?? h.x;
     if (h.target.kind === "play" && h.play) return scale.xOf(h.play.time);
     if (h.target.kind === "timeout") {
       const id = h.target.id;

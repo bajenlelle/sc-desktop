@@ -5,6 +5,7 @@ import { buildGameTimeline } from "../game-timeline";
 import { normalizeSyncPoint, sameSyncPoint } from "../period-sync";
 import {
   checkCandidate,
+  cutShiftSeconds,
   describeReach,
   describeShiftSeconds,
   gapCandidate,
@@ -378,6 +379,18 @@ describe("the words", () => {
     expect(suggestedScope({}, 2.4)).toBe("play");
     expect(suggestedScope({}, -22)).toBe("on");
     expect(suggestedScope({ loggedAt: T("17:53:00") }, -900)).toBe("play");
+  });
+  it("cutShiftSeconds: how far a cut moves the plays after it, each cut against the sync before it", () => {
+    const fifth = baskets(1)[4];
+    const eighth = baskets(1)[7];
+    const one = planFix(sync, events, fifth, at(fifth) - 20, LEAD, "play")!.next;
+    expect(one.cuts).toHaveLength(1);
+    expect(cutShiftSeconds(one, one.cuts![0])).toBeCloseTo(-20);
+    // A second fix later in the quarter is measured from where the first one left its plays.
+    const two = planFix(one, events, eighth, at(eighth, one) + 8, LEAD, "play")!.next;
+    expect(two.cuts).toHaveLength(2);
+    expect(cutShiftSeconds(two, two.cuts![0])).toBeCloseTo(-20);
+    expect(cutShiftSeconds(two, two.cuts![1])).toBeCloseTo(8);
   });
   it("describeShiftSeconds", () => {
     expect(describeShiftSeconds(-22.2)).toBe("22 s earlier");

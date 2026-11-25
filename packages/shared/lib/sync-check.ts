@@ -122,6 +122,19 @@ export function syncProgress(parts: readonly SyncPart[]): { total: number; check
 }
 
 /**
+ * How far a cut moves the plays after it, in seconds of video: where the cut
+ * has its own moment, less where the sync before it would have had that
+ * moment. Below zero the plays after it are earlier in the video than they
+ * would have been (the video skips there), above zero later. Null when the
+ * sync before it places nothing.
+ */
+export function cutShiftSeconds(sync: SyncPoint, cut: SyncCut): number | null {
+  const same = (c: SyncCut) => c.period === cut.period && c.syncRealWorldTime === cut.syncRealWorldTime && c.syncVideoTime === cut.syncVideoTime;
+  const before = computeVideoTime({ realWorldTime: cut.syncRealWorldTime, period: cut.period }, { ...sync, cuts: (sync.cuts ?? []).filter((c) => !same(c)) });
+  return before === null ? null : cut.syncVideoTime - before;
+}
+
+/**
  * Whether a play can be the one a coach is asked about: a made basket from
  * the field (the scoreboard changes, and the ball going in is one frame), with
  * a time, not logged late, and placed by the sync.
