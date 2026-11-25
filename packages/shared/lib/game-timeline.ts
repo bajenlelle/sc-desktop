@@ -11,7 +11,7 @@
  */
 import type { GameMarks } from "../types/game-marks";
 import type { PeriodMark, PlayByPlayEvent, SyncPoint } from "../types/match";
-import { computeVideoTime } from "./clip-timing";
+import { computeVideoTime, ownVideoTime } from "./clip-timing";
 import { isBookkeepingEvent, periodLabel } from "./events";
 import { periodSpans } from "./period-sync";
 
@@ -35,6 +35,8 @@ export interface TimedPlay {
   start: number;
   /** Whether the play is inside the video file: "before" its start, "after" its end. */
   reach: "in" | "before" | "after";
+  /** The coach gave the play a place of its own in the video (SyncPoint.playTimes): the sync doesn't move it. */
+  own?: true;
 }
 
 export interface PeriodBand {
@@ -134,7 +136,8 @@ export function buildGameTimeline(input: {
   let beforeStart = 0;
   let pastEnd = 0;
   for (const event of events) {
-    const time = timeOf(event.realWorldTime, event.period);
+    const own = sync ? ownVideoTime(event, sync) : null;
+    const time = own ?? timeOf(event.realWorldTime, event.period);
     if (time === null || !Number.isFinite(time)) {
       unplaced++;
       continue;
@@ -147,7 +150,7 @@ export function buildGameTimeline(input: {
       reach = "after";
       pastEnd++;
     }
-    plays.push({ key: `${matchId}:${event.eventId}`, event, time, start: Math.max(0, time - preRoll), reach });
+    plays.push({ key: `${matchId}:${event.eventId}`, event, time, start: Math.max(0, time - preRoll), reach, ...(own !== null ? { own: true as const } : {}) });
   }
   plays.sort((a, b) => a.event.period - b.event.period || a.time - b.time || a.event.eventId - b.event.eventId);
 
@@ -155,13 +158,14 @@ export function buildGameTimeline(input: {
   byTime.sort((a, b) => plays[a].time - plays[b].time || plays[a].event.eventId - plays[b].event.eventId);
 
   // The periods as bands, each widened to hold its own plays (the league's
-  // period times and its plays' times can disagree by a few seconds).
+  // period times and its plays' times can disagree by a few seconds). A play
+  // the coach placed by hand is where it was found, not where its period is.
   const bands: PeriodBand[] = [];
   for (const span of spans) {
     let start = timeOf(new Date(span.start).toISOString(), span.period);
     let end = timeOf(new Date(span.end).toISOString(), span.period);
     for (const p of plays) {
-      if (p.event.period !== span.period) continue;
+      if (p.event.period !== span.period || p.own) continue;
       start = start === null ? p.time : Math.min(start, p.time);
       end = end === null ? p.time : Math.max(end, p.time);
     }

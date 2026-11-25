@@ -154,6 +154,12 @@ export interface PlayByPlayEvent {
   onCourtAway?: number[] | null;
   scoreHome?: number | null;      // running score at this action
   scoreAway?: number | null;
+  /**
+   * Set on a play the scorer's table logged late: the feed's own stamp, when
+   * it was typed in. `realWorldTime` is then where the play was placed by its
+   * game clock (lib/late-plays.ts). Never stored: it is worked out on read.
+   */
+  loggedAt?: string;
 }
 
 /** What a sync's reference event is, so a coach can find it in the video. */
@@ -194,6 +200,17 @@ export interface SyncCut {
   eventId?: number;
 }
 
+/**
+ * A play the coach confirmed in the video (the game view's Check sync, or a
+ * Fix sync made on it): the stretch of the game it is in is placed right. A
+ * later fix elsewhere never moves it (lib/sync-check.ts).
+ */
+export interface SyncCheck {
+  period: number;
+  eventId: number;
+  realWorldTime: string;
+}
+
 export interface SyncPoint {
   syncVideoTime: number;    // seconds into the video
   syncRealWorldTime: string; // ISO UTC of the reference event (Q1 tip-off)
@@ -210,6 +227,14 @@ export interface SyncPoint {
   breaksCut?: boolean;
   /** Cuts inside quarters, in time order (see SyncCut). */
   cuts?: SyncCut[];
+  /**
+   * Plays with a place of their own in the video, in seconds, by event id
+   * ("Only this play" in the game view's Fix sync): whatever the sync says,
+   * this play is here. Desktop 2.0.0 and older place these plays by the sync.
+   */
+  playTimes?: Record<string, number>;
+  /** Plays the coach has seen happen where the sync puts them, in time order (see SyncCheck). */
+  checks?: SyncCheck[];
 }
 
 export interface PlaylistClipItem {

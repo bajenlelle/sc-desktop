@@ -13,6 +13,7 @@ import { reportDbError } from "./report";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 import { normalizeSyncPoint } from "./period-sync";
 import { normalizeGameMarks } from "./game-marks";
+import { placeLatePlays } from "./late-plays";
 import type { SearchGameRow } from "./quick-search";
 
 // ---------------------------------------------------------------------------
@@ -97,6 +98,15 @@ function rowToEvent(e: EventRow): PlayByPlayEvent {
   };
 }
 
+/**
+ * A game's plays as every reader gets them: each row as a play, and the plays
+ * the scorer's table logged late placed by their game clock
+ * (lib/late-plays.ts). The table keeps the feed's own stamps.
+ */
+function rowsToEvents(rows: EventRow[]): PlayByPlayEvent[] {
+  return placeLatePlays(rows.map(rowToEvent));
+}
+
 function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
   return {
     id: row.id,
@@ -116,7 +126,7 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     sourceGameId: row.source_game_id ?? undefined,
     gameMarks: row.game_marks ? normalizeGameMarks(row.game_marks) : undefined,
     archivedAt: row.archived_at ?? undefined,
-    events: events.map(rowToEvent),
+    events: rowsToEvents(events),
   };
 }
 
@@ -196,7 +206,8 @@ async function saveEvents(supabase: SupabaseClient, match: StoredMatch, refreshE
         sub_type: e.subType || null,
         period: e.period || null,
         game_clock_time: e.gameClockTime || null,
-        real_world_time: e.realWorldTime || null,
+        // A play placed by its game clock on read is stored with the feed's own stamp, as it came.
+        real_world_time: (e.loggedAt ?? e.realWorldTime) || null,
         is_successful: e.isSuccessful,
         player: e.player ?? null,
         event_team: e.eventTeam ?? null,
@@ -442,7 +453,7 @@ export async function listEventsForMatchesChecked(
       if (error || !data) return null;
       const fetched: Record<string, PlayByPlayEvent[]> = {};
       for (const row of data as { id: string; play_by_play_events: EventRow[] }[]) {
-        fetched[row.id] = (row.play_by_play_events ?? []).map(rowToEvent);
+        fetched[row.id] = rowsToEvents(row.play_by_play_events ?? []);
       }
       return fetched;
     })();

@@ -58,16 +58,27 @@ export function syncForEvent(
   return chosen;
 }
 
+/** The play's own place in the video, when the coach gave it one ("Only this play"); null otherwise. */
+export function ownVideoTime(event: { eventId?: number | null }, sync: SyncPoint): number | null {
+  if (!sync.playTimes || event.eventId == null) return null;
+  const own = sync.playTimes[String(event.eventId)];
+  return typeof own === "number" && Number.isFinite(own) ? own : null;
+}
+
 /**
- * Seconds into the video for an event, derived from the match's realtime
+ * Seconds into the video for an event: its own place when the coach gave it
+ * one (ownVideoTime), else derived from the match's realtime
  * sync point (its period's own when the video skips the breaks, or a cut's
  * inside a quarter: syncForEvent). Null when
- * either timestamp is missing or unparseable.
+ * either timestamp is missing or unparseable. A moment that isn't a play
+ * (a period's start, a timeout) is asked for without an event id.
  */
 export function computeVideoTime(
-  event: { realWorldTime?: string | null; period?: number | null },
+  event: { realWorldTime?: string | null; period?: number | null; eventId?: number | null },
   sync: SyncPoint,
 ): number | null {
+  const own = ownVideoTime(event, sync);
+  if (own !== null) return own;
   const s = syncForEvent(sync, event);
   if (!event.realWorldTime || !s.syncRealWorldTime) return null;
   const eventMs = new Date(event.realWorldTime).getTime();
