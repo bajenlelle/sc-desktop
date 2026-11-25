@@ -41,6 +41,7 @@ import { springs } from "@/lib/motion";
 import { listPlaylists } from "@/lib/playlists-db";
 import { isLocalPath } from "@/lib/stream";
 import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
+import { forgetLoadedGame } from "@/lib/game-tabs";
 import { cn } from "@/lib/utils";
 import { probeVideoDuration, probeVideoPath, videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -365,6 +366,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
     if (typeof result !== "string") return;
     try {
       await updateVideoUrl(matchId, result);
+      forgetLoadedGame(matchId);
       setStoredMatch((m) => (m ? { ...m, videoUrl: result } : m));
       setVideoStatus("ok");
     } catch (e) {
@@ -380,6 +382,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
   async function saveField(updates: Parameters<typeof updateMatchMeta>[1]) {
     try {
       await updateMatchMeta(matchId, updates);
+      forgetLoadedGame(matchId);
       flashSaved("saved");
     } catch {
       flashSaved("error");
@@ -392,6 +395,8 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
     const before = storedMatch.syncPoint;
     try {
       const { clearedShippedClips } = await updateSyncPoint(matchId, next);
+      // The game view's copy from before this save would show the old sync on a tab switch back to it.
+      forgetLoadedGame(matchId);
       const updated = { ...storedMatch, syncPoint: next };
       setStoredMatch((m) => (m ? { ...m, syncPoint: next } : m));
       flashSaved("saved");
