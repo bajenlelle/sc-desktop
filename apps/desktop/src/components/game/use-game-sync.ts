@@ -52,6 +52,8 @@ interface Narrow {
   work: SyncPoint;
   gaps: NarrowGap<PlayByPlayEvent>[];
   fixed: PlayByPlayEvent;
+  /** What the fix's toast said, said again when the narrowing saves without moving a play: its Undo is still the fix's. */
+  message: string;
   partName: string;
   origin: SyncOrigin;
 }
@@ -313,9 +315,10 @@ export function useGameSync({
         const moved = playsMoved(current, n.work, match.events);
         const saved = await commit(n.work, {
           moved: moved > 0,
-          // The fix's own toast said how far; this one says what the looks at earlier plays added.
-          message: moved > 0 ? `${plural(moved, "earlier play")} moved too` : undefined,
-          undoTo: moved > 0 ? n.undoTo : undefined,
+          // The fix's own toast said how far; this one says what the looks at earlier plays added. Either way
+          // Undo takes the game back to before the fix.
+          message: moved > 0 ? `${plural(moved, "earlier play")} moved too` : n.message,
+          undoTo: n.undoTo,
           scope: "play",
         });
         if (!saved) return;
@@ -448,12 +451,8 @@ export function useGameSync({
       if (!base) return;
       const plan = planFix(base, match.events, mode.event, mode.found, lead, "play");
       if (!plan) return;
-      const saved = await commit(plan.next, {
-        moved: true,
-        message: `${plural(plan.reach.plays, "play")} moved ${describeShiftSeconds(plan.delta)}`,
-        undoTo: base,
-        scope: "play",
-      });
+      const message = `${plural(plan.reach.plays, "play")} moved ${describeShiftSeconds(plan.delta)}`;
+      const saved = await commit(plan.next, { moved: true, message, undoTo: base, scope: "play" });
       if (!saved) return;
       trackEvent("sync_fix_applied", { scope: "play", period: mode.event.period, delta_s: Math.round(plan.delta * 10) / 10, surface: "game_view", suggested: mode.suggested === "on", plays: plan.reach.plays });
       // The plays before this one, back to the last one seen right, may be off too.
@@ -461,7 +460,7 @@ export function useGameSync({
       const at = msOf(mode.event.realWorldTime);
       const lastRight = part?.checks.filter((c) => msOf(c.realWorldTime) < at && c.eventId !== mode.event.eventId).at(-1);
       const a = lastRight ? (match.events.find((e) => e.eventId === lastRight.eventId) ?? null) : null;
-      const narrow: Narrow = { undoTo: base, work: plan.next, gaps: [{ a, b: mode.event }], fixed: mode.event, partName: part?.name ?? "", origin: mode.origin };
+      const narrow: Narrow = { undoTo: base, work: plan.next, gaps: [{ a, b: mode.event }], fixed: mode.event, message, partName: part?.name ?? "", origin: mode.origin };
       const open = gapCandidate(plan.next, plays.filter((e) => inFile(e, plan.next)), narrow.gaps[0]);
       if (!open) {
         if (mode.origin === "check") advance();
@@ -491,9 +490,6 @@ export function useGameSync({
     };
     return { looksRight, itsOff, another, skip, replay, stop, here, cancel, back, moveOnlyThis, moveOn, checkEarlier, done, primary, escape };
   }, [mode, busy, video, match.events, plays, lead, seek, commit, advance, finish, enterFind, nextNarrow, finishNarrow, backToPlay, inFile]);
-
-  // The work in hand while narrowing: what the timeline's sync row shows is the saved sync, the play asked about
-  // is where the work has it.
 
   // A question plays its clip once: from before the play to a little after it.
   const askAt = mode.kind === "ask" ? mode.at : null;
