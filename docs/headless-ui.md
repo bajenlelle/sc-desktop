@@ -11,7 +11,7 @@ npm run headless:full                              # WebKit and Chrome: before a
 npm run headless:smoke                             # the @smoke tests in WebKit
 HEADLESS_PORT=1433 npm run headless -- smoke       # one spec, on a worktree's port
 npm run headless:full -- smoke --project='chrome*' # one spec in Chrome only
-HEADLESS_WORKERS=1 npm run headless -- K-search    # one worker (the default is 4)
+HEADLESS_WORKERS=1 npm run headless -- K-search    # one worker (the default is 3)
 ```
 
 ## What runs where
@@ -19,7 +19,7 @@ HEADLESS_WORKERS=1 npm run headless -- K-search    # one worker (the default is 
 - `playwright.config.ts` starts `vite --mode headless` on `HEADLESS_PORT`
   (default 1430; an existing server on that port is reused), signs in once
   (the global setup in `headless/helpers.ts`) and runs `headless/specs/` in
-  four workers side by side (`HEADLESS_WORKERS` changes it; see Running side
+  three workers side by side (`HEADLESS_WORKERS` changes it; see Running side
   by side). Two browsers: WebKit (Playwright's WebKit, the closest thing to
   the app's WKWebView, H.264 through the system media stack), which `npm run
   headless` runs alone, and Chrome (the installed Google Chrome, `channel:
@@ -184,7 +184,7 @@ doesn't.
 
 ## Running side by side
 
-The suite runs in four workers (`HEADLESS_WORKERS`), and a file's tests are
+The suite runs in three workers (`HEADLESS_WORKERS`), and a file's tests are
 spread over them (`fullyParallel`). Every test starts from the saved storage
 state on a fresh page, so no test may lean on one that ran before it.
 
@@ -246,8 +246,18 @@ runs, slow in one stretch (P-teams), while the Chrome half was as quick as
 ever; in the first, everything ran two to three times slower than usual from
 the first minute. Staging is a small instance shared by every worktree. A
 failure of that kind: rerun it once (`npx playwright test -c
-playwright.config.ts --last-failed`) before chasing it; `HEADLESS_WORKERS=3`
-asks less of staging.
+playwright.config.ts --last-failed`) before chasing it.
+
+**Three workers since 2026-11-25.** After the two green runs above, every
+long run at four workers failed somewhere on staging's speed (on merged
+staging, 225 tests: 12 min 48 s, 8 failed). At three workers, WebKit, 226
+tests: 9 min 10 s (4 failed) and 11 min 12 s (3 failed), every failure passed
+on a rerun. Fewer failures, not none: on the same day even the smoke test's
+first page took over 5 s once, so staging was slow on its own. `D-task14`'s
+check that the three plays reached the playlist failed in three runs (the
+toast says added; staging still had none 5 s later) and now waits 15 s like
+the other staging reads. `HEADLESS_WORKERS=4` is still there for a quiet
+staging.
 
 The slowest specs, one worker, WebKit (seconds, tests):
 

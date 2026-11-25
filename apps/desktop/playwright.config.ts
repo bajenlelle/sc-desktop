@@ -25,7 +25,7 @@ export default defineConfig({
   globalSetup: "./headless/helpers.ts",
   // Tests run side by side, each file's tests spread over the workers. What a test writes is named by its
   // worker (OWNER in headless/helpers.ts); a test tagged @alone runs with nothing else in flight.
-  workers: Number(process.env.HEADLESS_WORKERS || 4),
+  workers: Number(process.env.HEADLESS_WORKERS || 3),
   fullyParallel: true,
   reporter: "list",
   timeout: 60_000,

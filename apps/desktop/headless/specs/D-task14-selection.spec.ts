@@ -88,7 +88,7 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await expect(page.locator("[data-sonner-toast]").filter({ hasText: `3 clips added to ${TARGET}` })).toBeVisible();
   await expect(addingCount(page, TARGET)).toHaveText("3");
   await expect
-    .poll(async () => (await playlistClips(page, TARGET))?.map((c) => `${c.matchId}:${c.eventId}`), { message: "the three plays are in the target, in list order" })
+    .poll(async () => (await playlistClips(page, TARGET))?.map((c) => `${c.matchId}:${c.eventId}`), { message: "the three plays are in the target, in list order", timeout: 15_000 })
     .toEqual(keys);
   expect(keys.every((k) => k!.startsWith(`${game.id}:`))).toBe(true);
   await shot(page, name("three-added"));
