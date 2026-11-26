@@ -251,7 +251,7 @@ export function WatchView({
               className={
                 playerFs.active
                   ? "relative min-h-0 flex-1"
-                  : "relative mx-auto w-full max-w-[calc((100vh-12rem)*16/9)] @min-[860px]:max-w-none"
+                  : "relative mx-auto w-full max-w-[calc((100vh-12rem-44px)*16/9)] @min-[860px]:max-w-none"
               }
             >
               <PlayerStage

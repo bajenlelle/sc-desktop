@@ -801,7 +801,8 @@ test("dragging the divider resizes the list and the player, and the split is kep
   await playRow(page, 0).click();
   const list = page.getByRole("region", { name: "Their plays" });
   const video = page.getByRole("region", { name: "Video" });
-  const divider = page.getByRole("separator");
+  // The divider between the list and the player (the window's sidebar has a resizable edge of its own).
+  const divider = page.locator('[role="separator"]:not([aria-label$="sidebar"])');
   await expect(divider).toHaveCount(1);
   const before = (await list.boundingBox())!.width;
   const playerBefore = (await page.locator("video").first().boundingBox())!.width;

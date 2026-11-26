@@ -11,7 +11,7 @@ import { useFrameSeek } from "./use-frame-seek";
 const THUMB_HIT = 10;
 
 /** A position in a whole game: "7:42", "1:32:10". Whole seconds, since an hour of footage isn't read in tenths. */
-function formatLongTime(seconds: number): string {
+export function formatLongTime(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -220,6 +220,9 @@ export function ClipScrubber({
     const settled = clamp(thumbX.get(), 0, width);
     if (settled !== thumbX.get()) animate(thumbX, settled, springs.settle);
     if (s.wasPlaying) video.play().catch(() => {});
+    // A press focuses the track (it has a tabindex); the keys go back to the player's, as in QuickTime. Tab still
+    // reaches the track for its own keys.
+    if (document.activeElement === trackRef.current) trackRef.current?.blur();
     onScrubEnd?.();
   }
 
@@ -243,7 +246,8 @@ export function ClipScrubber({
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <span ref={elapsedRef} className={cn(timeWidth, "text-right text-xs nums text-white/80", !showTimes && "hidden")}>
+      {/* dock-wide-only: a narrow dock gives the times' room to the track (the hover bubble still says it). */}
+      <span ref={elapsedRef} className={cn(timeWidth, "dock-wide-only text-right text-xs nums text-white/80", !showTimes && "hidden")}>
         {formatTime(elapsedNow)}
       </span>
       <div
@@ -363,7 +367,7 @@ export function ClipScrubber({
           </div>
         )}
       </div>
-      {showTimes && <span className={cn(timeWidth, "text-xs nums text-white/80")}>{formatTime(duration)}</span>}
+      {showTimes && <span className={cn(timeWidth, "dock-wide-only text-xs nums text-white/80")}>{formatTime(duration)}</span>}
     </div>
   );
 }

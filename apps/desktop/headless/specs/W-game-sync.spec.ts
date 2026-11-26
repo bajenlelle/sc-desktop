@@ -131,6 +131,11 @@ test("Check sync asks about one play of each part of the game, on a sync row tha
   await expect(page.locator('[data-sync="cue"]'), "the app's own score is over the footage").toBeVisible();
   await expect.poll(() => paused(page), { message: "the play's clip plays" }).toBe(false);
   await expect.poll(() => inClip(page), { message: "the video is on the play's clip" }).toBe(true);
+  // The play's clip has its scrubber in the controls under the footage, so the score graphic stays in view.
+  const controls = page.getByRole("group", { name: "Player controls" });
+  await expect(controls.getByRole("slider", { name: "Position in the clip" }), "the clip's scrubber is in the docked controls").toBeVisible();
+  const footage = (await page.locator('div[style*="aspect-ratio"]').filter({ has: page.locator("video") }).boundingBox())!;
+  expect((await controls.boundingBox())!.y, "the controls are under the footage, not over it").toBeGreaterThanOrEqual(footage.y + footage.height - 0.5);
   expect(await states(page), "the part being checked is marked on the row").toEqual(["current", "open"]);
   await expect(page.locator("[inert]").filter({ has: page.locator('[aria-label="Plays"]') }), "the list stands back while a play is checked").toHaveCount(1);
   // The cue changes to the play's score at the moment the sync has the play at.
