@@ -58,6 +58,7 @@ export function PlayerStage({
   onScrubbingChange,
   drawings,
   slows,
+  cover,
   children,
 }: {
   player: VideoPlayer;
@@ -85,6 +86,8 @@ export function PlayerStage({
   /** The coach's drawings and slow motion on the timeline, in the file's time. */
   drawings?: { id: string; at: number }[];
   slows?: { id: string; at: number; length: number }[];
+  /** Drawn over everything until the queue starts, in place of the idle controls (upright only). */
+  cover?: ReactNode;
   /** Overlays on the footage (a text card). Taps pass through them. */
   children?: ReactNode;
 }) {
@@ -120,7 +123,8 @@ export function PlayerStage({
     setActivity((n) => n + 1);
   }, []);
 
-  const chromeVisible = paused || awake || scrubbing;
+  const showCover = !!cover && !transport.isQueueActive && !fullscreen.active;
+  const chromeVisible = !showCover && (paused || awake || scrubbing);
 
   /** Every control press counts as activity, so the controls stay while in use. */
   const act = (fn: () => void) => () => {
@@ -191,6 +195,12 @@ export function PlayerStage({
           else wake();
         }}
       />
+
+      {showCover && (
+        <Animated.View exiting={fadeOut} style={StyleSheet.absoluteFill}>
+          {cover}
+        </Animated.View>
+      )}
 
       {chromeVisible && width > 0 && (
         <Animated.View entering={fadeIn} exiting={fadeOut} pointerEvents="box-none" style={StyleSheet.absoluteFill}>

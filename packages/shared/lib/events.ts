@@ -62,6 +62,39 @@ export function isBookkeepingEvent(e: PlayByPlayEvent): boolean {
   return e.type === "rebound" && (e.subType?.toLowerCase() ?? "") === "offensivedeadball";
 }
 
+/**
+ * The play in two or three letters, for a small tile in front of a clip row
+ * (the mobile watch list): "3PT", "TO", "REB". Makes and misses share the
+ * code; the tile's colour (eventHue) tells them apart.
+ */
+export function eventShortLabel(e: PlayByPlayEvent): string {
+  const sub = e.subType?.toLowerCase() ?? "";
+  switch (e.type) {
+    case "2pt":
+      return "2PT";
+    case "3pt":
+      return "3PT";
+    case "freethrow":
+      return "FT";
+    case "rebound":
+      return sub === "offensivedeadball" ? "INB" : "REB";
+    case "turnover":
+      return sub === "24sec" ? "SC" : "TO";
+    case "steal":
+      return "STL";
+    case "foul":
+      return sub === "offensive" ? "OF" : sub.includes("technical") ? "TF" : "PF";
+    case "foulon":
+      return "FD";
+    case "block":
+      return "BLK";
+    case "assist":
+      return "AST";
+    default:
+      return e.type.slice(0, 3).toUpperCase();
+  }
+}
+
 /** "Q1".."Q4", then "OT1", "OT2", … for overtime periods. */
 export function periodLabel(period: number): string {
   return period > 4 ? `OT${period - 4}` : `Q${period}`;

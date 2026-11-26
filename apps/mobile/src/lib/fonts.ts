@@ -16,9 +16,18 @@ import { Inter_500Medium } from "@expo-google-fonts/inter/500Medium";
 import { Inter_600SemiBold } from "@expo-google-fonts/inter/600SemiBold";
 import { Inter_700Bold } from "@expo-google-fonts/inter/700Bold";
 import { Inter_400Regular_Italic } from "@expo-google-fonts/inter/400Regular_Italic";
+import { BarlowCondensed_700Bold } from "@expo-google-fonts/barlow-condensed/700Bold";
+import { BarlowCondensed_800ExtraBold } from "@expo-google-fonts/barlow-condensed/800ExtraBold";
 
 /** The four weights the app uses and the one italic (text cards in the clip list), for expo-font's useFonts. */
 export const INTER_FONTS = { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_400Regular_Italic };
+
+/**
+ * Barlow Condensed (OFL), the landing site's display face: only for the
+ * watch screen's big title, the play codes in its row tiles and its big
+ * numbers. Body text stays Inter.
+ */
+export const DISPLAY_FONTS = { BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold };
 
 export type FontWeight = 400 | 500 | 600 | 700;
 
@@ -70,4 +79,13 @@ export function weightFromClassName(className: string | undefined): FontWeight |
     if (c in CLASS_WEIGHT) weight = CLASS_WEIGHT[c];
   }
   return weight;
+}
+
+/**
+ * Barlow Condensed at 700 or 800; until it is loaded, Inter bold (or the
+ * system font) so the text still reads, just wider.
+ */
+export function displayStyle(weight: 700 | 800 = 800): TextStyle {
+  if (!loaded) return { fontWeight: "700" };
+  return { fontFamily: weight === 800 ? "BarlowCondensed_800ExtraBold" : "BarlowCondensed_700Bold", fontWeight: weight === 800 ? "800" : "700" };
 }

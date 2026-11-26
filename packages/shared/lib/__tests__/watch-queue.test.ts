@@ -5,6 +5,9 @@ import {
   clipKey,
   firstUnwatchedKey,
   isMultiGame,
+  playlistTint,
+  teamTint,
+  TINT_PALETTE,
   recordOnce,
   watchProgress,
 } from "../watch-queue";
@@ -202,5 +205,52 @@ describe("buildWatchItems and a clip's effects", () => {
     const [plain] = buildWatchItems(playlist(clip("m1", 1, { r2Url: shipped })), events);
     expect(plain).not.toHaveProperty("drawings");
     expect(plain).not.toHaveProperty("slowMotion");
+  });
+});
+
+describe("playlistTint", () => {
+  const ev = (eventId: number, teamNumber: number | null): PlayByPlayEvent =>
+    ({
+      eventId,
+      type: "2pt",
+      period: 1,
+      gameClockTime: "05:00:00",
+      isSuccessful: 1,
+      eventTeam: teamNumber ? { teamCode: "X", teamName: "X", teamNumber } : null,
+    }) as PlayByPlayEvent;
+  const clip = (matchId: string, e: PlayByPlayEvent) =>
+    ({ kind: "clip", key: `${matchId}:${e.eventId}`, matchId, event: e, r2Url: "u" }) as const;
+  const games: Record<string, { homeTeam: { name: string; color: string }; awayTeam: { name: string; color: string } }> = {
+    g1: { homeTeam: { name: "Viby", color: "#E4572E" }, awayTeam: { name: "Alvik", color: "#123" } },
+    g2: { homeTeam: { name: "Alvik", color: "" }, awayTeam: { name: "Viby", color: "" } },
+    g3: { homeTeam: { name: "Hammarby", color: "" }, awayTeam: { name: "Viby", color: "blue" } },
+  };
+  const lookup = (id: string) => games[id];
+
+  it("uses the colour set for the team behind most clips, normalised", () => {
+    expect(playlistTint([clip("g1", ev(1, 1)), clip("g2", ev(2, 2)), clip("g1", ev(3, 2))], lookup, "p")).toBe("#e4572e");
+    expect(playlistTint([clip("g1", ev(1, 2))], lookup, "p")).toBe("#112233");
+  });
+
+  it("falls back to the team's own palette pick, the same for the same team", () => {
+    const a = playlistTint([clip("g2", ev(1, 2))], lookup, "p1");
+    const b = playlistTint([clip("g3", ev(1, 2)), clip("g3", ev(2, 2))], lookup, "p2");
+    expect(TINT_PALETTE).toContain(a);
+    expect(a).toBe(b);
+  });
+
+  it("uses the seed when no clip names a team", () => {
+    const t = playlistTint([clip("g1", ev(1, null)), clip("nope", ev(2, 1))], lookup, "seed");
+    expect(t).toBe(playlistTint([], lookup, "seed"));
+    expect(TINT_PALETTE).toContain(t);
+  });
+});
+
+describe("teamTint", () => {
+  it("gives a team one palette colour, whatever its case or spacing, matching its playlists", () => {
+    expect(TINT_PALETTE).toContain(teamTint("Viby"));
+    expect(teamTint("  VIBY ")).toBe(teamTint("viby"));
+    const items = [{ kind: "clip", key: "g:1", matchId: "g", r2Url: "u", event: { eventId: 1, type: "2pt", period: 1, gameClockTime: "", isSuccessful: 1, eventTeam: { teamCode: "V", teamName: "V", teamNumber: 1 } } }] as never;
+    expect(playlistTint(items, () => ({ homeTeam: { name: "Viby", color: "" }, awayTeam: { name: "X", color: "" } }), "p")).toBe(teamTint("Viby"));
   });
 });

@@ -7,6 +7,7 @@ import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
+  type SharedValue,
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { Material, useSolidMaterial } from "@/components/shell/Material";
@@ -51,6 +52,15 @@ export interface ScreenProps {
   scroll?: boolean;
   /** No bar at all (the watch view's full-screen player covers the window). */
   barHidden?: boolean;
+  /** The taller row of the glass buttons, for a detail screen whose back button is one (the watch view). */
+  glassBar?: boolean;
+  /**
+   * Drives the bar's title (0 hidden, 1 shown): a screen that shows its name
+   * big in its content brings the small one in once the big one has gone.
+   */
+  titleOpacity?: SharedValue<number>;
+  /** A colour laid over a fixed layout's solid bar (a scouting report's team wash, which continues below it). */
+  barWash?: string;
   refreshing?: boolean;
   onRefresh?: () => void;
   /** Classes for the content under the title block. */
@@ -76,6 +86,9 @@ export function Screen({
   grouped = false,
   scroll = true,
   barHidden = false,
+  glassBar = false,
+  titleOpacity,
+  barWash,
   refreshing,
   onRefresh,
   contentClassName,
@@ -84,7 +97,7 @@ export function Screen({
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const solid = useSolidMaterial();
-  const rowHeight = menu || sheet ? ROOT_BAR_ROW_H : TOOLBAR_ROW_H;
+  const rowHeight = menu || sheet || glassBar ? ROOT_BAR_ROW_H : TOOLBAR_ROW_H;
   const topAir = sheet ? SHEET_TOP_AIR : 0;
   const barHeight = barHidden ? 0 : insets.top + topAir + rowHeight;
   // The content pads for the bar on both platforms (an iOS content inset gets
@@ -104,6 +117,8 @@ export function Screen({
   const materialStyle = useAnimatedStyle(() => ({
     opacity: scroll ? interpolate(scrollY.value, [0, 10], [0, 1], Extrapolation.CLAMP) : 1,
   }));
+
+  const titleStyle = useAnimatedStyle(() => ({ opacity: titleOpacity ? titleOpacity.value : 1 }));
 
   const floor = grouped ? colors.canvas : colors.background;
   // Content clears the floating bottom slot (or the home indicator) and ends with air.
@@ -178,18 +193,21 @@ export function Screen({
               )}
             </>
           ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: floor }]} />
+            <>
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: floor }]} />
+              {barWash ? <View style={[StyleSheet.absoluteFill, { backgroundColor: barWash }]} /> : null}
+            </>
           )}
         </Animated.View>
         <View pointerEvents="box-none" style={[styles.row, { height: rowHeight, marginTop: insets.top + topAir }]}>
           <View pointerEvents="box-none" style={styles.side}>
             {leading ?? (menu ? <MenuButton /> : null)}
           </View>
-          <View pointerEvents="none" style={styles.titleSlot}>
+          <Animated.View pointerEvents="none" style={[styles.titleSlot, titleStyle]}>
             <Text variant="headline" accessibilityRole="header" numberOfLines={1} maxFontSizeMultiplier={1.3}>
               {title}
             </Text>
-          </View>
+          </Animated.View>
           <View pointerEvents="box-none" style={[styles.side, styles.trailing]}>
             {trailing}
           </View>

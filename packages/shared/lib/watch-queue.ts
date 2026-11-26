@@ -7,7 +7,7 @@
  * Clips are identified by game and event together: event ids number the
  * plays within one game, so two games in one playlist can share them.
  */
-import type { Playlist, PlayByPlayEvent, PlaylistClipItem, PlaylistTextCard } from "../types/match";
+import type { Playlist, PlayByPlayEvent, PlaylistClipItem, PlaylistTextCard, StoredMatch } from "../types/match";
 import type { DrawingShape } from "./clip-drawing";
 import type { SlowRate } from "./clip-timeline";
 import { shippedStart, shippedTotals } from "./clip-timing";
@@ -158,4 +158,64 @@ export function recordOnce(recorded: Set<string>, key: string): boolean {
   if (recorded.has(key)) return false;
   recorded.add(key);
   return true;
+}
+
+/** A "#rgb" or "#rrggbb" colour, normalised to "#rrggbb"; null for anything else. */
+function hexColor(raw: string | undefined): string | null {
+  const v = raw?.trim() ?? "";
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(v)) return `#${[...v.slice(1)].map((c) => c + c).join("")}`.toLowerCase();
+  return null;
+}
+
+/**
+ * Jersey colours for a playlist whose team has none set (most: colours are
+ * optional at import). Deep enough for white text on the cover, and never
+ * the app's cyan, which is kept for controls.
+ */
+export const TINT_PALETTE = ["#c2410c", "#b91c1c", "#1d4ed8", "#15803d", "#7e22ce", "#a16207", "#be185d", "#0f766e"] as const;
+
+function hashString(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+/**
+ * The colour a playlist wears on the watch screen (its cover and header):
+ * the team behind most of its clips, in that game's own colour if the coach
+ * set one, else that team's own pick from TINT_PALETTE (the same team gets
+ * the same colour everywhere). With no team at all, the seed (the
+ * playlist's id) picks.
+ */
+export function playlistTint(
+  items: WatchItem[],
+  matchFor: (matchId: string) => Pick<StoredMatch, "homeTeam" | "awayTeam"> | undefined,
+  seed: string,
+): string {
+  const votes = new Map<string, { n: number; color: string | null }>();
+  for (const item of items) {
+    if (item.kind !== "clip") continue;
+    const side = item.event.eventTeam?.teamNumber ?? item.event.player?.teamNumber;
+    const match = matchFor(item.matchId);
+    if (!match || (side !== 1 && side !== 2)) continue;
+    const team = side === 1 ? match.homeTeam : match.awayTeam;
+    const key = team.name.trim().toLowerCase();
+    if (!key) continue;
+    const v = votes.get(key);
+    votes.set(key, { n: (v?.n ?? 0) + 1, color: v?.color ?? hexColor(team.color) });
+  }
+  let best: { key: string; n: number; color: string | null } | null = null;
+  for (const [key, v] of votes) if (!best || v.n > best.n) best = { key, ...v };
+  if (best?.color) return best.color;
+  return best ? teamTint(best.key) : TINT_PALETTE[hashString(seed) % TINT_PALETTE.length];
+}
+
+/**
+ * A team's own pick from TINT_PALETTE, by name (case and spacing don't
+ * matter): the same team wears the same colour on its playlists and on a
+ * scouting report about it.
+ */
+export function teamTint(name: string): string {
+  return TINT_PALETTE[hashString(name.trim().toLowerCase()) % TINT_PALETTE.length];
 }

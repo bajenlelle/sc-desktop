@@ -5,6 +5,7 @@ import {
   eventColors,
   eventHue,
   eventLabel,
+  eventShortLabel,
   formatGameClock,
   isBookkeepingEvent,
   parseGameClock,
@@ -184,5 +185,26 @@ describe("parseGameClock", () => {
 
   it("round-trips through formatGameClock", () => {
     expect(parseGameClock(formatGameClock("09:41:30"))).toBe(581);
+  });
+});
+
+describe("eventShortLabel", () => {
+  const e = (type: string, subType?: string) => ({ eventId: 1, type, subType, isSuccessful: 1 }) as unknown as PlayByPlayEvent;
+  it("codes each play in a few letters", () => {
+    expect(eventShortLabel(e("3pt"))).toBe("3PT");
+    expect(eventShortLabel(e("2pt"))).toBe("2PT");
+    expect(eventShortLabel(e("freethrow"))).toBe("FT");
+    expect(eventShortLabel(e("rebound", "offensive"))).toBe("REB");
+    expect(eventShortLabel(e("rebound", "offensivedeadball"))).toBe("INB");
+    expect(eventShortLabel(e("turnover", "badpass"))).toBe("TO");
+    expect(eventShortLabel(e("turnover", "24sec"))).toBe("SC");
+    expect(eventShortLabel(e("foul", "offensive"))).toBe("OF");
+    expect(eventShortLabel(e("foul", "benchtechnical"))).toBe("TF");
+    expect(eventShortLabel(e("foul", "personal"))).toBe("PF");
+    expect(eventShortLabel(e("foulon"))).toBe("FD");
+    expect(eventShortLabel(e("assist"))).toBe("AST");
+    expect(eventShortLabel(e("steal"))).toBe("STL");
+    expect(eventShortLabel(e("block"))).toBe("BLK");
+    expect(eventShortLabel(e("jumpball"))).toBe("JUM");
   });
 });

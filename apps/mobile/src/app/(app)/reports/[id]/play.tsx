@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useReducedMotion } from "react-native-reanimated";
-import { eventHue } from "@scoutable/shared/lib/events";
+import { eventHue, eventShortLabel } from "@scoutable/shared/lib/events";
 import { MEDIA_BASE } from "@scoutable/shared/lib/player-photos";
 import { reportJumpItems, reportSectionTitle } from "@scoutable/shared/lib/scouting-report";
 import { clipsProgress, firstUnwatchedClip, reportQueueClips, sectionClips, type ReportQueueClip } from "@scoutable/shared/lib/scouting-report-inbox";
@@ -15,17 +15,20 @@ import { ClipCaption } from "@/components/player/ClipCaption";
 import { DrawingLayer } from "@/components/player/DrawingLayer";
 import { PlayerStage } from "@/components/player/PlayerStage";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
-import { ActivePill, useActivePill } from "@/components/WatchClipRow";
+import { ActivePill, PlayTile, useActivePill } from "@/components/WatchClipRow";
 import { Screen } from "@/components/shell/Screen";
-import { BackButton } from "@/components/shell/BackButton";
+import { GlassBackButton } from "@/components/shell/GlassButton";
 import { Button } from "@/components/ui/Button";
 import { StatusScreen } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
-import { Dot } from "@/components/ui/Row";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 
-/** A report clip's row: what the play was and when, the coach's labels, and whether it's been watched. */
+/**
+ * A report clip's row, built like the watch list's: the play's code on a tile
+ * in its colour (a check once watched, moving bars while it plays), then what
+ * it was and when, with the coach's labels.
+ */
 function ReportClipRow({
   item,
   watched,
@@ -37,44 +40,43 @@ function ReportClipRow({
   watched: boolean;
   active: boolean;
   onPlay: () => void;
-  onLayout: ReturnType<ReturnType<typeof useActivePill>["onRowLayout"]>;
+  onLayout: (e: LayoutChangeEvent) => void;
 }) {
   const colors = useThemeColors();
   const c = item.clip;
   const meta = [[c.period, c.clock].filter(Boolean).join(" "), c.game, ...c.labels].filter(Boolean).join(" · ");
+  const code = eventShortLabel({ type: c.type, subType: c.subType, isSuccessful: c.made ? 1 : 0 } as Parameters<typeof eventShortLabel>[0]);
   return (
     <Tappable
       scaleTo={1}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={[c.label, meta, c.note ? `note from your coach: ${c.note}` : null, watched ? "watched" : null].filter(Boolean).join(", ")}
+      accessibilityLabel={[c.label, meta, c.note ? `note from your coach: ${c.note}` : null, active ? "playing" : watched ? "watched" : null].filter(Boolean).join(", ")}
       onPress={onPlay}
       onLayout={onLayout}
-      className={({ pressed }) => cn("min-h-14 flex-row items-start gap-3 px-4 py-2", pressed && !active && "bg-fill-1")}
+      className={({ pressed }) => cn("min-h-[60px] flex-row items-center gap-3 px-4 py-2", pressed && !active && "bg-fill-1")}
     >
+      <PlayTile code={code} color={colors.eventDot[eventHue({ type: c.type, isSuccessful: c.made })]} watched={watched} playing={active} />
       <View className="min-w-0 flex-1">
-        <Text numberOfLines={1} className={active ? "font-semibold" : undefined}>
+        <Text variant="callout" numberOfLines={1} className={cn(active ? "font-semibold" : "font-medium", watched && !active && "text-muted-foreground")}>
           {c.label}
         </Text>
-        <View className="min-w-0 flex-row items-center gap-1.5">
-          <Dot size={6} color={colors.eventDot[eventHue({ type: c.type, isSuccessful: c.made })]} />
-          <Text variant="subheadline" nums numberOfLines={1} className="shrink text-muted-foreground">
-            {meta}
-          </Text>
-          {c.note ? <Icon name="note" size={13} color={colors.mutedForeground} /> : null}
-          {c.drawings?.length ? <Icon name="draw" size={13} color={colors.mutedForeground} /> : null}
+        <Text variant="footnote" nums numberOfLines={1} className="mt-0.5 text-muted-foreground">
+          {meta}
+        </Text>
+      </View>
+      {c.note || c.drawings?.length ? (
+        <View className="shrink-0 flex-row items-center gap-2">
+          {c.note ? <Icon name="note" size={15} color={colors.mutedForeground} /> : null}
+          {c.drawings?.length ? <Icon name="draw" size={15} color={colors.mutedForeground} /> : null}
         </View>
-      </View>
-      <View className="h-[22px] w-4 shrink-0 items-center justify-center">
-        {active ? (
-          <Icon name="play" size={14} color={colors.primary} />
-        ) : watched ? (
-          <Icon name="check" size={16} strokeWidth={2} color={colors.mutedForeground} />
-        ) : null}
-      </View>
+      ) : null}
     </Tappable>
   );
 }
+
+/** After a hand scroll, how long the list leaves the playing row where it is (as the watch screen). */
+const FOLLOW_PAUSE_MS = 6000;
 
 /**
  * A report section's clips, watched like a playlist (the watch screen's
@@ -128,8 +130,9 @@ export default function ReportClipsScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const scroll = useRef({ y: 0, height: 0, rowsY: 0 });
   const { frames } = pill;
+  const lastDrag = useRef(0);
   useEffect(() => {
-    if (!queue.activeKey) return;
+    if (!queue.activeKey || Date.now() - lastDrag.current < FOLLOW_PAUSE_MS) return;
     const f = frames.current.get(queue.activeKey);
     if (!f) return;
     const s = scroll.current;
@@ -139,11 +142,11 @@ export default function ReportClipsScreen() {
     else if (bottom > s.y + s.height) scrollRef.current?.scrollTo({ y: bottom - s.height + 8, animated: !reduceMotion });
   }, [queue.activeKey, frames, reduceMotion]);
 
-  const back = <BackButton label="Report" />;
+  const back = <GlassBackButton label="the report" />;
 
   if (!section) {
     return (
-      <Screen title="" leading={back} scroll={false}>
+      <Screen title="" leading={back} glassBar scroll={false}>
         {page ? (
           <StatusScreen
             icon="basketball"
@@ -162,7 +165,7 @@ export default function ReportClipsScreen() {
   };
 
   return (
-    <Screen title={title} leading={back} scroll={false} barHidden={fullscreen.active}>
+    <Screen title={title} leading={back} glassBar scroll={false} barHidden={fullscreen.active}>
       <Stack.Screen
         options={{
           fullScreenGestureEnabled: false,
@@ -218,6 +221,12 @@ export default function ReportClipsScreen() {
         className="flex-1"
         contentContainerClassName="pb-10"
         scrollEventThrottle={32}
+        onScrollBeginDrag={() => {
+          lastDrag.current = Date.now();
+        }}
+        onScrollEndDrag={() => {
+          lastDrag.current = Date.now();
+        }}
         onScroll={(e) => {
           scroll.current.y = e.nativeEvent.contentOffset.y;
         }}
@@ -237,17 +246,7 @@ export default function ReportClipsScreen() {
           }}
         >
           <ActivePill style={pill.style} />
-          {items.map((item, i) => [
-            i > 0 ? (
-              <View
-                key={`sep-${item.key}`}
-                style={
-                  queue.activeKey !== item.key && queue.activeKey !== items[i - 1].key
-                    ? { height: StyleSheet.hairlineWidth, marginLeft: 16, backgroundColor: colors.separator }
-                    : { height: StyleSheet.hairlineWidth }
-                }
-              />
-            ) : null,
+          {items.map((item) => (
             <ReportClipRow
               key={item.key}
               item={item}
@@ -255,8 +254,8 @@ export default function ReportClipsScreen() {
               active={queue.activeKey === item.key}
               onPlay={() => playFrom(item.key)}
               onLayout={pill.onRowLayout(item.key)}
-            />,
-          ])}
+            />
+          ))}
         </View>
       </ScrollView>
     </Screen>
