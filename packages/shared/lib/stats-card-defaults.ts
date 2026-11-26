@@ -6,6 +6,7 @@
  */
 import type { PlayByPlayEvent } from "../types/match";
 import { pickDefaultPlayer } from "./stats-card";
+import { personKey } from "./events";
 
 /** A clip from a game with stats, with its play. */
 export interface StatsClip {
@@ -27,7 +28,7 @@ export interface StatsCardTarget {
   defaultScope: "game" | "season";
 }
 
-const personOf = (e: PlayByPlayEvent): string | null => (e.player ? String(e.player.playerId) : null);
+const personOf = (e: PlayByPlayEvent): string | null => personKey(e);
 
 /**
  * A new card's player and game. From a clip (its row's "Insert stats card

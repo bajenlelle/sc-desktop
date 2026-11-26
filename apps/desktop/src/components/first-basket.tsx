@@ -35,6 +35,11 @@ type Surface = "import" | "game_page";
  * Setting it also looks for a jump into the game between the tip-off and the
  * basket (a recording that holds the warm-up and loses the tip-off in a
  * dropped stream): the game's footage starts there.
+ *
+ * `basketFirst` is a game whose protocol has no tip-off to offer (Profixio:
+ * the table presses "Start period 1" minutes early, lib/profixio-import.ts):
+ * its sync reference is the first made basket itself, so the picker asks for
+ * a basket from the start and there is no tip-off to go back to.
  */
 export function useFirstBasket({
   events,
@@ -43,6 +48,7 @@ export function useFirstBasket({
   surface,
   tipoffEstimate,
   seek,
+  basketFirst = false,
 }: {
   events: readonly PlayByPlayEvent[];
   /** The tip-off on the wall clock; null when the game has none to work from. */
@@ -53,11 +59,14 @@ export function useFirstBasket({
   tipoffEstimate: number | null;
   /** Puts the picker at a second, paused. */
   seek: (seconds: number) => void;
+  /** The game syncs on its first basket, never its tip-off (Profixio). */
+  basketFirst?: boolean;
 }) {
   const baskets = useMemo(() => (tipoffRealWorldTime ? q1Baskets(events, tipoffRealWorldTime) : []), [events, tipoffRealWorldTime]);
   const [active, setActive] = useState(false);
   const [index, setIndex] = useState(0);
-  const basket: BasketAnchor<PlayByPlayEvent> | null = active ? (baskets[index] ?? null) : null;
+  const on = active || basketFirst;
+  const basket: BasketAnchor<PlayByPlayEvent> | null = on ? (baskets[index] ?? null) : null;
 
   // Another video starts at the tip-off again.
   useEffect(() => {
@@ -125,12 +134,16 @@ export function useFirstBasket({
   return {
     /** Whether the game has a basket to sync on: the link is offered only then. */
     available: baskets.length > 0,
-    active: active && basket !== null,
+    active: on && basket !== null,
+    /** The game syncs on a basket only: there is no tip-off to switch back to. */
+    basketFirst,
     basket,
     index,
     count: baskets.length,
     open,
-    close: () => setActive(false),
+    close: () => {
+      if (!basketFirst) setActive(false);
+    },
     next: () => goTo(Math.min(baskets.length - 1, index + 1)),
     previous: () => goTo(Math.max(0, index - 1)),
     copy: BASKET_COPY,
@@ -148,7 +161,7 @@ export type FirstBasket = ReturnType<typeof useFirstBasket>;
  * basket is. None when the game has no basket to sync on.
  */
 export function FirstBasketSwitch({ fb }: { fb: FirstBasket }) {
-  if (!fb.available) return null;
+  if (!fb.available || fb.basketFirst) return null;
   return fb.active ? (
     <Button type="button" variant="ghost" data-sync="tipoff-link" onClick={fb.close}>
       Use the tip-off
@@ -202,7 +215,11 @@ function BasketRow({ fb, b }: { fb: FirstBasket; b: BasketAnchor<PlayByPlayEvent
   const clock = e.gameClockTime ? formatGameClock(e.gameClockTime).replace(/^0(\d:)/, "$1") : null;
   return (
     <div data-sync="first-basket" className="rounded-lg bg-fill-1 px-3 pt-2 pb-2.5 text-sm">
-      <p className="mb-1.5 text-footnote text-muted-foreground">Find one of these baskets in the video and set it. Step through them with ‹ ›.</p>
+      <p className="mb-1.5 text-footnote text-muted-foreground">
+        {fb.basketFirst
+          ? "This league logs no tip-off: the game is placed by a basket. Find this one in the video and set it, or step to a later one with ›."
+          : "Find one of these baskets in the video and set it. Step through them with ‹ ›."}
+      </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {b.score && (
           <span data-sync="first-basket-score" className="shrink-0 rounded-md bg-background px-1.5 py-0.5 font-semibold nums shadow-xs ring-1 ring-separator">
@@ -213,7 +230,11 @@ function BasketRow({ fb, b }: { fb: FirstBasket; b: BasketAnchor<PlayByPlayEvent
           <span className="truncate text-foreground">{describePlay(e)}</span>
           <span className="truncate text-callout text-muted-foreground nums">
             {clock ? `Q1 ${clock} · ` : ""}
-            {Math.round(b.afterTipoffS)} s after the tip-off
+            {fb.basketFirst
+              ? fb.index === 0
+                ? "The first basket"
+                : `${Math.round(b.afterTipoffS)} s after the first basket`
+              : `${Math.round(b.afterTipoffS)} s after the tip-off`}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-0.5">

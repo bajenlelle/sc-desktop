@@ -1,75 +1,84 @@
 /**
- * The league catalogue for the importer, served by the `genius` edge function.
+ * The league catalogue: the Genius leagues, served by the `genius` edge
+ * function, and for the importer the Profixio district leagues too, served by
+ * the `profixio` function (docs/profixio.md). Renders immediately from cache
+ * or the bundled Genius copy, then revalidates against the functions. The
+ * cache keys, validation and fetches live in
+ * @scoutable/shared/lib/league-catalog-cache.
  *
- * Why not just bundle it: the function derives its fetch allowlist from the
- * same structure it serves here, so a season the picker offers is always one
- * the function will fetch. Adding next season becomes a function deploy rather
- * than a desktop release — and there is no window where the two disagree,
- * which is what produced "Failed to load schedule" when they last did.
+ * Why not just bundle it: the `genius` function derives its fetch allowlist
+ * from the same structure it serves here, so a season the picker offers is
+ * always one the function will fetch; Profixio's list is whatever its API key
+ * is granted. A failed fetch keeps whatever we already had: an empty picker
+ * would be worse than a stale one.
  *
- * Renders immediately from cache or the bundled copy, then revalidates. A
- * failed fetch keeps whatever we already had: an empty picker would be worse
- * than a stale one.
+ * Only the importer asks for Profixio: everything else that reads leagues
+ * (Teams pages, stats, reports, game marks) is built on Genius competitions.
+ * And it asks only where PROFIXIO_IMPORT is on.
  */
-import { useEffect, useState } from "react";
-import { getGeniusLeagues } from "@scoutable/shared/lib/genius-client";
-import { catalogToLeagues, parseLeagueCatalog } from "@scoutable/shared/lib/league-catalog";
+import { useEffect, useMemo, useState } from "react";
+import {
+  GENIUS_CACHE_KEY,
+  PROFIXIO_CACHE_KEY,
+  latestCatalog,
+  readLeagueCache,
+  refreshGeniusCatalog,
+  refreshProfixioCatalog,
+} from "@scoutable/shared/lib/league-catalog-cache";
+import { keepIfSame } from "@scoutable/shared/lib/keep-if-same";
 import type { League } from "@scoutable/shared/types/league";
 import { BUNDLED_LEAGUES } from "@/lib/basketball-api";
 import { createClient } from "@/lib/supabase/client";
 import { Sentry } from "@/lib/sentry";
 
-const CACHE_KEY = "scoutable_league_catalog";
+const NONE: League[] = [];
 
-/** Last good catalogue, so the picker paints without waiting on the network. */
-function readCache(): League[] | null {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const catalog = parseLeagueCatalog(JSON.parse(raw)?.leagues);
-    return catalog ? catalogToLeagues(catalog) : null;
-  } catch {
-    // Unparseable or unreadable — treated the same as absent.
-    return null;
-  }
-}
+/**
+ * Whether the importer offers Profixio's district leagues: off in every build
+ * until they are released; `VITE_PROFIXIO_IMPORT=on` in apps/desktop/.env
+ * turns it on for a dev build. Games already imported from Profixio open and
+ * sync either way.
+ */
+export const PROFIXIO_IMPORT = import.meta.env.VITE_PROFIXIO_IMPORT === "on";
 
-function writeCache(leagues: unknown): void {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), leagues }));
-  } catch {
-    // Caching is an optimisation; a full or blocked store must not break the page.
-  }
-}
-
-export function useLeagues(): League[] {
-  const [leagues, setLeagues] = useState<League[]>(() => readCache() ?? BUNDLED_LEAGUES);
+export function useLeagues({ withProfixio = false }: { withProfixio?: boolean } = {}): League[] {
+  const [genius, setGenius] = useState<League[]>(() => latestCatalog(GENIUS_CACHE_KEY) ?? readLeagueCache(localStorage, GENIUS_CACHE_KEY) ?? BUNDLED_LEAGUES);
+  const [profixio, setProfixio] = useState<League[]>(() =>
+    withProfixio ? (latestCatalog(PROFIXIO_CACHE_KEY) ?? readLeagueCache(localStorage, PROFIXIO_CACHE_KEY) ?? NONE) : NONE,
+  );
 
   useEffect(() => {
     let cancelled = false;
-    getGeniusLeagues(createClient())
-      .then((res) => {
-        if (cancelled) return;
-        if (!res.ok) {
-          // Includes `unknown_action` from a function that predates this
-          // release, which is exactly why the bundled copy stays.
-          throw new Error(`leagues fetch failed: ${res.error}`);
-        }
-        const catalog = parseLeagueCatalog(res.data.leagues);
-        if (!catalog) throw new Error("leagues payload failed validation");
-        setLeagues(catalogToLeagues(catalog));
-        writeCache(res.data.leagues);
+    const supabase = createClient();
+
+    // Silent for the user (they keep a working picker) but reported, or a
+    // catalogue that never refreshes looks like nothing at all.
+    refreshGeniusCatalog(supabase, localStorage)
+      .then((leagues) => {
+        if (!cancelled) setGenius((prev) => keepIfSame(prev, leagues));
       })
       .catch((err) => {
-        // Silent for the user — they keep a working picker — but we need to
-        // know, or a catalogue that never refreshes looks like nothing at all.
-        console.error("[leagues]", err);
+        console.error("[leagues:genius]", err);
         Sentry.captureException(err);
       });
+
+    if (withProfixio) {
+      refreshProfixioCatalog(supabase, localStorage)
+        .then((leagues) => {
+          if (!cancelled) setProfixio((prev) => keepIfSame(prev, leagues));
+        })
+        .catch((err) => {
+          console.error("[leagues:profixio]", err);
+          Sentry.captureException(err);
+        });
+    }
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [withProfixio]);
 
-  return leagues;
+  // Stable identity matters: upload-zone's selection effect keys on this list
+  // (a revalidation that brought the same catalogue keeps the old arrays).
+  return useMemo(() => (profixio.length > 0 ? [...genius, ...profixio] : genius), [genius, profixio]);
 }

@@ -11,6 +11,7 @@ import { formatMSSd, SyncPointPicker, type SeekRequest } from "@/components/sync
 import { formatSpan, QuarterSyncPanel, quarterCopy } from "@/components/quarter-sync";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trackEvent } from "@/lib/analytics";
+import { matchProvider } from "@scoutable/shared/lib/provider";
 import { newestRequest } from "@scoutable/shared/lib/latest";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { describePlay, periodLabel, playClock } from "@scoutable/shared/lib/events";
@@ -313,9 +314,12 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
   }, [openQuartersRequested, storedMatch?.id, storedMatch?.syncPoint, videoStatus]);
   // When the game's first quarter started on the wall clock: what a basket or the first points are measured from.
   const q1Start = storedMatch?.syncPoint?.syncRealWorldTime || storedMatch?.syncPoint?.marks?.["1"]?.anchor.realWorldTime || null;
+  // A Profixio game syncs on its first basket: its protocol has no tip-off (lib/profixio-import.ts).
+  const basketFirst = !!storedMatch && matchProvider(storedMatch) === "profixio";
   // Shared hints for the linked recording; the detector only runs while the game has no tip-off.
+  // Never for a basket-first game: a tip-off found in its video would be paired with its first basket.
   const tipoffSuggestion = useTipoffSuggestion(
-    storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null,
+    !basketFirst && storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null,
     storedMatch?.sourceGameId,
     {
       surface: "game_page",
@@ -332,6 +336,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
     surface: "game_page",
     tipoffEstimate: storedMatch?.syncPoint?.syncVideoTime ?? offeredSeconds(tipoffSuggestion.state),
     seek: useCallback((seconds: number) => setQuarterSeek({ seconds, nonce: Date.now(), play: false }), []),
+    basketFirst,
   });
   // The recording's length tells whether the play-by-play runs past its end (a video that skips the breaks).
   const probeUrl = storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null;
@@ -819,7 +824,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
               {tipoffSet && periodRows.length > 0 && (
                 <div className="pt-4">
                   <QuarterSyncPanel
-                    q1Label="Tip-off"
+                    q1Label={basketFirst ? "First basket" : "Tip-off"}
                     q1Time={storedMatch.syncPoint!.syncVideoTime}
                     rows={periodRows}
                     active={adjustingTipoff ? activePeriod : 0}
@@ -893,7 +898,7 @@ export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {})
               {tipoffSet && periodRows.length > 0 && (
                 <div className="pt-4">
                   <QuarterSyncPanel
-                    q1Label="Tip-off"
+                    q1Label={basketFirst ? "First basket" : "Tip-off"}
                     q1Time={storedMatch.syncPoint!.syncVideoTime}
                     rows={[]}
                     active={0}

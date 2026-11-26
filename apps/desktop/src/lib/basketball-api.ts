@@ -13,6 +13,8 @@ import { createClient } from "@/lib/supabase/client";
 import { getGeniusFixtures } from "@scoutable/shared/lib/genius-client";
 import { fixtureToScheduleGame, playableFixtures, type ScheduleGame } from "@scoutable/shared/lib/genius";
 import { loadGeniusGame, type GeniusGameData } from "@scoutable/shared/lib/genius-import";
+import { getProfixioStages, loadProfixioGame, loadProfixioSchedule } from "@scoutable/shared/lib/profixio-import";
+import { seasonProvider } from "@scoutable/shared/lib/provider";
 import { PLAYOFF, REGULAR, type League, type Season, type Stage } from "@scoutable/shared/types/league";
 
 export type { ScheduleGame };
@@ -142,6 +144,8 @@ export async function getLeagueSchedule(
   season: Season,
   stage: Stage | null,
 ): Promise<ScheduleGame[]> {
+  // A Profixio category is one stage; there is no "every stage" for it, so "Your games" never asks.
+  if (seasonProvider(season) === "profixio") return loadProfixioSchedule(createClient(), season, stage);
   if (!season.competitionId) return [];
   const games = await playableSchedule(season.competitionId);
   return stage?.matchType ? games.filter((g) => g.matchType === stage.matchType) : games;
@@ -157,7 +161,19 @@ export type { GeniusGameData } from "@scoutable/shared/lib/genius-import";
 export async function fetchGameData(
   season: Season,
   game: ScheduleGame,
+  stage: Stage | null = null,
 ): Promise<GeniusGameData> {
+  if (seasonProvider(season) === "profixio") return loadProfixioGame(createClient(), season, stage, game);
   if (!season.competitionId) throw new Error("League has no data source configured");
   return loadGeniusGame(createClient(), season.competitionId, game);
+}
+
+/**
+ * The stages a season's Stage control offers: a Genius season carries its
+ * own (regular season, playoffs); a Profixio season's are its league's
+ * categories, fetched once per app session.
+ */
+export function getSeasonStages(league: League, season: Season): Promise<Stage[]> {
+  if (seasonProvider(season) !== "profixio") return Promise.resolve(season.stages);
+  return getProfixioStages(createClient(), league, season);
 }

@@ -11,7 +11,7 @@
  * the stored rows for either source.
  */
 import type { PlayByPlayEvent } from "../types/match";
-import { isBookkeepingEvent } from "./events";
+import { isBookkeepingEvent, personKey } from "./events";
 import type { GameLine } from "./stat-lines";
 
 export type PbpSource = "genius" | "profixio";
@@ -24,7 +24,7 @@ export function pbpLine(events: PlayByPlayEvent[], playerId: number | string, so
   let oreb = 0, dreb = 0, ast = 0, stl = 0, blk = 0, tov = 0, pf = 0;
 
   for (const e of events) {
-    if (!e.player || String(e.player.playerId) !== id || isBookkeepingEvent(e)) continue;
+    if (!e.player || personKey(e) !== id || isBookkeepingEvent(e)) continue;
     const made = e.isSuccessful === 1;
     switch (e.type) {
       case "2pt":

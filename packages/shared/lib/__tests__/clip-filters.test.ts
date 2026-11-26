@@ -16,7 +16,10 @@ import {
   playersOf,
   teamsOf,
   toggleFilter,
+  playerKey,
+  playersByTeam,
 } from "../clip-filters";
+import { personKey } from "../events";
 
 function ev(partial: Partial<PlayByPlayEvent> & { eventId: number }): PlayByPlayEvent {
   return {
@@ -184,5 +187,31 @@ describe("keepKnownChoices", () => {
     expect(kept.shotTypes).toBe(f.shotTypes);
     expect(kept.situations).toBe(f.situations);
     expect(kept.labels).toBe(f.labels);
+  });
+});
+
+describe("players across providers", () => {
+  const play = (playerId: number, source?: "profixio"): PlayByPlayEvent => ({
+    eventId: playerId,
+    type: "2pt",
+    subType: "",
+    period: 1,
+    gameClockTime: "",
+    realWorldTime: "2026-11-01T12:00:00Z",
+    isSuccessful: 1,
+    qualifiers: [],
+    player: { playerId, pno: 4, firstName: "A", familyName: "B", teamNumber: 1, ...(source ? { source } : {}) },
+  });
+
+  it("keys a Profixio person apart from a Genius person with the same number", () => {
+    expect(playerKey(play(123))).toBe("id:123");
+    expect(playerKey(play(123, "profixio"))).toBe("px:123");
+    expect(personKey(play(123))).toBe("123");
+    expect(personKey(play(123, "profixio"))).toBe("px:123");
+  });
+
+  it("lists the two as two players", () => {
+    const keys = playersByTeam([play(123), play(123, "profixio")]).flatMap((g) => g.players.map((p) => p.key));
+    expect(keys.sort()).toEqual(["id:123", "px:123"]);
   });
 });

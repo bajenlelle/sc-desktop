@@ -39,6 +39,10 @@ export function eventLabel(e: PlayByPlayEvent): string {
     case "foul":
       if (sub === "offensive") return "Charge";
       if (["technical", "benchtechnical", "coachtechnical"].includes(sub)) return "Technical";
+      // Profixio's district protocol (FIBA) names these.
+      if (sub === "unsportsmanlike") return "Unsportsmanlike";
+      if (sub === "disqualifying") return "Disqualifying";
+      if (sub === "flagrant" || sub === "disruptive") return "Flagrant";
       return "Foul";
     case "foulon":
       return "Foul drawn";
@@ -46,6 +50,8 @@ export function eventLabel(e: PlayByPlayEvent): string {
       return "Block";
     case "assist":
       return "Assist";
+    case "timeout":
+      return "Timeout";
     default:
       return e.type;
   }
@@ -137,6 +143,8 @@ export function eventColors(e: PlayByPlayEvent): { strip: string; badge: string 
     case "turnover": return { strip: "bg-amber-400",  badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300" };
     case "foul":
     case "foulon":   return { strip: "bg-orange-400", badge: "bg-orange-100 text-orange-700 dark:bg-orange-900/60 dark:text-orange-300" };
+    // Timeouts (Profixio) are team events with nothing to score: neutral, but distinct from the fallback below.
+    case "timeout":  return { strip: "bg-slate-500",  badge: "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200" };
   }
   return { strip: "bg-slate-300", badge: "bg-muted text-muted-foreground" };
 }
@@ -214,6 +222,25 @@ export function sortPlaysChronologically<T extends Pick<PlayByPlayEvent, "eventI
 }
 
 /** "First Last", or an em dash when the event has no player attached. */
+/**
+ * A play's person across games and providers: Genius's personId as it is
+ * ("1690412"), a Profixio one as "px:<personId>", since the two providers'
+ * ids are numbers from the same range. Null for a play without a player.
+ * Photos and season lines are looked up by the bare Genius ids only.
+ */
+export function personKey(e: Pick<PlayByPlayEvent, "player">): string | null {
+  if (!e.player) return null;
+  return e.player.source === "profixio" ? `px:${e.player.playerId}` : String(e.player.playerId);
+}
+
+/** Whether any of the plays has a game clock: district leagues (Profixio) run none, so moments by the clock can't be told. */
+export function hasGameClock(events: readonly Pick<PlayByPlayEvent, "gameClockTime">[]): boolean {
+  return events.some((e) => !!e.gameClockTime);
+}
+
+/** Why the moments read off the game clock are off for plays without one. */
+export const NO_CLOCK_MOMENTS = ["quarter_start", "quarter_end", "clutch"] as const;
+
 export function playerName(e: PlayByPlayEvent): string {
   if (!e.player) return "—";
   return `${e.player.firstName} ${e.player.familyName}`.trim();

@@ -18,6 +18,22 @@ function ReturnKey() {
 }
 
 /**
+ * When a play asked about is in the right place. A league feed is to the
+ * second; a Profixio table types plays in after they happen, so its plays
+ * are right when they happen in the seconds before their mark.
+ */
+function rightIf(sync: GameSync, change: { after: string } | null): string {
+  if (sync.loggedLate) {
+    return change
+      ? `Right if the score over the video turns ${change.after} in the seconds before the mark: this league logs plays after they happen.`
+      : "Right if it happens in the seconds before the mark: this league logs plays after they happen.";
+  }
+  return change
+    ? `Right if the ball goes in as the score over the video turns ${change.after}, give or take a second.`
+    : "Right if it happens as its name lights up over the video, give or take a second.";
+}
+
+/**
  * What the sync's mode says and asks, in the words the bar and the line
  * under the timeline show: a short label, the play's score change when it
  * has one (what to look for on the video's scoreboard), the play or the
@@ -34,7 +50,7 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
         change,
         main: cue.sentence,
         hint: `${mode.first ? "The video has a jump here: is the game still in step after it? " : ""}${
-          change ? `Right if the ball goes in as the score over the video turns ${change.after}, give or take a second.` : "Right if it happens as its name lights up over the video, give or take a second."
+          rightIf(sync, change)
         }`,
       };
     }
@@ -52,7 +68,7 @@ export function syncWords(sync: GameSync): { label: string; change: { before: st
       main: cue.sentence,
       // The first play says what a check is: one play a part, and the sync stays as it is unless one is off.
       hint: `${mode.first ? (mode.total > 1 ? "One play from each part of the game. Nothing moves unless one is off. " : "Nothing moves unless the play is off. ") : ""}${
-        change ? `Right if the ball goes in as the score over the video turns ${change.after}, give or take a second.` : "Right if it happens as its name lights up over the video, give or take a second."
+        rightIf(sync, change)
       }`,
     };
   }

@@ -1,0 +1,7842 @@
+{
+ "data": [
+  {
+   "id": 32727010,
+   "tournamentId": 52949,
+   "number": "32727010",
+   "gameRound": 1,
+   "date": "2026-09-11",
+   "time": "19:30:00",
+   "datetimeStart": "2026-09-11T17:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": 90,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": 98,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425850,
+    "name": "Töjna sporthall",
+    "arena": {
+     "id": 338467,
+     "arenaName": "Töjna sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727010",
+   "lineupAvailableFrom": "2026-09-11T16:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727011,
+   "tournamentId": 52949,
+   "number": "32727011",
+   "gameRound": 1,
+   "date": "2026-09-11",
+   "time": "18:30:00",
+   "datetimeStart": "2026-09-11T16:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": 93,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": 101,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425882,
+    "name": "Hagsätrahallen",
+    "arena": {
+     "id": 338499,
+     "arenaName": "Hagsätrahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727011",
+   "lineupAvailableFrom": "2026-09-11T15:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727012,
+   "tournamentId": 52949,
+   "number": "32727012",
+   "gameRound": 1,
+   "date": "2026-09-12",
+   "time": "17:15:00",
+   "datetimeStart": "2026-09-12T15:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": 109,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": 74,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425904,
+    "name": "Fyrisskolan",
+    "arena": {
+     "id": 338521,
+     "arenaName": "Fyrisskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727012",
+   "lineupAvailableFrom": "2026-09-12T14:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727013,
+   "tournamentId": 52949,
+   "number": "32727013",
+   "gameRound": 1,
+   "date": "2026-09-13",
+   "time": "12:00:00",
+   "datetimeStart": "2026-09-13T10:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": 91,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": 69,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425429,
+    "name": "Kämpetorpshallen 2",
+    "arena": {
+     "id": 338046,
+     "arenaName": "Kämpetorpshallen 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727013",
+   "lineupAvailableFrom": "2026-09-13T09:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727014,
+   "tournamentId": 52949,
+   "number": "32727014",
+   "gameRound": 1,
+   "date": "2026-09-13",
+   "time": "13:15:00",
+   "datetimeStart": "2026-09-13T11:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": 108,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": 57,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425931,
+    "name": "BAS Barkarby",
+    "arena": {
+     "id": 338548,
+     "arenaName": "BAS Barkarby"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727014",
+   "lineupAvailableFrom": "2026-09-13T10:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727015,
+   "tournamentId": 52949,
+   "number": "32727015",
+   "gameRound": 1,
+   "date": "2026-09-13",
+   "time": "15:15:00",
+   "datetimeStart": "2026-09-13T13:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": 74,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": 68,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425885,
+    "name": "Enskedehallen L",
+    "arena": {
+     "id": 338502,
+     "arenaName": "Enskedehallen L"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727015",
+   "lineupAvailableFrom": "2026-09-13T12:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727016,
+   "tournamentId": 52949,
+   "number": "32727016",
+   "gameRound": 3,
+   "date": "2026-09-13",
+   "time": "15:45:00",
+   "datetimeStart": "2026-09-13T13:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": 85,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": 90,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425429,
+    "name": "Kämpetorpshallen 2",
+    "arena": {
+     "id": 338046,
+     "arenaName": "Kämpetorpshallen 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727016",
+   "lineupAvailableFrom": "2026-09-13T12:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727017,
+   "tournamentId": 52949,
+   "number": "32727017",
+   "gameRound": 1,
+   "date": "2026-09-13",
+   "time": "17:45:00",
+   "datetimeStart": "2026-09-13T15:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": 99,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": 66,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425991,
+    "name": "Fribergahallen",
+    "arena": {
+     "id": 338608,
+     "arenaName": "Fribergahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727017",
+   "lineupAvailableFrom": "2026-09-13T14:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727018,
+   "tournamentId": 52949,
+   "number": "32727018",
+   "gameRound": 1,
+   "date": "2026-12-31",
+   "time": "17:45:00",
+   "datetimeStart": "2026-12-31T16:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425921,
+    "name": "Thorildshallen",
+    "arena": {
+     "id": 338538,
+     "arenaName": "Thorildshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727018",
+   "lineupAvailableFrom": "2026-12-31T15:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727019,
+   "tournamentId": 52949,
+   "number": "32727019",
+   "gameRound": 2,
+   "date": "2026-09-19",
+   "time": "13:00:00",
+   "datetimeStart": "2026-09-19T11:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": 82,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": 78,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1426015,
+    "name": "Edbohallen",
+    "arena": {
+     "id": 338632,
+     "arenaName": "Edbohallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727019",
+   "lineupAvailableFrom": "2026-09-19T10:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727020,
+   "tournamentId": 52949,
+   "number": "32727020",
+   "gameRound": 2,
+   "date": "2026-09-19",
+   "time": "13:45:00",
+   "datetimeStart": "2026-09-19T11:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": 63,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": 101,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425923,
+    "name": "Gärdeshallen",
+    "arena": {
+     "id": 338540,
+     "arenaName": "Gärdeshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727020",
+   "lineupAvailableFrom": "2026-09-19T10:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727021,
+   "tournamentId": 52949,
+   "number": "32727021",
+   "gameRound": 2,
+   "date": "2026-09-19",
+   "time": "13:45:00",
+   "datetimeStart": "2026-09-19T11:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": 103,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": 91,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425941,
+    "name": "Bro Sporthall",
+    "arena": {
+     "id": 338558,
+     "arenaName": "Bro Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727021",
+   "lineupAvailableFrom": "2026-09-19T10:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727022,
+   "tournamentId": 52949,
+   "number": "32727022",
+   "gameRound": 11,
+   "date": "2026-09-15",
+   "time": "19:30:00",
+   "datetimeStart": "2026-09-15T17:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": 110,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": 58,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1426010,
+    "name": "Rosenborgsskolan",
+    "arena": {
+     "id": 338627,
+     "arenaName": "Rosenborgsskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727022",
+   "lineupAvailableFrom": "2026-09-15T16:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727023,
+   "tournamentId": 52949,
+   "number": "32727023",
+   "gameRound": 2,
+   "date": "2026-09-19",
+   "time": "16:45:00",
+   "datetimeStart": "2026-09-19T14:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": 56,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": 68,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425921,
+    "name": "Thorildshallen",
+    "arena": {
+     "id": 338538,
+     "arenaName": "Thorildshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727023",
+   "lineupAvailableFrom": "2026-09-19T13:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727024,
+   "tournamentId": 52949,
+   "number": "32727024",
+   "gameRound": 2,
+   "date": "2026-09-19",
+   "time": "17:15:00",
+   "datetimeStart": "2026-09-19T15:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": 114,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": 75,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425873,
+    "name": "Vinstahallen 1",
+    "arena": {
+     "id": 338490,
+     "arenaName": "Vinstahallen 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727024",
+   "lineupAvailableFrom": "2026-09-19T14:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727025,
+   "tournamentId": 52949,
+   "number": "32727025",
+   "gameRound": 7,
+   "date": "2026-09-20",
+   "time": "11:30:00",
+   "datetimeStart": "2026-09-20T09:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": 103,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": 78,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425886,
+    "name": "Farstahallen 4 (Farsta IP)",
+    "arena": {
+     "id": 338503,
+     "arenaName": "Farstahallen 4 (Farsta IP)"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727025",
+   "lineupAvailableFrom": "2026-09-20T08:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727026,
+   "tournamentId": 52949,
+   "number": "32727026",
+   "gameRound": 2,
+   "date": "2026-09-20",
+   "time": "18:00:00",
+   "datetimeStart": "2026-09-20T16:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": 103,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": 62,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425893,
+    "name": "Hersby Sporthall",
+    "arena": {
+     "id": 338510,
+     "arenaName": "Hersby Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727026",
+   "lineupAvailableFrom": "2026-09-20T15:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727027,
+   "tournamentId": 52949,
+   "number": "32727027",
+   "gameRound": 9,
+   "date": "2026-09-20",
+   "time": "17:00:00",
+   "datetimeStart": "2026-09-20T15:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": 97,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": 53,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1426007,
+    "name": "Konradsbergshallen",
+    "arena": {
+     "id": 338624,
+     "arenaName": "Konradsbergshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727027",
+   "lineupAvailableFrom": "2026-09-20T14:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727028,
+   "tournamentId": 52949,
+   "number": "32727028",
+   "gameRound": 2,
+   "date": "2026-09-20",
+   "time": "17:00:00",
+   "datetimeStart": "2026-09-20T15:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": 95,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": 75,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425944,
+    "name": "Nacka Sporthall",
+    "arena": {
+     "id": 338561,
+     "arenaName": "Nacka Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727028",
+   "lineupAvailableFrom": "2026-09-20T14:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727029,
+   "tournamentId": 52949,
+   "number": "32727029",
+   "gameRound": 3,
+   "date": "2026-09-25",
+   "time": "19:15:00",
+   "datetimeStart": "2026-09-25T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": 85,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": 79,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425884,
+    "name": "Vintervikens sph",
+    "arena": {
+     "id": 338501,
+     "arenaName": "Vintervikens sph"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727029",
+   "lineupAvailableFrom": "2026-09-25T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727030,
+   "tournamentId": 52949,
+   "number": "32727030",
+   "gameRound": 3,
+   "date": "2026-09-25",
+   "time": "20:00:00",
+   "datetimeStart": "2026-09-25T18:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": 55,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": 82,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425989,
+    "name": "Tellusborgshallarna 3",
+    "arena": {
+     "id": 338606,
+     "arenaName": "Tellusborgshallarna 3"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727030",
+   "lineupAvailableFrom": "2026-09-25T17:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727031,
+   "tournamentId": 52949,
+   "number": "32727031",
+   "gameRound": 1,
+   "date": "2026-09-26",
+   "time": "11:30:00",
+   "datetimeStart": "2026-09-26T09:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": 68,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": 100,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1426017,
+    "name": "Stuvstahallen",
+    "arena": {
+     "id": 338634,
+     "arenaName": "Stuvstahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727031",
+   "lineupAvailableFrom": "2026-09-26T08:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727032,
+   "tournamentId": 52949,
+   "number": "32727032",
+   "gameRound": 3,
+   "date": "2026-09-26",
+   "time": "16:00:00",
+   "datetimeStart": "2026-09-26T14:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": 101,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": 85,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425902,
+    "name": "USIF Arena",
+    "arena": {
+     "id": 338519,
+     "arenaName": "USIF Arena"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727032",
+   "lineupAvailableFrom": "2026-09-26T13:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727033,
+   "tournamentId": 52949,
+   "number": "32727033",
+   "gameRound": 3,
+   "date": "2026-09-26",
+   "time": "17:00:00",
+   "datetimeStart": "2026-09-26T15:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": 74,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": 85,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425941,
+    "name": "Bro Sporthall",
+    "arena": {
+     "id": 338558,
+     "arenaName": "Bro Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727033",
+   "lineupAvailableFrom": "2026-09-26T14:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727034,
+   "tournamentId": 52949,
+   "number": "32727034",
+   "gameRound": 3,
+   "date": "2026-09-26",
+   "time": "18:15:00",
+   "datetimeStart": "2026-09-26T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": 78,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": 68,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425991,
+    "name": "Fribergahallen",
+    "arena": {
+     "id": 338608,
+     "arenaName": "Fribergahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727034",
+   "lineupAvailableFrom": "2026-09-26T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727035,
+   "tournamentId": 52949,
+   "number": "32727035",
+   "gameRound": 10,
+   "date": "2026-09-27",
+   "time": "14:15:00",
+   "datetimeStart": "2026-09-27T12:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": 76,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": 93,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425853,
+    "name": "Sollentuna Sporthall B",
+    "arena": {
+     "id": 338470,
+     "arenaName": "Sollentuna Sporthall B"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727035",
+   "lineupAvailableFrom": "2026-09-27T11:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727036,
+   "tournamentId": 52949,
+   "number": "32727036",
+   "gameRound": 4,
+   "date": "2026-10-02",
+   "time": "19:00:00",
+   "datetimeStart": "2026-10-02T17:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": 72,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": 63,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425884,
+    "name": "Vintervikens sph",
+    "arena": {
+     "id": 338501,
+     "arenaName": "Vintervikens sph"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727036",
+   "lineupAvailableFrom": "2026-10-02T16:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727037,
+   "tournamentId": 52949,
+   "number": "32727037",
+   "gameRound": 4,
+   "date": "2026-10-02",
+   "time": "19:30:00",
+   "datetimeStart": "2026-10-02T17:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": 79,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": 89,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1426000,
+    "name": "Forellhallen",
+    "arena": {
+     "id": 338617,
+     "arenaName": "Forellhallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727037",
+   "lineupAvailableFrom": "2026-10-02T16:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727038,
+   "tournamentId": 52949,
+   "number": "32727038",
+   "gameRound": 4,
+   "date": "2026-10-03",
+   "time": "11:45:00",
+   "datetimeStart": "2026-10-03T09:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": 104,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": 73,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425893,
+    "name": "Hersby Sporthall",
+    "arena": {
+     "id": 338510,
+     "arenaName": "Hersby Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727038",
+   "lineupAvailableFrom": "2026-10-03T08:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727039,
+   "tournamentId": 52949,
+   "number": "32727039",
+   "gameRound": 2,
+   "date": "2026-10-03",
+   "time": "15:45:00",
+   "datetimeStart": "2026-10-03T13:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": 66,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": 76,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1426010,
+    "name": "Rosenborgsskolan",
+    "arena": {
+     "id": 338627,
+     "arenaName": "Rosenborgsskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727039",
+   "lineupAvailableFrom": "2026-10-03T12:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727040,
+   "tournamentId": 52949,
+   "number": "32727040",
+   "gameRound": 4,
+   "date": "2026-10-03",
+   "time": "17:15:00",
+   "datetimeStart": "2026-10-03T15:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": 68,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": 56,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425873,
+    "name": "Vinstahallen 1",
+    "arena": {
+     "id": 338490,
+     "arenaName": "Vinstahallen 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727040",
+   "lineupAvailableFrom": "2026-10-03T14:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727041,
+   "tournamentId": 52949,
+   "number": "32727041",
+   "gameRound": 4,
+   "date": "2026-10-04",
+   "time": "10:45:00",
+   "datetimeStart": "2026-10-04T08:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": 95,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": 75,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1426010,
+    "name": "Rosenborgsskolan",
+    "arena": {
+     "id": 338627,
+     "arenaName": "Rosenborgsskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727041",
+   "lineupAvailableFrom": "2026-10-04T07:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727042,
+   "tournamentId": 52949,
+   "number": "32727042",
+   "gameRound": 4,
+   "date": "2026-10-04",
+   "time": "11:45:00",
+   "datetimeStart": "2026-10-04T09:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": 99,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": 85,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425991,
+    "name": "Fribergahallen",
+    "arena": {
+     "id": 338608,
+     "arenaName": "Fribergahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727042",
+   "lineupAvailableFrom": "2026-10-04T08:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727043,
+   "tournamentId": 52949,
+   "number": "32727043",
+   "gameRound": 4,
+   "date": "2026-10-02",
+   "time": "18:45:00",
+   "datetimeStart": "2026-10-02T16:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": 85,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": 65,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425931,
+    "name": "BAS Barkarby",
+    "arena": {
+     "id": 338548,
+     "arenaName": "BAS Barkarby"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727043",
+   "lineupAvailableFrom": "2026-10-02T15:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727044,
+   "tournamentId": 52949,
+   "number": "32727044",
+   "gameRound": 2,
+   "date": "2026-10-04",
+   "time": "16:30:00",
+   "datetimeStart": "2026-10-04T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": 85,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": 75,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1426000,
+    "name": "Forellhallen",
+    "arena": {
+     "id": 338617,
+     "arenaName": "Forellhallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727044",
+   "lineupAvailableFrom": "2026-10-04T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727045,
+   "tournamentId": 52949,
+   "number": "32727045",
+   "gameRound": 4,
+   "date": "2026-10-04",
+   "time": "16:30:00",
+   "datetimeStart": "2026-10-04T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": 102,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": 67,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1426017,
+    "name": "Stuvstahallen",
+    "arena": {
+     "id": 338634,
+     "arenaName": "Stuvstahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727045",
+   "lineupAvailableFrom": "2026-10-04T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727046,
+   "tournamentId": 52949,
+   "number": "32727046",
+   "gameRound": 5,
+   "date": "2026-10-09",
+   "time": "18:15:00",
+   "datetimeStart": "2026-10-09T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": 83,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": 90,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425988,
+    "name": "Tellusborgshallarna 2",
+    "arena": {
+     "id": 338605,
+     "arenaName": "Tellusborgshallarna 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727046",
+   "lineupAvailableFrom": "2026-10-09T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727047,
+   "tournamentId": 52949,
+   "number": "32727047",
+   "gameRound": 5,
+   "date": "2026-10-09",
+   "time": "18:15:00",
+   "datetimeStart": "2026-10-09T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": 53,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": 80,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425989,
+    "name": "Tellusborgshallarna 3",
+    "arena": {
+     "id": 338606,
+     "arenaName": "Tellusborgshallarna 3"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727047",
+   "lineupAvailableFrom": "2026-10-09T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727048,
+   "tournamentId": 52949,
+   "number": "32727048",
+   "gameRound": 5,
+   "date": "2026-10-09",
+   "time": "19:15:00",
+   "datetimeStart": "2026-10-09T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": 76,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": 83,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425884,
+    "name": "Vintervikens sph",
+    "arena": {
+     "id": 338501,
+     "arenaName": "Vintervikens sph"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727048",
+   "lineupAvailableFrom": "2026-10-09T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727049,
+   "tournamentId": 52949,
+   "number": "32727049",
+   "gameRound": 5,
+   "date": "2026-10-10",
+   "time": "15:00:00",
+   "datetimeStart": "2026-10-10T13:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": 74,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": 106,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425853,
+    "name": "Sollentuna Sporthall B",
+    "arena": {
+     "id": 338470,
+     "arenaName": "Sollentuna Sporthall B"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727049",
+   "lineupAvailableFrom": "2026-10-10T12:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727050,
+   "tournamentId": 52949,
+   "number": "32727050",
+   "gameRound": 5,
+   "date": "2026-10-10",
+   "time": "17:15:00",
+   "datetimeStart": "2026-10-10T15:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": 82,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": 91,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425882,
+    "name": "Hagsätrahallen",
+    "arena": {
+     "id": 338499,
+     "arenaName": "Hagsätrahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727050",
+   "lineupAvailableFrom": "2026-10-10T14:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727051,
+   "tournamentId": 52949,
+   "number": "32727051",
+   "gameRound": 5,
+   "date": "2026-10-11",
+   "time": "14:00:00",
+   "datetimeStart": "2026-10-11T12:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": 72,
+    "isWinner": true,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": 71,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Home",
+   "field": {
+    "id": 1425904,
+    "name": "Fyrisskolan",
+    "arena": {
+     "id": 338521,
+     "arenaName": "Fyrisskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727051",
+   "lineupAvailableFrom": "2026-10-11T11:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727052,
+   "tournamentId": 52949,
+   "number": "32727052",
+   "gameRound": 5,
+   "date": "2026-10-09",
+   "time": "20:00:00",
+   "datetimeStart": "2026-10-09T18:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": 38,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": 126,
+    "isWinner": true,
+    "seeding": null
+   },
+   "hasWinner": true,
+   "winnerTeam": "Away",
+   "field": {
+    "id": 1425989,
+    "name": "Tellusborgshallarna 3",
+    "arena": {
+     "id": 338606,
+     "arenaName": "Tellusborgshallarna 3"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727052",
+   "lineupAvailableFrom": "2026-10-09T17:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727053,
+   "tournamentId": 52949,
+   "number": "32727053",
+   "gameRound": 9,
+   "date": "2026-10-16",
+   "time": "20:00:00",
+   "datetimeStart": "2026-10-16T18:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425988,
+    "name": "Tellusborgshallarna 2",
+    "arena": {
+     "id": 338605,
+     "arenaName": "Tellusborgshallarna 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727053",
+   "lineupAvailableFrom": "2026-10-16T17:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727054,
+   "tournamentId": 52949,
+   "number": "32727054",
+   "gameRound": 9,
+   "date": "2026-10-16",
+   "time": "20:15:00",
+   "datetimeStart": "2026-10-16T18:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425923,
+    "name": "Gärdeshallen",
+    "arena": {
+     "id": 338540,
+     "arenaName": "Gärdeshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727054",
+   "lineupAvailableFrom": "2026-10-16T17:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727055,
+   "tournamentId": 52949,
+   "number": "32727055",
+   "gameRound": 6,
+   "date": "2026-10-17",
+   "time": "12:00:00",
+   "datetimeStart": "2026-10-17T10:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425944,
+    "name": "Nacka Sporthall",
+    "arena": {
+     "id": 338561,
+     "arenaName": "Nacka Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727055",
+   "lineupAvailableFrom": "2026-10-17T09:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727056,
+   "tournamentId": 52949,
+   "number": "32727056",
+   "gameRound": 6,
+   "date": "2026-10-18",
+   "time": "18:00:00",
+   "datetimeStart": "2026-10-18T16:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425893,
+    "name": "Hersby Sporthall",
+    "arena": {
+     "id": 338510,
+     "arenaName": "Hersby Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727056",
+   "lineupAvailableFrom": "2026-10-18T15:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727057,
+   "tournamentId": 52949,
+   "number": "32727057",
+   "gameRound": 6,
+   "date": "2026-10-17",
+   "time": "14:15:00",
+   "datetimeStart": "2026-10-17T12:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425993,
+    "name": "Byängshallen",
+    "arena": {
+     "id": 338610,
+     "arenaName": "Byängshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727057",
+   "lineupAvailableFrom": "2026-10-17T11:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727058,
+   "tournamentId": 52949,
+   "number": "32727058",
+   "gameRound": 6,
+   "date": "2026-10-18",
+   "time": "17:15:00",
+   "datetimeStart": "2026-10-18T15:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426000,
+    "name": "Forellhallen",
+    "arena": {
+     "id": 338617,
+     "arenaName": "Forellhallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727058",
+   "lineupAvailableFrom": "2026-10-18T14:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727059,
+   "tournamentId": 52949,
+   "number": "32727059",
+   "gameRound": 6,
+   "date": "2026-10-18",
+   "time": "18:15:00",
+   "datetimeStart": "2026-10-18T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425873,
+    "name": "Vinstahallen 1",
+    "arena": {
+     "id": 338490,
+     "arenaName": "Vinstahallen 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727059",
+   "lineupAvailableFrom": "2026-10-18T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727060,
+   "tournamentId": 52949,
+   "number": "32727060",
+   "gameRound": 9,
+   "date": "2026-10-23",
+   "time": "18:30:00",
+   "datetimeStart": "2026-10-23T16:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425882,
+    "name": "Hagsätrahallen",
+    "arena": {
+     "id": 338499,
+     "arenaName": "Hagsätrahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727060",
+   "lineupAvailableFrom": "2026-10-23T15:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727061,
+   "tournamentId": 52949,
+   "number": "32727061",
+   "gameRound": 3,
+   "date": "2026-10-23",
+   "time": "19:30:00",
+   "datetimeStart": "2026-10-23T17:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425850,
+    "name": "Töjna sporthall",
+    "arena": {
+     "id": 338467,
+     "arenaName": "Töjna sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727061",
+   "lineupAvailableFrom": "2026-10-23T16:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727062,
+   "tournamentId": 52949,
+   "number": "32727062",
+   "gameRound": 9,
+   "date": "2026-10-25",
+   "time": "12:45:00",
+   "datetimeStart": "2026-10-25T11:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425902,
+    "name": "USIF Arena",
+    "arena": {
+     "id": 338519,
+     "arenaName": "USIF Arena"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727062",
+   "lineupAvailableFrom": "2026-10-25T10:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727063,
+   "tournamentId": 52949,
+   "number": "32727063",
+   "gameRound": 7,
+   "date": "2026-11-06",
+   "time": "18:15:00",
+   "datetimeStart": "2026-11-06T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425988,
+    "name": "Tellusborgshallarna 2",
+    "arena": {
+     "id": 338605,
+     "arenaName": "Tellusborgshallarna 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727063",
+   "lineupAvailableFrom": "2026-11-06T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727064,
+   "tournamentId": 52949,
+   "number": "32727064",
+   "gameRound": 7,
+   "date": "2026-11-06",
+   "time": "19:30:00",
+   "datetimeStart": "2026-11-06T18:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425850,
+    "name": "Töjna sporthall",
+    "arena": {
+     "id": 338467,
+     "arenaName": "Töjna sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727064",
+   "lineupAvailableFrom": "2026-11-06T17:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727065,
+   "tournamentId": 52949,
+   "number": "32727065",
+   "gameRound": 7,
+   "date": "2026-11-06",
+   "time": "20:00:00",
+   "datetimeStart": "2026-11-06T19:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425988,
+    "name": "Tellusborgshallarna 2",
+    "arena": {
+     "id": 338605,
+     "arenaName": "Tellusborgshallarna 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727065",
+   "lineupAvailableFrom": "2026-11-06T18:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727066,
+   "tournamentId": 52949,
+   "number": "32727066",
+   "gameRound": 7,
+   "date": "2026-11-06",
+   "time": "20:15:00",
+   "datetimeStart": "2026-11-06T19:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425885,
+    "name": "Enskedehallen L",
+    "arena": {
+     "id": 338502,
+     "arenaName": "Enskedehallen L"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727066",
+   "lineupAvailableFrom": "2026-11-06T18:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727067,
+   "tournamentId": 52949,
+   "number": "32727067",
+   "gameRound": 7,
+   "date": "2026-11-07",
+   "time": "11:00:00",
+   "datetimeStart": "2026-11-07T10:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426000,
+    "name": "Forellhallen",
+    "arena": {
+     "id": 338617,
+     "arenaName": "Forellhallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727067",
+   "lineupAvailableFrom": "2026-11-07T09:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727068,
+   "tournamentId": 52949,
+   "number": "32727068",
+   "gameRound": 12,
+   "date": "2026-11-07",
+   "time": "13:45:00",
+   "datetimeStart": "2026-11-07T12:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425921,
+    "name": "Thorildshallen",
+    "arena": {
+     "id": 338538,
+     "arenaName": "Thorildshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727068",
+   "lineupAvailableFrom": "2026-11-07T11:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727069,
+   "tournamentId": 52949,
+   "number": "32727069",
+   "gameRound": 9,
+   "date": "2026-11-07",
+   "time": "15:15:00",
+   "datetimeStart": "2026-11-07T14:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425886,
+    "name": "Farstahallen 4 (Farsta IP)",
+    "arena": {
+     "id": 338503,
+     "arenaName": "Farstahallen 4 (Farsta IP)"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727069",
+   "lineupAvailableFrom": "2026-11-07T13:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727070,
+   "tournamentId": 52949,
+   "number": "32727070",
+   "gameRound": 7,
+   "date": "2026-11-08",
+   "time": "14:30:00",
+   "datetimeStart": "2026-11-08T13:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425921,
+    "name": "Thorildshallen",
+    "arena": {
+     "id": 338538,
+     "arenaName": "Thorildshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727070",
+   "lineupAvailableFrom": "2026-11-08T12:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727071,
+   "tournamentId": 52949,
+   "number": "32727071",
+   "gameRound": 7,
+   "date": "2026-11-08",
+   "time": "16:30:00",
+   "datetimeStart": "2026-11-08T15:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426010,
+    "name": "Rosenborgsskolan",
+    "arena": {
+     "id": 338627,
+     "arenaName": "Rosenborgsskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727071",
+   "lineupAvailableFrom": "2026-11-08T14:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727072,
+   "tournamentId": 52949,
+   "number": "32727072",
+   "gameRound": 4,
+   "date": "2026-11-14",
+   "time": "14:00:00",
+   "datetimeStart": "2026-11-14T13:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425944,
+    "name": "Nacka Sporthall",
+    "arena": {
+     "id": 338561,
+     "arenaName": "Nacka Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727072",
+   "lineupAvailableFrom": "2026-11-14T12:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727073,
+   "tournamentId": 52949,
+   "number": "32727073",
+   "gameRound": 9,
+   "date": "2026-11-14",
+   "time": "17:15:00",
+   "datetimeStart": "2026-11-14T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425884,
+    "name": "Vintervikens sph",
+    "arena": {
+     "id": 338501,
+     "arenaName": "Vintervikens sph"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727073",
+   "lineupAvailableFrom": "2026-11-14T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727074,
+   "tournamentId": 52949,
+   "number": "32727074",
+   "gameRound": 9,
+   "date": "2026-12-19",
+   "time": "17:15:00",
+   "datetimeStart": "2026-12-19T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426010,
+    "name": "Rosenborgsskolan",
+    "arena": {
+     "id": 338627,
+     "arenaName": "Rosenborgsskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727074",
+   "lineupAvailableFrom": "2026-12-19T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727075,
+   "tournamentId": 52949,
+   "number": "32727075",
+   "gameRound": 14,
+   "date": "2026-11-15",
+   "time": "13:15:00",
+   "datetimeStart": "2026-11-15T12:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425931,
+    "name": "BAS Barkarby",
+    "arena": {
+     "id": 338548,
+     "arenaName": "BAS Barkarby"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727075",
+   "lineupAvailableFrom": "2026-11-15T11:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727076,
+   "tournamentId": 52949,
+   "number": "32727076",
+   "gameRound": 8,
+   "date": "2026-11-20",
+   "time": "18:15:00",
+   "datetimeStart": "2026-11-20T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426000,
+    "name": "Forellhallen",
+    "arena": {
+     "id": 338617,
+     "arenaName": "Forellhallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727076",
+   "lineupAvailableFrom": "2026-11-20T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727077,
+   "tournamentId": 52949,
+   "number": "32727077",
+   "gameRound": 8,
+   "date": "2026-11-21",
+   "time": "15:30:00",
+   "datetimeStart": "2026-11-21T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425853,
+    "name": "Sollentuna Sporthall B",
+    "arena": {
+     "id": 338470,
+     "arenaName": "Sollentuna Sporthall B"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727077",
+   "lineupAvailableFrom": "2026-11-21T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727078,
+   "tournamentId": 52949,
+   "number": "32727078",
+   "gameRound": 12,
+   "date": "2026-11-21",
+   "time": "18:15:00",
+   "datetimeStart": "2026-11-21T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426017,
+    "name": "Stuvstahallen",
+    "arena": {
+     "id": 338634,
+     "arenaName": "Stuvstahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727078",
+   "lineupAvailableFrom": "2026-11-21T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727079,
+   "tournamentId": 52949,
+   "number": "32727079",
+   "gameRound": 6,
+   "date": "2026-11-22",
+   "time": "13:15:00",
+   "datetimeStart": "2026-11-22T12:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425931,
+    "name": "BAS Barkarby",
+    "arena": {
+     "id": 338548,
+     "arenaName": "BAS Barkarby"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727079",
+   "lineupAvailableFrom": "2026-11-22T11:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727080,
+   "tournamentId": 52949,
+   "number": "32727080",
+   "gameRound": 8,
+   "date": "2026-10-24",
+   "time": "16:00:00",
+   "datetimeStart": "2026-10-24T14:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425893,
+    "name": "Hersby Sporthall",
+    "arena": {
+     "id": 338510,
+     "arenaName": "Hersby Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727080",
+   "lineupAvailableFrom": "2026-10-24T13:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727081,
+   "tournamentId": 52949,
+   "number": "32727081",
+   "gameRound": 8,
+   "date": "2026-11-22",
+   "time": "16:00:00",
+   "datetimeStart": "2026-11-22T15:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426017,
+    "name": "Stuvstahallen",
+    "arena": {
+     "id": 338634,
+     "arenaName": "Stuvstahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727081",
+   "lineupAvailableFrom": "2026-11-22T14:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727082,
+   "tournamentId": 52949,
+   "number": "32727082",
+   "gameRound": 8,
+   "date": "2026-11-22",
+   "time": "17:30:00",
+   "datetimeStart": "2026-11-22T16:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425872,
+    "name": "Vinstahallen 2 Bana 1",
+    "arena": {
+     "id": 338489,
+     "arenaName": "Vinstahallen 2 Bana 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727082",
+   "lineupAvailableFrom": "2026-11-22T15:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727083,
+   "tournamentId": 52949,
+   "number": "32727083",
+   "gameRound": 8,
+   "date": "2026-11-22",
+   "time": "18:00:00",
+   "datetimeStart": "2026-11-22T17:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425991,
+    "name": "Fribergahallen",
+    "arena": {
+     "id": 338608,
+     "arenaName": "Fribergahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727083",
+   "lineupAvailableFrom": "2026-11-22T16:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727084,
+   "tournamentId": 52949,
+   "number": "32727084",
+   "gameRound": 8,
+   "date": "2026-11-22",
+   "time": "19:00:00",
+   "datetimeStart": "2026-11-22T18:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425944,
+    "name": "Nacka Sporthall",
+    "arena": {
+     "id": 338561,
+     "arenaName": "Nacka Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727084",
+   "lineupAvailableFrom": "2026-11-22T17:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727085,
+   "tournamentId": 52949,
+   "number": "32727085",
+   "gameRound": 12,
+   "date": "2026-12-05",
+   "time": "10:15:00",
+   "datetimeStart": "2026-12-05T09:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425886,
+    "name": "Farstahallen 4 (Farsta IP)",
+    "arena": {
+     "id": 338503,
+     "arenaName": "Farstahallen 4 (Farsta IP)"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727085",
+   "lineupAvailableFrom": "2026-12-05T08:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727086,
+   "tournamentId": 52949,
+   "number": "32727086",
+   "gameRound": 8,
+   "date": "2026-12-05",
+   "time": "12:00:00",
+   "datetimeStart": "2026-12-05T11:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425884,
+    "name": "Vintervikens sph",
+    "arena": {
+     "id": 338501,
+     "arenaName": "Vintervikens sph"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727086",
+   "lineupAvailableFrom": "2026-12-05T10:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727087,
+   "tournamentId": 52949,
+   "number": "32727087",
+   "gameRound": 10,
+   "date": "2026-12-05",
+   "time": "15:30:00",
+   "datetimeStart": "2026-12-05T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425884,
+    "name": "Vintervikens sph",
+    "arena": {
+     "id": 338501,
+     "arenaName": "Vintervikens sph"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727087",
+   "lineupAvailableFrom": "2026-12-05T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727088,
+   "tournamentId": 52949,
+   "number": "32727088",
+   "gameRound": 15,
+   "date": "2026-12-05",
+   "time": "17:15:00",
+   "datetimeStart": "2026-12-05T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425989,
+    "name": "Tellusborgshallarna 3",
+    "arena": {
+     "id": 338606,
+     "arenaName": "Tellusborgshallarna 3"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727088",
+   "lineupAvailableFrom": "2026-12-05T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727089,
+   "tournamentId": 52949,
+   "number": "32727089",
+   "gameRound": 10,
+   "date": "2026-12-06",
+   "time": "18:45:00",
+   "datetimeStart": "2026-12-06T17:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425948,
+    "name": "Tippen Sporthall",
+    "arena": {
+     "id": 338565,
+     "arenaName": "Tippen Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727089",
+   "lineupAvailableFrom": "2026-12-06T16:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727090,
+   "tournamentId": 52949,
+   "number": "32727090",
+   "gameRound": 11,
+   "date": "2026-12-11",
+   "time": "18:15:00",
+   "datetimeStart": "2026-12-11T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425989,
+    "name": "Tellusborgshallarna 3",
+    "arena": {
+     "id": 338606,
+     "arenaName": "Tellusborgshallarna 3"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727090",
+   "lineupAvailableFrom": "2026-12-11T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727091,
+   "tournamentId": 52949,
+   "number": "32727091",
+   "gameRound": 11,
+   "date": "2026-12-11",
+   "time": "19:15:00",
+   "datetimeStart": "2026-12-11T18:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426034,
+    "name": "Ulvsunda C",
+    "arena": {
+     "id": null,
+     "arenaName": null
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727091",
+   "lineupAvailableFrom": "2026-12-11T17:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727092,
+   "tournamentId": 52949,
+   "number": "32727092",
+   "gameRound": 11,
+   "date": "2026-12-11",
+   "time": "20:00:00",
+   "datetimeStart": "2026-12-11T19:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425988,
+    "name": "Tellusborgshallarna 2",
+    "arena": {
+     "id": 338605,
+     "arenaName": "Tellusborgshallarna 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727092",
+   "lineupAvailableFrom": "2026-12-11T18:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727093,
+   "tournamentId": 52949,
+   "number": "32727093",
+   "gameRound": 5,
+   "date": "2026-12-12",
+   "time": "11:00:00",
+   "datetimeStart": "2026-12-12T10:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425873,
+    "name": "Vinstahallen 1",
+    "arena": {
+     "id": 338490,
+     "arenaName": "Vinstahallen 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727093",
+   "lineupAvailableFrom": "2026-12-12T09:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727094,
+   "tournamentId": 52949,
+   "number": "32727094",
+   "gameRound": 6,
+   "date": "2026-12-12",
+   "time": "14:30:00",
+   "datetimeStart": "2026-12-12T13:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425873,
+    "name": "Vinstahallen 1",
+    "arena": {
+     "id": 338490,
+     "arenaName": "Vinstahallen 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727094",
+   "lineupAvailableFrom": "2026-12-12T12:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727095,
+   "tournamentId": 52949,
+   "number": "32727095",
+   "gameRound": 11,
+   "date": "2026-12-12",
+   "time": "15:30:00",
+   "datetimeStart": "2026-12-12T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425894,
+    "name": "Källängens skola",
+    "arena": {
+     "id": 338511,
+     "arenaName": "Källängens skola"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727095",
+   "lineupAvailableFrom": "2026-12-12T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727096,
+   "tournamentId": 52949,
+   "number": "32727096",
+   "gameRound": 11,
+   "date": "2026-12-13",
+   "time": "19:15:00",
+   "datetimeStart": "2026-12-13T18:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425923,
+    "name": "Gärdeshallen",
+    "arena": {
+     "id": 338540,
+     "arenaName": "Gärdeshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727096",
+   "lineupAvailableFrom": "2026-12-13T17:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727097,
+   "tournamentId": 52949,
+   "number": "32727097",
+   "gameRound": 8,
+   "date": "2026-12-19",
+   "time": "12:00:00",
+   "datetimeStart": "2026-12-19T11:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425941,
+    "name": "Bro Sporthall",
+    "arena": {
+     "id": 338558,
+     "arenaName": "Bro Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727097",
+   "lineupAvailableFrom": "2026-12-19T10:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727098,
+   "tournamentId": 52949,
+   "number": "32727098",
+   "gameRound": 6,
+   "date": "2026-12-19",
+   "time": "16:15:00",
+   "datetimeStart": "2026-12-19T15:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426017,
+    "name": "Stuvstahallen",
+    "arena": {
+     "id": 338634,
+     "arenaName": "Stuvstahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727098",
+   "lineupAvailableFrom": "2026-12-19T14:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727099,
+   "tournamentId": 52949,
+   "number": "32727099",
+   "gameRound": 12,
+   "date": "2026-12-19",
+   "time": "17:15:00",
+   "datetimeStart": "2026-12-19T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425853,
+    "name": "Sollentuna Sporthall B",
+    "arena": {
+     "id": 338470,
+     "arenaName": "Sollentuna Sporthall B"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727099",
+   "lineupAvailableFrom": "2026-12-19T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727100,
+   "tournamentId": 52949,
+   "number": "32727100",
+   "gameRound": 12,
+   "date": "2026-12-20",
+   "time": "15:30:00",
+   "datetimeStart": "2026-12-20T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425902,
+    "name": "USIF Arena",
+    "arena": {
+     "id": 338519,
+     "arenaName": "USIF Arena"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727100",
+   "lineupAvailableFrom": "2026-12-20T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727101,
+   "tournamentId": 52949,
+   "number": "32727101",
+   "gameRound": 12,
+   "date": "2026-12-20",
+   "time": "16:30:00",
+   "datetimeStart": "2026-12-20T15:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426000,
+    "name": "Forellhallen",
+    "arena": {
+     "id": 338617,
+     "arenaName": "Forellhallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727101",
+   "lineupAvailableFrom": "2026-12-20T14:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727102,
+   "tournamentId": 52949,
+   "number": "32727102",
+   "gameRound": 3,
+   "date": "2026-12-20",
+   "time": "16:45:00",
+   "datetimeStart": "2026-12-20T15:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425886,
+    "name": "Farstahallen 4 (Farsta IP)",
+    "arena": {
+     "id": 338503,
+     "arenaName": "Farstahallen 4 (Farsta IP)"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727102",
+   "lineupAvailableFrom": "2026-12-20T14:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727103,
+   "tournamentId": 52949,
+   "number": "32727103",
+   "gameRound": 12,
+   "date": "2026-12-20",
+   "time": "17:45:00",
+   "datetimeStart": "2026-12-20T16:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425991,
+    "name": "Fribergahallen",
+    "arena": {
+     "id": 338608,
+     "arenaName": "Fribergahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727103",
+   "lineupAvailableFrom": "2026-12-20T15:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727104,
+   "tournamentId": 52949,
+   "number": "32727104",
+   "gameRound": 13,
+   "date": "2027-01-08",
+   "time": "18:15:00",
+   "datetimeStart": "2027-01-08T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425989,
+    "name": "Tellusborgshallarna 3",
+    "arena": {
+     "id": 338606,
+     "arenaName": "Tellusborgshallarna 3"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727104",
+   "lineupAvailableFrom": "2027-01-08T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727105,
+   "tournamentId": 52949,
+   "number": "32727105",
+   "gameRound": 13,
+   "date": "2027-01-08",
+   "time": "18:15:00",
+   "datetimeStart": "2027-01-08T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425988,
+    "name": "Tellusborgshallarna 2",
+    "arena": {
+     "id": 338605,
+     "arenaName": "Tellusborgshallarna 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727105",
+   "lineupAvailableFrom": "2027-01-08T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727106,
+   "tournamentId": 52949,
+   "number": "32727106",
+   "gameRound": 13,
+   "date": "2027-01-08",
+   "time": "20:00:00",
+   "datetimeStart": "2027-01-08T19:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425989,
+    "name": "Tellusborgshallarna 3",
+    "arena": {
+     "id": 338606,
+     "arenaName": "Tellusborgshallarna 3"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727106",
+   "lineupAvailableFrom": "2027-01-08T18:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727107,
+   "tournamentId": 52949,
+   "number": "32727107",
+   "gameRound": 12,
+   "date": "2027-01-09",
+   "time": "15:15:00",
+   "datetimeStart": "2027-01-09T14:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425941,
+    "name": "Bro Sporthall",
+    "arena": {
+     "id": 338558,
+     "arenaName": "Bro Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727107",
+   "lineupAvailableFrom": "2027-01-09T13:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727108,
+   "tournamentId": 52949,
+   "number": "32727108",
+   "gameRound": 13,
+   "date": "2027-01-09",
+   "time": "15:30:00",
+   "datetimeStart": "2027-01-09T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425873,
+    "name": "Vinstahallen 1",
+    "arena": {
+     "id": 338490,
+     "arenaName": "Vinstahallen 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727108",
+   "lineupAvailableFrom": "2027-01-09T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727109,
+   "tournamentId": 52949,
+   "number": "32727109",
+   "gameRound": 13,
+   "date": "2027-01-09",
+   "time": "17:30:00",
+   "datetimeStart": "2027-01-09T16:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425893,
+    "name": "Hersby Sporthall",
+    "arena": {
+     "id": 338510,
+     "arenaName": "Hersby Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727109",
+   "lineupAvailableFrom": "2027-01-09T15:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727110,
+   "tournamentId": 52949,
+   "number": "32727110",
+   "gameRound": 11,
+   "date": "2027-01-10",
+   "time": "12:15:00",
+   "datetimeStart": "2027-01-10T11:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425885,
+    "name": "Enskedehallen L",
+    "arena": {
+     "id": 338502,
+     "arenaName": "Enskedehallen L"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727110",
+   "lineupAvailableFrom": "2027-01-10T10:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727111,
+   "tournamentId": 52949,
+   "number": "32727111",
+   "gameRound": 13,
+   "date": "2027-01-10",
+   "time": "12:45:00",
+   "datetimeStart": "2027-01-10T11:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425429,
+    "name": "Kämpetorpshallen 2",
+    "arena": {
+     "id": 338046,
+     "arenaName": "Kämpetorpshallen 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727111",
+   "lineupAvailableFrom": "2027-01-10T10:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727112,
+   "tournamentId": 52949,
+   "number": "32727112",
+   "gameRound": 13,
+   "date": "2027-01-10",
+   "time": "16:00:00",
+   "datetimeStart": "2027-01-10T15:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425885,
+    "name": "Enskedehallen L",
+    "arena": {
+     "id": 338502,
+     "arenaName": "Enskedehallen L"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727112",
+   "lineupAvailableFrom": "2027-01-10T14:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727113,
+   "tournamentId": 52949,
+   "number": "32727113",
+   "gameRound": 13,
+   "date": "2027-01-10",
+   "time": "16:30:00",
+   "datetimeStart": "2027-01-10T15:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426010,
+    "name": "Rosenborgsskolan",
+    "arena": {
+     "id": 338627,
+     "arenaName": "Rosenborgsskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727113",
+   "lineupAvailableFrom": "2027-01-10T14:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727114,
+   "tournamentId": 52949,
+   "number": "32727114",
+   "gameRound": 13,
+   "date": "2027-01-10",
+   "time": "18:15:00",
+   "datetimeStart": "2027-01-10T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426007,
+    "name": "Konradsbergshallen",
+    "arena": {
+     "id": 338624,
+     "arenaName": "Konradsbergshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727114",
+   "lineupAvailableFrom": "2027-01-10T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727115,
+   "tournamentId": 52949,
+   "number": "32727115",
+   "gameRound": 14,
+   "date": "2027-01-15",
+   "time": "19:15:00",
+   "datetimeStart": "2027-01-15T18:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426000,
+    "name": "Forellhallen",
+    "arena": {
+     "id": 338617,
+     "arenaName": "Forellhallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727115",
+   "lineupAvailableFrom": "2027-01-15T17:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727116,
+   "tournamentId": 52949,
+   "number": "32727116",
+   "gameRound": 14,
+   "date": "2027-01-15",
+   "time": "20:00:00",
+   "datetimeStart": "2027-01-15T19:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425988,
+    "name": "Tellusborgshallarna 2",
+    "arena": {
+     "id": 338605,
+     "arenaName": "Tellusborgshallarna 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727116",
+   "lineupAvailableFrom": "2027-01-15T18:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727117,
+   "tournamentId": 52949,
+   "number": "32727117",
+   "gameRound": 14,
+   "date": "2027-01-16",
+   "time": "17:15:00",
+   "datetimeStart": "2027-01-16T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425853,
+    "name": "Sollentuna Sporthall B",
+    "arena": {
+     "id": 338470,
+     "arenaName": "Sollentuna Sporthall B"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727117",
+   "lineupAvailableFrom": "2027-01-16T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727118,
+   "tournamentId": 52949,
+   "number": "32727118",
+   "gameRound": 14,
+   "date": "2027-01-17",
+   "time": "11:45:00",
+   "datetimeStart": "2027-01-17T10:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425902,
+    "name": "USIF Arena",
+    "arena": {
+     "id": 338519,
+     "arenaName": "USIF Arena"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727118",
+   "lineupAvailableFrom": "2027-01-17T09:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727119,
+   "tournamentId": 52949,
+   "number": "32727119",
+   "gameRound": 16,
+   "date": "2027-01-17",
+   "time": "12:00:00",
+   "datetimeStart": "2027-01-17T11:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425893,
+    "name": "Hersby Sporthall",
+    "arena": {
+     "id": 338510,
+     "arenaName": "Hersby Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727119",
+   "lineupAvailableFrom": "2027-01-17T10:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727120,
+   "tournamentId": 52949,
+   "number": "32727120",
+   "gameRound": 14,
+   "date": "2027-01-17",
+   "time": "15:30:00",
+   "datetimeStart": "2027-01-17T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425944,
+    "name": "Nacka Sporthall",
+    "arena": {
+     "id": 338561,
+     "arenaName": "Nacka Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727120",
+   "lineupAvailableFrom": "2027-01-17T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727121,
+   "tournamentId": 52949,
+   "number": "32727121",
+   "gameRound": 14,
+   "date": "2027-01-17",
+   "time": "16:45:00",
+   "datetimeStart": "2027-01-17T15:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426011,
+    "name": "Tälje Gymnasium",
+    "arena": {
+     "id": 338628,
+     "arenaName": "Tälje Gymnasium"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727121",
+   "lineupAvailableFrom": "2027-01-17T14:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727122,
+   "tournamentId": 52949,
+   "number": "32727122",
+   "gameRound": 14,
+   "date": "2027-01-17",
+   "time": "18:15:00",
+   "datetimeStart": "2027-01-17T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425991,
+    "name": "Fribergahallen",
+    "arena": {
+     "id": 338608,
+     "arenaName": "Fribergahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727122",
+   "lineupAvailableFrom": "2027-01-17T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727123,
+   "tournamentId": 52949,
+   "number": "32727123",
+   "gameRound": 11,
+   "date": "2027-01-24",
+   "time": "14:45:00",
+   "datetimeStart": "2027-01-24T13:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425902,
+    "name": "USIF Arena",
+    "arena": {
+     "id": 338519,
+     "arenaName": "USIF Arena"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727123",
+   "lineupAvailableFrom": "2027-01-24T12:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727124,
+   "tournamentId": 52949,
+   "number": "32727124",
+   "gameRound": 15,
+   "date": "2027-01-24",
+   "time": "17:15:00",
+   "datetimeStart": "2027-01-24T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426010,
+    "name": "Rosenborgsskolan",
+    "arena": {
+     "id": 338627,
+     "arenaName": "Rosenborgsskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727124",
+   "lineupAvailableFrom": "2027-01-24T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727125,
+   "tournamentId": 52949,
+   "number": "32727125",
+   "gameRound": 9,
+   "date": "2027-01-24",
+   "time": "17:15:00",
+   "datetimeStart": "2027-01-24T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1414114,
+    "name": "Ulvsunda B",
+    "arena": {
+     "id": null,
+     "arenaName": null
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727125",
+   "lineupAvailableFrom": "2027-01-24T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727126,
+   "tournamentId": 52949,
+   "number": "32727126",
+   "gameRound": 15,
+   "date": "2027-01-29",
+   "time": "18:15:00",
+   "datetimeStart": "2027-01-29T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425989,
+    "name": "Tellusborgshallarna 3",
+    "arena": {
+     "id": 338606,
+     "arenaName": "Tellusborgshallarna 3"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727126",
+   "lineupAvailableFrom": "2027-01-29T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727127,
+   "tournamentId": 52949,
+   "number": "32727127",
+   "gameRound": 15,
+   "date": "2027-01-30",
+   "time": "17:00:00",
+   "datetimeStart": "2027-01-30T16:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425923,
+    "name": "Gärdeshallen",
+    "arena": {
+     "id": 338540,
+     "arenaName": "Gärdeshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727127",
+   "lineupAvailableFrom": "2027-01-30T15:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727128,
+   "tournamentId": 52949,
+   "number": "32727128",
+   "gameRound": 16,
+   "date": "2027-01-31",
+   "time": "12:45:00",
+   "datetimeStart": "2027-01-31T11:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425429,
+    "name": "Kämpetorpshallen 2",
+    "arena": {
+     "id": 338046,
+     "arenaName": "Kämpetorpshallen 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727128",
+   "lineupAvailableFrom": "2027-01-31T10:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727129,
+   "tournamentId": 52949,
+   "number": "32727129",
+   "gameRound": 15,
+   "date": "2027-01-31",
+   "time": "14:45:00",
+   "datetimeStart": "2027-01-31T13:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426015,
+    "name": "Edbohallen",
+    "arena": {
+     "id": 338632,
+     "arenaName": "Edbohallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727129",
+   "lineupAvailableFrom": "2027-01-31T12:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727130,
+   "tournamentId": 52949,
+   "number": "32727130",
+   "gameRound": 15,
+   "date": "2027-01-31",
+   "time": "15:30:00",
+   "datetimeStart": "2027-01-31T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425944,
+    "name": "Nacka Sporthall",
+    "arena": {
+     "id": 338561,
+     "arenaName": "Nacka Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727130",
+   "lineupAvailableFrom": "2027-01-31T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727131,
+   "tournamentId": 52949,
+   "number": "32727131",
+   "gameRound": 15,
+   "date": "2027-02-06",
+   "time": "17:15:00",
+   "datetimeStart": "2027-02-06T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425893,
+    "name": "Hersby Sporthall",
+    "arena": {
+     "id": 338510,
+     "arenaName": "Hersby Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727131",
+   "lineupAvailableFrom": "2027-02-06T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727132,
+   "tournamentId": 52949,
+   "number": "32727132",
+   "gameRound": 15,
+   "date": "2027-01-31",
+   "time": "17:15:00",
+   "datetimeStart": "2027-01-31T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425873,
+    "name": "Vinstahallen 1",
+    "arena": {
+     "id": 338490,
+     "arenaName": "Vinstahallen 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727132",
+   "lineupAvailableFrom": "2027-01-31T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727133,
+   "tournamentId": 52949,
+   "number": "32727133",
+   "gameRound": 16,
+   "date": "2027-02-06",
+   "time": "15:15:00",
+   "datetimeStart": "2027-02-06T14:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425941,
+    "name": "Bro Sporthall",
+    "arena": {
+     "id": 338558,
+     "arenaName": "Bro Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727133",
+   "lineupAvailableFrom": "2027-02-06T13:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727134,
+   "tournamentId": 52949,
+   "number": "32727134",
+   "gameRound": 16,
+   "date": "2027-02-06",
+   "time": "17:30:00",
+   "datetimeStart": "2027-02-06T16:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425944,
+    "name": "Nacka Sporthall",
+    "arena": {
+     "id": 338561,
+     "arenaName": "Nacka Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727134",
+   "lineupAvailableFrom": "2027-02-06T15:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727135,
+   "tournamentId": 52949,
+   "number": "32727135",
+   "gameRound": 16,
+   "date": "2027-02-07",
+   "time": "15:15:00",
+   "datetimeStart": "2027-02-07T14:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425902,
+    "name": "USIF Arena",
+    "arena": {
+     "id": 338519,
+     "arenaName": "USIF Arena"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727135",
+   "lineupAvailableFrom": "2027-02-07T13:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727136,
+   "tournamentId": 52949,
+   "number": "32727136",
+   "gameRound": 16,
+   "date": "2027-02-07",
+   "time": "17:15:00",
+   "datetimeStart": "2027-02-07T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425993,
+    "name": "Byängshallen",
+    "arena": {
+     "id": 338610,
+     "arenaName": "Byängshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727136",
+   "lineupAvailableFrom": "2027-02-07T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727137,
+   "tournamentId": 52949,
+   "number": "32727137",
+   "gameRound": 16,
+   "date": "2027-02-07",
+   "time": "17:15:00",
+   "datetimeStart": "2027-02-07T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425853,
+    "name": "Sollentuna Sporthall B",
+    "arena": {
+     "id": 338470,
+     "arenaName": "Sollentuna Sporthall B"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727137",
+   "lineupAvailableFrom": "2027-02-07T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727138,
+   "tournamentId": 52949,
+   "number": "32727138",
+   "gameRound": 16,
+   "date": "2027-02-07",
+   "time": "17:15:00",
+   "datetimeStart": "2027-02-07T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425888,
+    "name": "Farstahallen S",
+    "arena": {
+     "id": 338505,
+     "arenaName": "Farstahallen S"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727138",
+   "lineupAvailableFrom": "2027-02-07T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727139,
+   "tournamentId": 52949,
+   "number": "32727139",
+   "gameRound": 16,
+   "date": "2027-02-07",
+   "time": "17:30:00",
+   "datetimeStart": "2027-02-07T16:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426007,
+    "name": "Konradsbergshallen",
+    "arena": {
+     "id": 338624,
+     "arenaName": "Konradsbergshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727139",
+   "lineupAvailableFrom": "2027-02-07T15:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727140,
+   "tournamentId": 52949,
+   "number": "32727140",
+   "gameRound": 17,
+   "date": "2027-02-13",
+   "time": "12:30:00",
+   "datetimeStart": "2027-02-13T11:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426035,
+    "name": "Ulvsunda A",
+    "arena": {
+     "id": null,
+     "arenaName": null
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727140",
+   "lineupAvailableFrom": "2027-02-13T10:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727141,
+   "tournamentId": 52949,
+   "number": "32727141",
+   "gameRound": 15,
+   "date": "2027-02-13",
+   "time": "16:00:00",
+   "datetimeStart": "2027-02-13T15:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582209,
+    "globalTeamId": null,
+    "name": "KFUM Örebro Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1414113,
+    "name": "Ulvsunda A",
+    "arena": {
+     "id": null,
+     "arenaName": null
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727141",
+   "lineupAvailableFrom": "2027-02-13T14:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727142,
+   "tournamentId": 52949,
+   "number": "32727142",
+   "gameRound": 17,
+   "date": "2027-02-13",
+   "time": "16:15:00",
+   "datetimeStart": "2027-02-13T15:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426010,
+    "name": "Rosenborgsskolan",
+    "arena": {
+     "id": 338627,
+     "arenaName": "Rosenborgsskolan"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727142",
+   "lineupAvailableFrom": "2027-02-13T14:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727143,
+   "tournamentId": 52949,
+   "number": "32727143",
+   "gameRound": 17,
+   "date": "2027-02-14",
+   "time": "14:15:00",
+   "datetimeStart": "2027-02-14T13:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425893,
+    "name": "Hersby Sporthall",
+    "arena": {
+     "id": 338510,
+     "arenaName": "Hersby Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727143",
+   "lineupAvailableFrom": "2027-02-14T12:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727144,
+   "tournamentId": 52949,
+   "number": "32727144",
+   "gameRound": 17,
+   "date": "2027-02-19",
+   "time": "20:00:00",
+   "datetimeStart": "2027-02-19T19:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425989,
+    "name": "Tellusborgshallarna 3",
+    "arena": {
+     "id": 338606,
+     "arenaName": "Tellusborgshallarna 3"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727144",
+   "lineupAvailableFrom": "2027-02-19T18:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727145,
+   "tournamentId": 52949,
+   "number": "32727145",
+   "gameRound": 17,
+   "date": "2027-02-19",
+   "time": "20:15:00",
+   "datetimeStart": "2027-02-19T19:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426000,
+    "name": "Forellhallen",
+    "arena": {
+     "id": 338617,
+     "arenaName": "Forellhallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727145",
+   "lineupAvailableFrom": "2027-02-19T18:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727146,
+   "tournamentId": 52949,
+   "number": "32727146",
+   "gameRound": 14,
+   "date": "2027-02-20",
+   "time": "12:00:00",
+   "datetimeStart": "2027-02-20T11:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425921,
+    "name": "Thorildshallen",
+    "arena": {
+     "id": 338538,
+     "arenaName": "Thorildshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727146",
+   "lineupAvailableFrom": "2027-02-20T10:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727147,
+   "tournamentId": 52949,
+   "number": "32727147",
+   "gameRound": 17,
+   "date": "2027-02-20",
+   "time": "15:30:00",
+   "datetimeStart": "2027-02-20T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425884,
+    "name": "Vintervikens sph",
+    "arena": {
+     "id": 338501,
+     "arenaName": "Vintervikens sph"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727147",
+   "lineupAvailableFrom": "2027-02-20T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727148,
+   "tournamentId": 52949,
+   "number": "32727148",
+   "gameRound": 10,
+   "date": "2027-02-20",
+   "time": "16:00:00",
+   "datetimeStart": "2027-02-20T15:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425856,
+    "name": "Stora Mossen 2",
+    "arena": {
+     "id": 338473,
+     "arenaName": "Stora Mossen 2"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727148",
+   "lineupAvailableFrom": "2027-02-20T14:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727149,
+   "tournamentId": 52949,
+   "number": "32727149",
+   "gameRound": 17,
+   "date": "2027-02-20",
+   "time": "18:15:00",
+   "datetimeStart": "2027-02-20T17:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426017,
+    "name": "Stuvstahallen",
+    "arena": {
+     "id": 338634,
+     "arenaName": "Stuvstahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727149",
+   "lineupAvailableFrom": "2027-02-20T16:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727150,
+   "tournamentId": 52949,
+   "number": "32727150",
+   "gameRound": 17,
+   "date": "2027-02-21",
+   "time": "17:15:00",
+   "datetimeStart": "2027-02-21T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425888,
+    "name": "Farstahallen S",
+    "arena": {
+     "id": 338505,
+     "arenaName": "Farstahallen S"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727150",
+   "lineupAvailableFrom": "2027-02-21T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727151,
+   "tournamentId": 52949,
+   "number": "32727151",
+   "gameRound": 17,
+   "date": "2027-02-21",
+   "time": "17:30:00",
+   "datetimeStart": "2027-02-21T16:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425348,
+    "name": "Ulvsunda B",
+    "arena": {
+     "id": null,
+     "arenaName": null
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727151",
+   "lineupAvailableFrom": "2027-02-21T15:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727152,
+   "tournamentId": 52949,
+   "number": "32727152",
+   "gameRound": 7,
+   "date": "2027-03-07",
+   "time": "17:00:00",
+   "datetimeStart": "2027-03-07T16:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425902,
+    "name": "USIF Arena",
+    "arena": {
+     "id": 338519,
+     "arenaName": "USIF Arena"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727152",
+   "lineupAvailableFrom": "2027-03-07T15:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727153,
+   "tournamentId": 52949,
+   "number": "32727153",
+   "gameRound": 10,
+   "date": "2027-03-12",
+   "time": "19:15:00",
+   "datetimeStart": "2027-03-12T18:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587312,
+    "globalTeamId": null,
+    "name": "Tyresö Basket Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426000,
+    "name": "Forellhallen",
+    "arena": {
+     "id": 338617,
+     "arenaName": "Forellhallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727153",
+   "lineupAvailableFrom": "2027-03-12T17:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727154,
+   "tournamentId": 52949,
+   "number": "32727154",
+   "gameRound": 3,
+   "date": "2027-03-12",
+   "time": "19:30:00",
+   "datetimeStart": "2027-03-12T18:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583713,
+    "globalTeamId": null,
+    "name": "Kungsholmen",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586136,
+    "globalTeamId": null,
+    "name": "Lidingö Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1415737,
+    "name": "Ulvsunda B",
+    "arena": {
+     "id": null,
+     "arenaName": null
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727154",
+   "lineupAvailableFrom": "2027-03-12T17:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727155,
+   "tournamentId": 52949,
+   "number": "32727155",
+   "gameRound": 5,
+   "date": "2027-03-13",
+   "time": "12:00:00",
+   "datetimeStart": "2027-03-13T11:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425873,
+    "name": "Vinstahallen 1",
+    "arena": {
+     "id": 338490,
+     "arenaName": "Vinstahallen 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727155",
+   "lineupAvailableFrom": "2027-03-13T10:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727156,
+   "tournamentId": 52949,
+   "number": "32727156",
+   "gameRound": 10,
+   "date": "2027-03-13",
+   "time": "13:45:00",
+   "datetimeStart": "2027-03-13T12:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1583465,
+    "globalTeamId": null,
+    "name": "Hammarby Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1583565,
+    "globalTeamId": null,
+    "name": "Uppsala Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425886,
+    "name": "Farstahallen 4 (Farsta IP)",
+    "arena": {
+     "id": 338503,
+     "arenaName": "Farstahallen 4 (Farsta IP)"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727156",
+   "lineupAvailableFrom": "2027-03-13T11:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727157,
+   "tournamentId": 52949,
+   "number": "32727157",
+   "gameRound": 10,
+   "date": "2027-03-13",
+   "time": "15:30:00",
+   "datetimeStart": "2027-03-13T14:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1586901,
+    "globalTeamId": null,
+    "name": "KFUM Huddinge Basketklubb ",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1585691,
+    "globalTeamId": null,
+    "name": "SBBK HJU19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1426017,
+    "name": "Stuvstahallen",
+    "arena": {
+     "id": 338634,
+     "arenaName": "Stuvstahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727157",
+   "lineupAvailableFrom": "2027-03-13T13:30:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727158,
+   "tournamentId": 52949,
+   "number": "32727158",
+   "gameRound": 11,
+   "date": "2027-03-13",
+   "time": "15:45:00",
+   "datetimeStart": "2027-03-13T14:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1584805,
+    "globalTeamId": null,
+    "name": "Norrköping Dolphins HU16-19",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1582934,
+    "globalTeamId": null,
+    "name": "Sollentuna Basket",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425873,
+    "name": "Vinstahallen 1",
+    "arena": {
+     "id": 338490,
+     "arenaName": "Vinstahallen 1"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727158",
+   "lineupAvailableFrom": "2027-03-13T13:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727159,
+   "tournamentId": 52949,
+   "number": "32727159",
+   "gameRound": 10,
+   "date": "2027-03-14",
+   "time": "15:45:00",
+   "datetimeStart": "2027-03-14T14:45:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1581824,
+    "globalTeamId": null,
+    "name": "Norrort Basket Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584905,
+    "globalTeamId": null,
+    "name": "Fryshuset Vit",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425991,
+    "name": "Fribergahallen",
+    "arena": {
+     "id": 338608,
+     "arenaName": "Fribergahallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727159",
+   "lineupAvailableFrom": "2027-03-14T13:45:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727160,
+   "tournamentId": 52949,
+   "number": "32727160",
+   "gameRound": 6,
+   "date": "2027-03-14",
+   "time": "16:00:00",
+   "datetimeStart": "2027-03-14T15:00:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1585511,
+    "globalTeamId": null,
+    "name": "KFUM Central Basket Vinröd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586126,
+    "globalTeamId": null,
+    "name": "Alviks BBK",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425923,
+    "name": "Gärdeshallen",
+    "arena": {
+     "id": 338540,
+     "arenaName": "Gärdeshallen"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727160",
+   "lineupAvailableFrom": "2027-03-14T14:00:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727161,
+   "tournamentId": 52949,
+   "number": "32727161",
+   "gameRound": 12,
+   "date": "2027-03-14",
+   "time": "17:15:00",
+   "datetimeStart": "2027-03-14T16:15:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1587825,
+    "globalTeamId": null,
+    "name": "Skuru Basket Grön",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1586471,
+    "globalTeamId": null,
+    "name": "KFUM Blackebergs IK Röd",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425944,
+    "name": "Nacka Sporthall",
+    "arena": {
+     "id": 338561,
+     "arenaName": "Nacka Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727161",
+   "lineupAvailableFrom": "2027-03-14T15:15:00Z",
+   "isPlayoff": false
+  },
+  {
+   "id": 32727162,
+   "tournamentId": 52949,
+   "number": "32727162",
+   "gameRound": 10,
+   "date": "2027-03-14",
+   "time": "17:30:00",
+   "datetimeStart": "2027-03-14T16:30:00Z",
+   "homeTeam": {
+    "teamRegistrationId": 1579885,
+    "globalTeamId": null,
+    "name": "Stockholm Nordväst",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "awayTeam": {
+    "teamRegistrationId": 1584920,
+    "globalTeamId": null,
+    "name": "Fryshuset Svart",
+    "goals": null,
+    "isWinner": false,
+    "seeding": null
+   },
+   "hasWinner": false,
+   "winnerTeam": null,
+   "field": {
+    "id": 1425933,
+    "name": "Herresta Sporthall",
+    "arena": {
+     "id": 338550,
+     "arenaName": "Herresta Sporthall"
+    }
+   },
+   "periodInfo": {
+    "periodLength": 15,
+    "slotLength": 105,
+    "numberOfPeriods": 4,
+    "pauseLength": 0,
+    "extraPeriodLength": 15
+   },
+   "matchCategory": {
+    "id": 1184312,
+    "name": "Herrar U19",
+    "categoryCode": "Nivå 1",
+    "matchGroups": null
+   },
+   "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727162",
+   "lineupAvailableFrom": "2027-03-14T15:30:00Z",
+   "isPlayoff": false
+  }
+ ],
+ "links": {
+  "first": "https://www.profixio.com/app/api/tournaments/52949/matches?page=1",
+  "last": "https://www.profixio.com/app/api/tournaments/52949/matches?page=1",
+  "prev": null,
+  "next": null
+ },
+ "meta": {
+  "current_page": 1,
+  "from": 1,
+  "last_page": 1,
+  "links": [
+   {
+    "url": null,
+    "label": "&laquo; Forrige",
+    "page": null,
+    "active": false
+   },
+   {
+    "url": "https://www.profixio.com/app/api/tournaments/52949/matches?page=1",
+    "label": "1",
+    "page": 1,
+    "active": true
+   },
+   {
+    "url": null,
+    "label": "Neste &raquo;",
+    "page": null,
+    "active": false
+   }
+  ],
+  "path": "https://www.profixio.com/app/api/tournaments/52949/matches",
+  "per_page": 500,
+  "to": 153,
+  "total": 153
+ }
+}

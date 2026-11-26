@@ -76,6 +76,7 @@ the way. Set up 2026-08 — see `.github/workflows/claude-*.yml`, the
 | `SENTRY_API_TOKEN` (read scopes) | local `.env.local` | reading issues via API |
 | `GITHUB_ISSUES_TOKEN` (fine-grained PAT, Issues r/w) | Supabase function secrets | report-issue files issues |
 | `GENIUS_API_KEY` (20k calls/month, SBF scope) | Supabase function secrets | genius proxies + caches match data |
+| `PROFIXIO_API_SECRET` (Profixio API key, app "Scoutable", org SBBF.SE.BB; read access to the tournaments Profixio granted, see `/api/userinfo`) | Supabase function secrets | the `profixio` function reads catalogue, schedules and matches through the documented API; without it every call fails with `server_misconfigured` |
 | `ANTHROPIC_API_KEY` (Scoutable Console org; spend limit set there) | Supabase function secrets | tipoff-detect reads scoreboard clocks from stills |
 | `TIPOFF_DETECT_MODEL` (optional model id, default `claude-sonnet-5-5`) | Supabase function secrets | swap the detection model without a redeploy; kill switch is `app_config.tipoff_detect_enabled` |
 | `BASKETTV_USERNAME` / `BASKETTV_PASSWORD` (Leonard's BasketTV subscriber account) | GitHub Actions secrets | `nightly-tipoff.yml` reads replay frames; masked in logs, never printed |

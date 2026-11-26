@@ -1,0 +1,105 @@
+{
+ "wsUser": {
+  "applicationName": "Scoutable",
+  "contactEmail": "api@example.com",
+  "contactName": "Test"
+ },
+ "permissions": {
+  "organisations": [
+   {
+    "organisationId": "SBBF.SE.BB",
+    "viewTournament": true,
+    "listTournaments": false,
+    "updateAllTournaments": false,
+    "updateSpecificTournament": false,
+    "specificTournaments": [
+     {
+      "tournamentId": 53930,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53929,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53917,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53912,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53911,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 52932,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 52929,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 52949,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 52946,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 52944,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53107,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53097,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53100,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53040,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53036,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 53267,
+      "basicAccess": true,
+      "extendedAccess": false
+     },
+     {
+      "tournamentId": 52411,
+      "basicAccess": true,
+      "extendedAccess": false
+     }
+    ]
+   }
+  ]
+ }
+}

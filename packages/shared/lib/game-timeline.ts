@@ -66,7 +66,12 @@ export interface GameTimeline {
   lostInJumps: number;
   /** Plays that land past the end of the file (a video that skips the breaks, quarters not set). */
   pastEnd: number;
-  /** Two periods overlap on the video: a quarter's sync is wrong. */
+  /**
+   * Two periods' plays overlap on the video: a quarter's sync is wrong. Read
+   * off the plays, not the league's period times: a table that presses "stop
+   * period" after the stream has cut into the break puts a press where the
+   * video already shows the next quarter (docs/profixio.md).
+   */
   overlaps: boolean;
   /** A wall-clock moment of a period on the axis; null when it can't be placed. */
   timeOf: (realWorldTime: string | undefined | null, period: number) => number | null;
@@ -189,7 +194,26 @@ export function buildGameTimeline(input: {
     });
   }
   bands.sort((a, b) => a.period - b.period);
-  const overlaps = bands.some((b, i) => i > 0 && b.start < bands[i - 1].end - 1);
+
+  // Each period's own plays, end to end: what the overlap is judged on.
+  const playSpans = new Map<number, { start: number; end: number }>();
+  for (const p of plays) {
+    if (p.own) continue;
+    const span = playSpans.get(p.event.period);
+    playSpans.set(p.event.period, span ? { start: Math.min(span.start, p.time), end: Math.max(span.end, p.time) } : { start: p.time, end: p.time });
+  }
+  const ordered = bands.map((b) => playSpans.get(b.period)).filter((span): span is { start: number; end: number } => !!span);
+  const overlaps = ordered.some((span, i) => i > 0 && span.start < ordered[i - 1].end - 1);
+
+  // A band the league's period times stretch into the next one ends where that one starts, as long as its own
+  // plays end there too: the band shows the quarter, not when the table pressed stop.
+  for (let i = 0; i < bands.length - 1; i++) {
+    const band = bands[i];
+    const next = bands[i + 1];
+    if (band.end <= next.start) continue;
+    const ownEnd = playSpans.get(band.period)?.end ?? band.start;
+    band.end = Math.max(band.start, ownEnd, next.start);
+  }
 
   let domain: GameTimeline["domain"];
   if (sync) {

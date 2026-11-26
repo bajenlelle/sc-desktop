@@ -136,6 +136,8 @@ export interface PlayByPlayEvent {
     firstName: string;
     familyName: string;
     teamNumber: number; // 1 = home, 2 = away
+    /** Set on Profixio plays: its personIds share Genius's numbers, so a person is keyed by provider (lib/events.ts personKey). */
+    source?: "profixio";
   } | null;
   eventTeam?: {
     teamCode: string;

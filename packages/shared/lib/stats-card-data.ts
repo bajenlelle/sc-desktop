@@ -15,7 +15,7 @@
  */
 import type { League } from "../types/league";
 import type { StoredMatch } from "../types/match";
-import { playerName } from "./events";
+import { personKey, playerName } from "./events";
 import {
   HOSTED_STATS_BASE,
   HostedLayoutError,
@@ -132,7 +132,7 @@ export function eventPeople(match: StoredMatch): Map<string, { name: string; num
   const people = new Map<string, { name: string; number: string | null; side: "home" | "away"; teamName: string }>();
   for (const e of match.events ?? []) {
     if (!e.player) continue;
-    const id = String(e.player.playerId);
+    const id = personKey(e)!;
     if (people.has(id)) continue;
     const side = e.player.teamNumber === 2 ? "away" : "home";
     people.set(id, {
