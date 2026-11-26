@@ -24,7 +24,6 @@
  * user changes: another coach in the same club never sees this one's.
  */
 import { useSyncExternalStore } from "react";
-import { toast } from "sonner";
 import {
   closedGameTabs,
   closeGameTab,
@@ -372,18 +371,4 @@ export function recallGameView(matchId: string): GameViewMemory | null {
 export function rememberGameView(matchId: string, patch: Partial<GameViewMemory>): void {
   const was = gameViews.get(matchId) ?? { filters: EMPTY_GAME_FILTERS, zoomPeriod: null, list: null, view: null, stats: null };
   gameViews.set(matchId, { ...was, ...patch });
-}
-
-/**
- * Says that a tab was closed to make room (six games stay open), with the way
- * to bring it back. The Reopen button asks as the File menu's item does, so
- * the tabs' keys (components/game/game-tab-keys.tsx) answer it. It stays twice as long as the app's other notices:
- * nobody asked for that tab to close, and its two lines take reading.
- */
-export function announceClosedGameTab(title: string): void {
-  toast(`Closed ${title || "a game"} to make room: up to six games stay open`, {
-    id: "game-tab-made-room",
-    duration: 8000,
-    action: { label: "Reopen", onClick: () => window.dispatchEvent(new CustomEvent("menu-reopen-game-tab")) },
-  });
 }

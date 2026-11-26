@@ -318,7 +318,7 @@ test("New Tab opens the picker, a row's menu closes others, and closed games com
   expect(await titles(page), "both are back in their places").toEqual([g2.title, g1.title, g0.title]);
 });
 
-test("a seventh game says which it closed, and can bring it back", async ({ page }) => {
+test("a seventh game closes the oldest quietly, and Reopen Closed Tab brings it back", async ({ page }) => {
   const [g0] = await openGames(page, 1);
   await page.evaluate((game) => {
     const key = Object.keys(localStorage).find((k) => k.startsWith("scoutable_game_tabs:"))!;
@@ -336,11 +336,11 @@ test("a seventh game says which it closed, and can bring it back", async ({ page
   const g1 = await openLibraryGame(page, 1);
   await expect(heading(page)).toHaveText(g1.title);
   await expect(rows(page)).toHaveCount(6);
-  const notice = page.locator("[data-sonner-toast]").filter({ hasText: g0.title });
-  await expect(notice, "the game that made room is named").toBeVisible();
-  await page.waitForTimeout(6000);
-  await expect(notice, "the notice is still there six seconds on").toBeVisible();
-  await notice.getByRole("button", { name: "Reopen" }).click();
+  expect(await titles(page), "the oldest game made room").not.toContain(g0.title);
+  await page.waitForTimeout(500);
+  await expect(page.locator("[data-sonner-toast]"), "without a notice").toHaveCount(0);
+  // The File menu's Reopen Closed Tab (⇧⌘T).
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("menu-reopen-game-tab")));
   await expect(heading(page)).toHaveText(g0.title, { timeout: 10_000 });
   await expect(rows(page)).toHaveCount(6);
   expect((await titles(page))[0], "it is back in its place").toBe(g0.title);

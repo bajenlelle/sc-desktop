@@ -84,9 +84,9 @@ stretch where a game turned.
   games, the one on screen checked, and New Tab…, which opens the picker under
   the title. ⌘T off the game page with the sidebar hidden shows the sidebar
   for the picker.
-- Six at most: a seventh game closes the one shown least recently, and a
-  notice says which, with Reopen. The notice stays eight seconds, twice the
-  app's others: nobody asked for that game to close. New games go first, at the
+- Six at most: a seventh game quietly closes the one shown least recently
+  (no notice since 2026-11-26: it was noise); Reopen Closed Tab (⇧⌘T) brings
+  it back. New games go first, at the
   top of the list, where the newest is easiest to find (since 2026-11-25; an
   open game shown again keeps its place, so a row never jumps from under the
   pointer). Open teams do the same.

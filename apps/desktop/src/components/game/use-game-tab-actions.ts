@@ -4,7 +4,6 @@ import type { PickableGame } from "@scoutable/shared/lib/game-picker";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import {
-  announceClosedGameTab,
   closeOtherGameTabs,
   forgetGameTab,
   gameTabsScope,
@@ -156,7 +155,6 @@ export function useGameTabActions() {
     const back = reopenClosedGameTab(scope);
     if (!back) return;
     trackEvent("game_tab_reopened", { tabs: tabCount + 1 });
-    if (back.evicted) announceClosedGameTab(back.evicted.title);
     leaveField();
     setHeadingToGame(back.id);
     navigate(`/matches/${back.id}`, { replace: onGame, state: { via: "tab" } });

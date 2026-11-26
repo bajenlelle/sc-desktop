@@ -13,7 +13,6 @@ import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { useAuth } from "@/lib/auth-context";
 import {
-  announceClosedGameTab,
   forgetGameTab,
   gameTabsScope,
   recallGameView,
@@ -192,9 +191,8 @@ export function GamePage() {
   usePageTitle(title);
   useLayoutEffect(() => {
     scopeAtMount.current ??= scope;
-    const madeRoom = rememberGameTab(scopeAtMount.current, { id: matchId, title, date });
-    // The bar was full: a tab was closed without being asked. Say which, with the way back.
-    if (madeRoom) announceClosedGameTab(madeRoom.title);
+    // A full list closes its oldest game quietly; Reopen Closed Tab (⇧⌘T) brings it back.
+    rememberGameTab(scopeAtMount.current, { id: matchId, title, date });
     // The title is what changes; the date comes with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchId, title, scope]);
