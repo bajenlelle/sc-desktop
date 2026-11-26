@@ -200,12 +200,17 @@ lead to it, as references in the text, not new buttons:
   the pointer and while it is dragged, a double-click puts the columns back,
   and the split is kept for the session (panel ids `player` and `plays`, which
   the saved layout is matched by).
-- **Two ways through the video, on purpose.** The player's own scrubber (the
-  stage's floating bar, the one the editor and Add clips have) spans the whole
-  file on a straight scale, with elapsed and total time and a mark where each
-  quarter starts: it is how warm-up, the breaks and whatever follows the final
-  whistle are reached. The timeline folds those stretches into the gaps
-  between the quarters and spends its width on basketball. In a window the player's controls don't
+- **One way through the video: the timeline** (revised 2026-11-26). The
+  player's controls are docked under the footage, never over it, because the
+  broadcast's score and clock sit at the foot of the picture and a sync is
+  fixed by reading them (see "Player controls" in
+  `docs/desktop-design-audit.md`). In the game view the controls hold the
+  buttons and the video's time ("0:31 / 20:50") but no scrubber of their own:
+  the timeline right under them is the scrubber, and warm-up, the breaks and
+  what follows the final whistle are reached on it (the gaps between the
+  quarters), with the arrow keys, or with a swipe. While a play's sync is
+  checked, the controls get that play's clip as a scrubber, with the moment
+  the sync has it at marked. In a window the player's controls don't
   repeat the quarter, clock and score, which the Now bar says right below
   them; in full screen, where there is no Now bar, they say what it would:
   the play's quarter, clock and score, or between plays where the video is
@@ -225,8 +230,8 @@ lead to it, as references in the text, not new buttons:
   timeline, K or the label picker in that moment takes over, so the video
   never starts up under what the coach does next.
 - **A scrub is one `game_view_seeked`**, sent when it ends, not one per
-  frame: `via` is `scrubber` (the player's bar: a drag, or a key pressed on
-  it, once however long it is held), `timeline_drag`, `wheel` (a swipe; one
+  frame: `via` is `scrubber` (the clip's scrubber while a play's sync is
+  checked: a drag, or a key pressed on it, once however long it is held), `timeline_drag`, `wheel` (a swipe; one
   that rests longer than 400 ms and goes on is two), or `timeline` for a click
   on the timeline, with the kind of what was clicked: `time` (a second),
   `play` (a play's mark), `run` or `timeout`.

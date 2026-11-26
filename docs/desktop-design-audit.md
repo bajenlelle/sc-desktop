@@ -227,11 +227,21 @@ Built on `design/apple-redesign` in six commits, one per milestone, plus fixes. 
 | 9 | Three typefaces | The system font with macOS text styles (size-specific tracking), tabular figures for every count and clock, no font fetched at runtime, no uppercase micro-labels. | `index.css`, `index.html` |
 | 10 | Reduced motion is ignored | `MotionConfig reducedMotion="user"`; CSS fallbacks turn menu motion into a fade and stop pulses; reduced transparency makes materials opaque; increased contrast strengthens separators; a light/dark switch no longer animates every colour. | `App.tsx`, `index.css`, `theme-provider.tsx` |
 
+### 6.1b Player controls (revised 2026-11-26)
+
+The controls used to float over the footage, QuickTime-style, and show on every pointer move and whenever the video was paused. They covered the bottom fifth of the picture, where a broadcast keeps its score and clock, which is what a coach reads to fix a sync; and a clip's drawings, slow sections and keyframes, marked on that scrubber, were only in sight while pointing at the player. Viewing apps (YouTube, QuickTime) float their controls because watching is the whole task; review and editing tools (Final Cut, Premiere, Frame.io, Hudl's web player) dock the transport under the picture because every pixel of it is information.
+
+- **Docked, always there:** one black row under the footage (`PlayerStage`, `.player-dock` in `index.css`, 44 px), the footage's black carried on so picture and controls read as one object: Previous · Replay · Play · Next · Stop, the scrubber with its marks, "3 of 28", sound, speed, full screen. On the picture are only content (drawings, notes, the crop window) and acknowledgement (the play/pause glyph, the spinner, a failure).
+- **Narrow** (under 520 px: Add clips, a narrow column): still one row, so the height never changes under the pages that fit the footage to their column (they take `PLAYER_DOCK_HEIGHT` off): Replay, Stop, the scrubber's times and "3 of 28" give way to the track; R still replays and the hover bubble still says the time.
+- **Never comes and goes in a window**, so nothing under it moves: with nothing to control (drawing, a card with its inspector, a missing file) it stays, dimmed and inert.
+- **The game view's controls have no scrubber**: the game timeline under the Now bar is its scrubber, and the controls say the video's time. A play being checked for sync gets its clip's scrubber there.
+- **Full screen:** when the screen leaves room under a 16:9 picture (any 16:10 Mac), the picture and its dock are centred in the black and the dock stays; on a 16:9 screen the controls float over the picture as before and hide after a moment of stillness. A trim in full screen floats too (its bar is two rows). A click anywhere in the black around the picture plays and pauses, and a double-click leaves full screen.
+
 ### 6.2 Screen by screen
 
 - **Shell:** System / Light / Dark is a segmented control in Settings and follows macOS by default; the eight colour themes flow through the new materials, fills and selection.
 - **Home, Library, Settings, Profile:** grouped (inset) lists with two-line rows; one primary action per toolbar.
-- **Playlists editor:** the floating QuickTime-style bar (scrubber, transport, "3 of 28", speed, full screen) over the footage, hiding while it plays; a click on the footage plays and pauses with a brief glyph; a spinner while the decoder is behind; one highlight springs from row to row with playback; per-clip clip length as steppers under the player.
+- **Playlists editor:** the floating QuickTime-style bar (scrubber, transport, "3 of 28", speed, full screen) over the footage, hiding while it plays (docked under the footage since 2026-11-26, §6.1b); a click on the footage plays and pauses with a brief glyph; a spinner while the decoder is behind; one highlight springs from row to row with playback; per-clip clip length as steppers under the player.
 - **Selection:** the actions float in a pill over the list instead of pushing it down; bulk remove can be undone; Escape clears.
 - **Playlist browser:** a source list in its own column that resizes 1:1, resists past its limits, collapses with a spring (⌘B, or a flick inward) and remembers its width.
 - **Add clips:** a sheet that drops from under the toolbar; event types as one row of chips; the preview on the same player stage; Return ticks the playing clip, ⌘↩ adds.

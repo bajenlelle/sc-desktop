@@ -1,13 +1,13 @@
 /**
  * The game view's player as one unit (docs/game-view.md): the footage with
- * its own scrubber over the whole file, the Now bar, and the game's timeline
+ * its controls docked under it (never over it), the Now bar, and the game's timeline
  * directly under them at the footage's width, with the play list beside all
  * of it. It writes nothing itself: it opens the sample game, whose video plays
  * from the network, and for the switch a league game (whose Game view may fill
  * that game's marks once, as any visit does).
  */
 import type { Locator, Page } from "@playwright/test";
-import { filterSection, expect, filterButton, filterPopover, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
+import { filterSection, expect, filterButton, filterPopover, openLibraryGame, openSampleGame, patchGameReads, playRows, recordAnalytics, shot, showGameView, test, videoTime } from "../helpers";
 
 const SIZES = [
   { width: 1440, height: 900 },
@@ -19,6 +19,10 @@ const stage = (page: Page) => page.locator('div[style*="aspect-ratio"]').filter(
 const timeline = (page: Page) => page.getByRole("region", { name: "Game timeline" });
 const track = (page: Page) => page.getByRole("slider", { name: "Position in the game" });
 const scrubber = (page: Page) => page.getByRole("slider", { name: "Position in the video" });
+/** The player's controls, docked under the footage. */
+const dock = (page: Page) => page.getByRole("group", { name: "Player controls" });
+/** Where a broadcast keeps its score and clock: the footage's bottom quarter. */
+const scoreStrip = (s: Box): Box => ({ x: s.x, y: s.y + s.height * 0.75, width: s.width, height: s.height * 0.25 });
 const plays = (page: Page) => page.getByRole("list", { name: "Plays" });
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -59,7 +63,10 @@ test("the timeline sits under the footage at its width, and the list has the col
     expect(Math.abs(t.x - s.x), `the timeline starts where the footage starts ${at}`).toBeLessThanOrEqual(1);
     expect(Math.abs(t.width - s.width), `the timeline is as wide as the footage ${at}`).toBeLessThanOrEqual(2);
     expect(t.y, `the timeline is under the footage ${at}`).toBeGreaterThanOrEqual(s.y + s.height);
-    expect(t.y - (s.y + s.height), `only the Now bar is between the footage and the timeline ${at}`).toBeLessThanOrEqual(64);
+    const d = await boxOf(dock(page), "the player's controls");
+    expect(Math.abs(d.x - s.x) <= 1 && Math.abs(d.width - s.width) <= 2, `the controls are as wide as the footage ${at}`).toBe(true);
+    expect(d.y, `the controls are under the footage, not over it ${at}`).toBeGreaterThanOrEqual(s.y + s.height - 0.5);
+    expect(t.y - (s.y + s.height), `only the controls and the Now bar are between the footage and the timeline ${at}`).toBeLessThanOrEqual(64 + 44);
     // The list is on the left (as in Teams' Plays, Add clips and the editor), the footage and its timeline right of it.
     expect(t.x, `the timeline is in the footage's column, right of the list ${at}`).toBeGreaterThanOrEqual(l.x + l.width - 1);
     expect(l.y + l.height, `the list runs to the bottom of the window ${at}`).toBeGreaterThanOrEqual(size.height - 1);
@@ -74,16 +81,14 @@ test("the timeline sits under the footage at its width, and the list has the col
   }
 });
 
-test("the player has its own scrubber over the whole video, and says where the game is only once", async ({ page }) => {
+test("the controls sit under the footage, the timeline is the scrubber, and where the game is is said once", async ({ page }) => {
   const duration = await openSampleGame(page);
 
-  await expect(scrubber(page), "paused in a window, the player shows its scrubber").toBeVisible();
-  expect(Number(await scrubber(page).getAttribute("aria-valuemax")), "the scrubber spans the whole file").toBeCloseTo(duration, 0);
-
-  const bar = await boxOf(scrubber(page), "the scrubber");
-  await page.mouse.click(bar.x + bar.width / 2, bar.y + bar.height / 2);
-  const middle = await settled(page);
-  expect(Math.abs(middle - duration / 2), "a click in the middle of the scrubber goes to the middle of the video").toBeLessThan(duration * 0.03);
+  await expect(dock(page), "the player's controls are showing").toBeVisible();
+  await expect(scrubber(page), "the game's timeline is the scrubber: the player has no second one").toHaveCount(0);
+  const whole = Math.round(duration);
+  const total = `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+  await expect(dock(page).getByText(new RegExp(`/ ${total}$`)), "the controls say the video's time out of its length").toBeVisible();
 
   // A play on screen: the Now bar under the footage names its quarter, clock and score. A play well into the
   // quarter: the game's first play starts its run-up before tip-off, where the Now bar says "Before tip-off".
@@ -91,38 +96,88 @@ test("the player has its own scrubber over the whole video, and says where the g
   await page.keyboard.press("k");
   const where = /Q\d · \d\d:\d\d/;
   await expect(page.getByText(where).first(), "the Now bar says where the game is").toBeVisible();
-  await expect(scrubber(page), "paused, the controls are showing").toBeVisible();
-  await expect(stage(page).getByText(where), "the controls over the footage don't repeat it").toHaveCount(0);
+  await expect(stage(page).getByText(where), "nothing over the footage repeats it").toHaveCount(0);
+  await expect(dock(page).getByText(where), "nor do the controls").toHaveCount(0);
 });
 
-test("a drag on the player's scrubber is reported once, not once a frame", async ({ page }) => {
+test("nothing covers the score and clock: not paused, not on a pointer move, not while playing", async ({ page, browserName }) => {
+  await openSampleGame(page);
+  /** Every visible control that reaches into the footage's bottom quarter. */
+  const covering = async () => {
+    // Half a pixel shy of the footage's foot: the dock starts exactly there, and rounding mustn't count it in.
+    const foot = scoreStrip(await boxOf(stage(page), "the stage"));
+    const strip = { ...foot, height: foot.height - 0.5 };
+    const hits: string[] = [];
+    for (const control of await page.locator('button, [role="slider"], [role="group"][aria-label="Player controls"]').all()) {
+      if (!(await control.isVisible())) continue;
+      const box = await control.boundingBox();
+      if (box && box.width > 0 && overlaps(box, strip)) hits.push((await control.getAttribute("aria-label")) ?? (await control.innerText()));
+    }
+    return hits;
+  };
+  // Past tip-off, so the start button over the middle of the footage has gone.
+  await page.keyboard.press("2");
+  await page.evaluate(() => document.querySelector("video")?.pause());
+  await settled(page);
+  expect(await covering(), "paused").toEqual([]);
+
+  const s = await boxOf(stage(page), "the stage");
+  await page.mouse.move(s.x + s.width / 2, s.y + s.height * 0.85);
+  await page.mouse.move(s.x + s.width / 3, s.y + s.height * 0.9);
+  expect(await covering(), "with the pointer moving over the footage's foot").toEqual([]);
+
+  await dock(page).getByRole("button", { name: "Play", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.querySelector("video")?.paused ?? true), { message: "Play in the controls plays it" }).toBe(false);
+  await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
+  await page.waitForTimeout(3_200);
+  await expect(dock(page).getByRole("button", { name: "Pause" }), "after a while of playing the controls are still there").toBeVisible();
+  expect(await covering(), "while playing").toEqual([]);
+  await shot(page, `${browserName}-H-player-docked`);
+});
+
+test("after the speed menu, the volume or the scrubber is used with the pointer, the keys are the player's again", async ({ page }) => {
+  await openSampleGame(page);
+  const paused = () => page.evaluate(() => document.querySelector("video")?.paused ?? true);
+  const speedMenu = page.getByRole("menu");
+  await page.evaluate(() => document.querySelector("video")?.pause());
+
+  // Speed: picked from its menu with the pointer.
+  await dock(page).getByRole("button", { name: "Playback speed" }).click();
+  await page.getByRole("menuitemradio", { name: "1.5×" }).click();
+  await expect(speedMenu).toHaveCount(0);
+  await expect(dock(page).getByRole("button", { name: "Playback speed" })).toHaveText("1.5×");
+  const before = await paused();
+  await page.keyboard.press("Space");
+  await expect(speedMenu, "Space doesn't open the speed menu again").toHaveCount(0);
+  await expect.poll(paused, { message: "Space plays and pauses" }).toBe(!before);
+  await page.keyboard.press("ArrowDown");
+  await expect(speedMenu, "nor does an arrow").toHaveCount(0);
+  await page.keyboard.press("k");
+  await page.evaluate(() => document.querySelector("video")?.pause());
+
+  // Volume: dragged with the pointer.
+  const speaker = dock(page).getByRole("button", { name: /^(Mute|Unmute)$/ });
+  await speaker.hover();
+  const level = dock(page).getByRole("slider", { name: "Volume" }).first();
+  await expect(level).toBeVisible();
+  const lb = (await level.boundingBox())!;
+  await page.mouse.click(lb.x + lb.width / 2, lb.y + lb.height / 2);
+  const focusedIn = () => page.evaluate(() => !!document.activeElement?.closest('[aria-label="Player controls"]'));
+  expect(await focusedIn(), "the level doesn't keep the keys").toBe(false);
+  const was = await paused();
+  await page.keyboard.press("Space");
+  await expect.poll(paused, { message: "Space plays and pauses after the volume" }).toBe(!was);
+  await page.evaluate(() => document.querySelector("video")?.pause());
+});
+
+test("a drag on the game's timeline is reported once, not once a frame", async ({ page }) => {
   const tracked = await recordAnalytics(page);
   await openSampleGame(page);
-  await expect(scrubber(page)).toBeVisible();
   const seeks = async () => (await tracked()).filter((e) => e.event === "game_view_seeked").map((e) => e.properties?.via);
   expect(await tracked(), "the page reports through the recorded module").not.toEqual([]);
   expect(await seeks(), "nothing sought yet").toEqual([]);
 
-  const bar = await boxOf(scrubber(page), "the scrubber");
-  const y = bar.y + bar.height / 2;
-  await page.mouse.move(bar.x + bar.width * 0.2, y);
-  await page.mouse.down();
-  for (let i = 1; i <= 12; i++) {
-    await page.mouse.move(bar.x + bar.width * (0.2 + 0.04 * i), y);
-    await page.waitForTimeout(40);
-  }
-  await page.mouse.up();
-  await settled(page);
-
-  await expect.poll(seeks, { message: "one drag, one report" }).toEqual(["scrubber"]);
-
-  // The drag left the scrubber focused. A key held down on it is one report too, not one per repeat.
-  for (let i = 0; i < 6; i++) await page.keyboard.down("ArrowRight");
-  await page.keyboard.up("ArrowRight");
-  await settled(page);
-  await expect.poll(seeks, { message: "a held key, one report" }).toEqual(["scrubber", "scrubber"]);
-
-  // The same on the game's timeline: a drag along it is one report, when it is let go.
+  // A drag along the timeline is one report, when it is let go.
   const t = await boxOf(track(page), "the timeline's track");
   await page.mouse.move(t.x + t.width * 0.3, t.y + 40);
   await page.mouse.down();
@@ -132,12 +187,12 @@ test("a drag on the player's scrubber is reported once, not once a frame", async
   }
   await page.mouse.up();
   await settled(page);
-  await expect.poll(seeks, { message: "one drag on the timeline, one more report" }).toEqual(["scrubber", "scrubber", "timeline_drag"]);
+  await expect.poll(seeks, { message: "one drag on the timeline, one more report" }).toEqual(["timeline_drag"]);
 
   // A click on the timeline where no play is (the stretch before tip-off) is a seek like any other.
   await page.mouse.click(t.x + 6, t.y + 40);
   await settled(page);
-  await expect.poll(seeks, { message: "a click on the timeline is reported" }).toEqual(["scrubber", "scrubber", "timeline_drag", "timeline"]);
+  await expect.poll(seeks, { message: "a click on the timeline is reported" }).toEqual(["timeline_drag", "timeline"]);
 });
 
 test("a sideways swipe over the timeline or the footage moves the video, and a scroll doesn't", async ({ page }) => {
@@ -383,17 +438,6 @@ test("a picked play stays the current one while its run-up is stepped or scrubbe
   await settled(page);
   expect(await current(), "a short swipe forward never lights a play above the picked one").toBeGreaterThanOrEqual(PICK);
 
-  // So is a drag on the player's own scrubber.
-  await pick();
-  const bar = await boxOf(scrubber(page), "the scrubber");
-  const at = bar.x + (bar.width * (await videoTime(page))) / (await videoDuration(page));
-  await page.mouse.move(at, bar.y + bar.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(at + 2, bar.y + bar.height / 2);
-  await page.mouse.up();
-  await settled(page);
-  expect(await current(), "a nudge on the scrubber inside the run-up keeps the picked play").toBe(PICK);
-
   // A jump to another moment of the game is not a step: the quarter's start shows what is there.
   await pick();
   await page.keyboard.press("1");
@@ -456,7 +500,7 @@ test("the Now bar keeps room for the player's name in the narrowest column", asy
   await expect(name).toBeVisible();
   // The divider between the list and the footage, as far right as it goes: the footage's column at its narrowest.
   const stageBefore = (await boxOf(page.locator("video").first(), "the footage")).width;
-  const divider = await boxOf(page.getByRole("separator").first(), "the divider");
+  const divider = await boxOf(page.locator('[role="separator"]:not([aria-label$="sidebar"])').first(), "the divider");
   await page.mouse.move(divider.x + divider.width / 2, divider.y + divider.height / 2);
   await page.mouse.down();
   await page.mouse.move(divider.x + 400, divider.y + divider.height / 2, { steps: 12 });

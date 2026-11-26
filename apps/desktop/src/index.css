@@ -576,3 +576,22 @@ html[data-window-inactive="true"] {
     --guide-pulse: none;
   }
 }
+
+/* The player's controls, docked under the footage (PlayerStage): one row of
+   buttons · scrubber · buttons, 44px (PLAYER_DOCK_HEIGHT) at every width. In a
+   narrow dock (Add clips, a narrow column) Replay, Stop, the scrubber's times
+   and "3 of 28" give way, so the scrubber keeps its room and the height never
+   changes under the pages that fit the footage to their column. */
+.player-dock {
+  container: player-dock / inline-size;
+}
+.player-dock-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.25rem;
+  height: 44px;
+}
+@container player-dock (max-width: 519.98px) {
+  .player-dock .dock-wide-only { display: none; }
+}

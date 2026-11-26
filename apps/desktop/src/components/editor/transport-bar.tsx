@@ -86,7 +86,6 @@ export function ControlButton({
   );
 }
 
-/** Prev · Replay · Play/Pause · Next · Stop, with the speed menu and fullscreen. */
 /** The speaker icon for a level: off, quiet or loud. */
 export function SoundIcon({ volume, muted }: { volume: number; muted: boolean }) {
   if (muted) return <VolumeX />;
@@ -100,6 +99,7 @@ export function SoundIcon({ volume, muted }: { volume: number; muted: boolean })
  */
 export function VolumeControl() {
   const { volume, muted } = usePlayerSound();
+  const rootRef = React.useRef<HTMLSpanElement | null>(null);
   const level = muted ? 0 : volume;
   const percent = Math.round(level * 100);
   return (
@@ -115,6 +115,9 @@ export function VolumeControl() {
       {/* Stays open while dragging: the thumb holds focus. */}
       <div className="w-0 overflow-hidden opacity-0 transition-[width,opacity] duration-200 ease-out group-hover/volume:w-[72px] group-hover/volume:opacity-100 group-focus-within/volume:w-[72px] group-focus-within/volume:opacity-100 motion-reduce:transition-none">
         <SliderPrimitive.Root
+          ref={rootRef}
+          // A drag with the pointer leaves the keys to the player (Space, the arrows), not to the level.
+          onPointerUp={() => releasePointerFocus(rootRef.current)}
           aria-label="Volume"
           value={[percent]}
           max={100}
@@ -136,6 +139,109 @@ export function VolumeControl() {
   );
 }
 
+/** Replay and Stop give way in a narrow dock (player-dock in index.css); R and the list still do their work. */
+const WIDE_ONLY = "dock-wide-only";
+
+/** Prev · Replay · Play/Pause · Next · Stop: the left of the transport. */
+export function TransportButtons({ transport }: { transport: TransportProps }) {
+  const { paused, isQueueActive, canPrev, canNext, labels } = transport;
+  return (
+    <div className="flex items-center gap-0.5">
+      <ControlButton label={labels?.prev ?? "Previous clip"} shortcut="↑" onClick={transport.onPrev} disabled={!canPrev}>
+        <SkipBack className="fill-current" />
+      </ControlButton>
+      <ControlButton label={labels?.replay ?? "Replay clip"} shortcut="R" onClick={transport.onReplay} disabled={!isQueueActive} className={WIDE_ONLY}>
+        <RotateCcw />
+      </ControlButton>
+      <ControlButton label={paused ? "Play" : "Pause"} shortcut="Space" onClick={transport.onTogglePlay} size="lg">
+        {paused ? <Play className="translate-x-px fill-current" /> : <Pause className="fill-current" />}
+      </ControlButton>
+      <ControlButton label={labels?.next ?? "Next clip"} shortcut="↓" onClick={transport.onNext} disabled={!canNext}>
+        <SkipForward className="fill-current" />
+      </ControlButton>
+      {!transport.hideStop && (
+        <ControlButton label="Stop" onClick={transport.onStop} disabled={!isQueueActive} className={WIDE_ONLY}>
+          <Square className="size-3.5 fill-current" />
+        </ControlButton>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The player's keys belong to the player: a control used with the pointer gives keyboard focus back to the page,
+ * so Space still plays and the arrows still step, as in QuickTime. Tab still reaches every control, and a
+ * control reached that way keeps its keys.
+ */
+export function releasePointerFocus(within: Element | null) {
+  const focused = document.activeElement;
+  if (within && focused instanceof HTMLElement && within.contains(focused)) focused.blur();
+}
+
+/** Sound, speed and full screen: the right of the transport. */
+export function TransportTrail({
+  speed,
+  onSpeedChange,
+  fullscreen,
+  onToggleFullscreen,
+}: {
+  speed: number;
+  onSpeedChange: (speed: number) => void;
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+}) {
+  // Opened with the pointer, the menu doesn't hand focus back to its button when it closes: the button would
+  // take Space and the arrows (opening itself again) from the player.
+  const byPointer = React.useRef(false);
+  return (
+    <div className="flex items-center gap-0.5">
+      <VolumeControl />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            onPointerDown={() => {
+              byPointer.current = true;
+            }}
+            onKeyDown={() => {
+              byPointer.current = false;
+            }}
+            aria-label="Playback speed"
+            className={cn(
+              "flex h-8 min-w-11 items-center justify-center rounded-lg px-2 text-xs font-semibold nums outline-none transition-[background-color,transform] duration-100 hover:bg-white/10 active:scale-95 active:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60 data-[state=open]:bg-white/15",
+              speed !== 1 ? "text-primary" : "text-white/85",
+            )}
+          >
+            {speed}×
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          side="top"
+          className="min-w-24"
+          onCloseAutoFocus={(e) => {
+            if (byPointer.current) e.preventDefault();
+          }}
+        >
+          <DropdownMenuRadioGroup value={String(speed)} onValueChange={(v) => onSpeedChange(Number(v))}>
+            {PLAYBACK_SPEEDS.map((s) => (
+              <DropdownMenuRadioItem key={s} value={String(s)} className="nums">
+                {s}×
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {onToggleFullscreen && (
+        <ControlButton label={fullscreen ? "Exit full screen" : "Full screen"} shortcut="F" onClick={onToggleFullscreen}>
+          {fullscreen ? <Minimize2 /> : <Maximize2 />}
+        </ControlButton>
+      )}
+    </div>
+  );
+}
+
+/** The transport in one row, as the floating bar has it (full screen on a screen with no room under the picture). */
 export function TransportBar({
   transport,
   speed,
@@ -152,59 +258,12 @@ export function TransportBar({
   /** "0:04 / 0:13 · 3 of 48" */
   readout?: React.ReactNode;
 }) {
-  const { paused, isQueueActive, canPrev, canNext, labels } = transport;
   return (
     <div className="flex items-center gap-0.5">
-      <ControlButton label={labels?.prev ?? "Previous clip"} shortcut="↑" onClick={transport.onPrev} disabled={!canPrev}>
-        <SkipBack className="fill-current" />
-      </ControlButton>
-      <ControlButton label={labels?.replay ?? "Replay clip"} shortcut="R" onClick={transport.onReplay} disabled={!isQueueActive}>
-        <RotateCcw />
-      </ControlButton>
-      <ControlButton label={paused ? "Play" : "Pause"} shortcut="Space" onClick={transport.onTogglePlay} size="lg">
-        {paused ? <Play className="translate-x-px fill-current" /> : <Pause className="fill-current" />}
-      </ControlButton>
-      <ControlButton label={labels?.next ?? "Next clip"} shortcut="↓" onClick={transport.onNext} disabled={!canNext}>
-        <SkipForward className="fill-current" />
-      </ControlButton>
-      {!transport.hideStop && (
-        <ControlButton label="Stop" onClick={transport.onStop} disabled={!isQueueActive}>
-          <Square className="size-3.5 fill-current" />
-        </ControlButton>
-      )}
-
+      <TransportButtons transport={transport} />
       {readout && <span className="ml-2 truncate text-xs nums text-white/80">{readout}</span>}
-
-      <div className="ml-auto flex items-center gap-0.5">
-        <VolumeControl />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Playback speed"
-              className={cn(
-                "flex h-8 min-w-11 items-center justify-center rounded-lg px-2 text-xs font-semibold nums outline-none transition-[background-color,transform] duration-100 hover:bg-white/10 active:scale-95 active:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60 data-[state=open]:bg-white/15",
-                speed !== 1 ? "text-primary" : "text-white/85",
-              )}
-            >
-              {speed}×
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" side="top" className="min-w-24">
-            <DropdownMenuRadioGroup value={String(speed)} onValueChange={(v) => onSpeedChange(Number(v))}>
-              {PLAYBACK_SPEEDS.map((s) => (
-                <DropdownMenuRadioItem key={s} value={String(s)} className="nums">
-                  {s}×
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {onToggleFullscreen && (
-          <ControlButton label={fullscreen ? "Exit full screen" : "Full screen"} shortcut="F" onClick={onToggleFullscreen}>
-            {fullscreen ? <Minimize2 /> : <Maximize2 />}
-          </ControlButton>
-        )}
+      <div className="ml-auto">
+        <TransportTrail speed={speed} onSpeedChange={onSpeedChange} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} />
       </div>
     </div>
   );

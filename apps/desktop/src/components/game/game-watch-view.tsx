@@ -19,7 +19,7 @@ import { clickSelection, extendSelection, moveFocus, pruneSelection, type FocusM
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
 import { cutShiftSeconds, partChecked, partOf } from "@scoutable/shared/lib/sync-check";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
-import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
+import { PLAYER_DOCK_HEIGHT, PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
 import { PlaysSelectionBar } from "@/components/plays/plays-selection-bar";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { usePlayLabelKeys } from "@/components/plays/use-play-label-keys";
@@ -69,8 +69,8 @@ import { useWheelScrub } from "./use-wheel-scrub";
 
 /** The players' remembered speed, shared with the playlist watch view. */
 const SPEED_KEY = "scoutable_watch_speed";
-/** Under the stage, in its column: the Now bar with its air, then the timeline. */
-const UNDER_STAGE = 52 + GAME_TIMELINE_HEIGHT;
+/** Under the stage, in its column: the player's controls, the Now bar with its air, then the timeline. */
+const UNDER_STAGE = PLAYER_DOCK_HEIGHT + 52 + GAME_TIMELINE_HEIGHT;
 /** The sync's panel over the footage (game-sync-bar.tsx: 104 px with its two lines of what to do) takes the Now bar's 52 under it, and this much more. */
 const SYNC_PANEL_EXTRA = 52;
 /** Where a game opens: this long before tip-off, so the jump ball is seen. */
@@ -1215,12 +1215,12 @@ export function GameWatchView({
                       title={match.title}
                       // In a window the Now bar under the footage says where the game is; in full screen the stage has to.
                       readout={playerFs.active ? readout : undefined}
-                      // The player's own scrubber, as every player in the app has: the whole file on a straight scale.
-                      // While a play is checked, the scrubber is that play's clip, with the moment the sync has it at marked.
-                      clipWindow={sync.clip ? { start: sync.clip.start, end: sync.clip.end } : duration !== null ? { start: 0, end: duration } : null}
-                      scrubLabel={sync.clip ? "Position in the clip" : "Position in the video"}
-                      longTimes={!sync.clip}
-                      ticks={sync.clip ? [sync.clip.mark] : timeline.bands.map((b) => b.start)}
+                      // The game's timeline under the Now bar is this player's scrubber; the controls say the video's time.
+                      // While a play is checked, they get that play's clip as a scrubber, with the moment the sync has it at marked.
+                      clipWindow={sync.clip ? { start: sync.clip.start, end: sync.clip.end } : null}
+                      timeReadout={!sync.clip}
+                      scrubLabel="Position in the clip"
+                      ticks={sync.clip ? [sync.clip.mark] : undefined}
                       // A drag seeks once a frame; it is reported once, when it is let go.
                       onSeek={(t) => {
                         playback.seekTo(t);
@@ -1268,9 +1268,9 @@ export function GameWatchView({
                           </button>
                         </div>
                       )}
+                      {/* On the footage, so it is there in full screen too and clear of the controls under it. */}
+                      {labelKeysShown && <GameLabelKeys labels={labels.labels} on={current ? labels.assignments.get(current.key) : undefined} />}
                     </PlayerStage>
-                    {/* In the stage's own box, so it is there in full screen too. */}
-                    {labelKeysShown && <GameLabelKeys labels={labels.labels} on={current ? labels.assignments.get(current.key) : undefined} />}
                   </div>
                 </div>
                 {!sync.active && (

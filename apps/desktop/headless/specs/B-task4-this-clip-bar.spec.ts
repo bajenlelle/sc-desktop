@@ -104,6 +104,8 @@ test("the This clip bar has no steppers; a trim shows Reset trim, which takes it
   await bar.getByRole("button", { name: "Trim…" }).click();
   const start = page.getByRole("slider", { name: "Start of the clip" });
   await expect(start, "the trim bar is on the player").toBeVisible();
+  const footage = (await page.locator('div[style*="aspect-ratio"]').filter({ has: page.locator("video") }).boundingBox())!;
+  expect((await start.boundingBox())!.y, "it takes the controls' place under the footage, not over it").toBeGreaterThanOrEqual(footage.y + footage.height - 0.5);
   const from = Number(await start.getAttribute("aria-valuenow"));
   await start.focus();
   await start.press("Shift+ArrowRight");
@@ -132,6 +134,24 @@ test("the This clip bar has no steppers; a trim shows Reset trim, which takes it
     .poll(async () => (await selectRows<{ pre_roll_offset: number; post_roll_offset: number }>(page, "playlist_clips", "pre_roll_offset, post_roll_offset", { match_id: matchId, event_id: firstEventId, playlist_id: await playlistIdNamed(page, NAME) }))[0])
     .toEqual({ pre_roll_offset: 0, post_roll_offset: 0 });
   await shot(page, name("after-reset"));
+
+  // The clip's own edits are on the scrubber under the footage, in sight without pointing at the player.
+  const controls = page.getByRole("group", { name: "Player controls" });
+  await bar.getByRole("button", { name: "Slow motion", exact: true }).click();
+  const slowMark = controls.getByRole("button", { name: /^Slow motion, / });
+  await expect(slowMark, "a slow-motion section is marked on the docked scrubber").toBeVisible();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(3_000);
+  await expect(slowMark, "and stays in sight with the pointer away from the player").toBeVisible();
+  // Drawing: the controls stay where they are (nothing under them jumps), standing back while the pen is out.
+  const controlsAt = (await controls.boundingBox())!;
+  await bar.getByRole("button", { name: "Draw", exact: true }).click();
+  await expect(controls, "the controls stand back while drawing").toHaveAttribute("inert", "");
+  expect((await controls.boundingBox())!.y, "and keep their place").toBeCloseTo(controlsAt.y, 0);
+  await shot(page, name("drawing-docked"));
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(controls).not.toHaveAttribute("inert", "");
 
   // Manual check (4): the Clip length popovers still set a length. The toolbar's is the editor's;
   // Add clips keeps its own for its preview (10 s and 3 s to start), so each is checked on its own.

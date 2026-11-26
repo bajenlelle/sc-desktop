@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { playClock } from "@scoutable/shared/lib/events";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { ClipBrowserLabelHandlers } from "@/components/editor/clip-browser-panel";
-import { PlayerStage } from "@/components/editor/player-stage";
+import { PLAYER_DOCK_HEIGHT, PlayerStage } from "@/components/editor/player-stage";
 import { GameLabelKeys } from "@/components/game/game-label-keys";
 import { GameNowBar } from "@/components/game/game-now-bar";
 import type { CollectStatus } from "@/components/game/game-play-row";
@@ -10,8 +10,8 @@ import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
 import { gameTitle } from "./team-play-list";
 import type { useCrossGamePlayback } from "./use-cross-game-playback";
 
-/** Under the stage, in its column: the Now bar with its air (the selection's pill floats over the list). */
-export const TEAM_UNDER_STAGE = 52;
+/** Under the stage, in its column: the player's controls, then the Now bar with its air (the selection's pill floats over the list). */
+export const TEAM_UNDER_STAGE = PLAYER_DOCK_HEIGHT + 52;
 
 /**
  * Plays' stage: the play's video with the opponent and clock over it, and
@@ -95,8 +95,9 @@ export function TeamPlaysStage({
               {why === "video" ? "This game's video isn't on this computer." : "This game isn't synced yet."}
             </div>
           )}
+          {/* On the footage, clear of the controls under it. */}
+          {keysShown && <GameLabelKeys labels={labels} on={cur ? assigned : undefined} />}
         </PlayerStage>
-        {keysShown && <GameLabelKeys labels={labels} on={cur ? assigned : undefined} />}
       </div>
       {cur ? (
         <GameNowBar
