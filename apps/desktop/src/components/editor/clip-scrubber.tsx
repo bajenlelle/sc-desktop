@@ -4,6 +4,7 @@ import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import type { SlowRate } from "@scoutable/shared/lib/clip-timeline";
 import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
 import { formatClipTime } from "@scoutable/shared/lib/clip-timing";
+import { PlayheadClock } from "@scoutable/shared/lib/playhead-clock";
 import { cn } from "@/lib/utils";
 import { springs } from "@/lib/motion";
 import { useFrameSeek } from "./use-frame-seek";
@@ -117,32 +118,66 @@ export function ClipScrubber({
   // Follow playback at the display rate (timeupdate is ~4 Hz in WKWebView),
   // only while it plays: paused (the controls show the whole time then),
   // one paint per change of position (a seek, a frame step, a new source).
-  // While scrubbing the pointer drives the thumb instead.
+  // While scrubbing the pointer drives the thumb instead. Playing, the thumb
+  // follows the frames on screen (requestVideoFrameCallback's media time),
+  // carried on between them by PlayheadClock: WebKit's currentTime stands
+  // still for a few hundred ms after a clip starts while the picture moves.
   useEffect(() => {
     let raf = 0;
+    let vfc = 0;
+    const clock = new PlayheadClock();
+    // The clock is following a stretch of playback (from a start, a jump while playing).
+    let running = false;
+    const watchesFrames = typeof video.requestVideoFrameCallback === "function";
+    const onPresented: VideoFrameRequestCallback = (now, meta) => {
+      // A frame left over from before a jump (WebKit reports one right after it) is not where the video is.
+      if (Math.abs(meta.mediaTime - video.currentTime) < 1) clock.observe(meta.mediaTime, now);
+      vfc = video.requestVideoFrameCallback(onPresented);
+    };
     const frame = () => {
-      if (!scrubRef.current) thumbX.set(fractionToX(paint(video.currentTime)));
+      if (scrubRef.current) return;
+      let t = video.currentTime;
+      if (running && !video.seeking) {
+        const now = performance.now();
+        // Where frames are reported, they alone say where the picture is: currentTime runs ahead of them.
+        if (!watchesFrames) clock.observe(t, now);
+        t = clock.advance(now, video.playbackRate);
+      }
+      thumbX.set(fractionToX(paint(t)));
     };
     const tick = () => {
       frame();
       raf = requestAnimationFrame(tick);
     };
-    const sync = () => {
+    const stop = () => {
+      if (raf) cancelAnimationFrame(raf);
+      if (vfc) video.cancelVideoFrameCallback(vfc);
+      raf = 0;
+      vfc = 0;
+    };
+    const sync = (e?: Event) => {
       if (!video.paused && !video.ended) {
+        // Playback starting, or a jump while it plays: chase the picture from where the video is now.
+        const jumped = e?.type === "seeked" || e?.type === "loadedmetadata" || e?.type === "emptied";
+        if (!running || jumped) {
+          clock.reset(video.currentTime, performance.now());
+          running = true;
+        }
         if (!raf) raf = requestAnimationFrame(tick);
+        if (watchesFrames && !vfc) vfc = video.requestVideoFrameCallback(onPresented);
         return;
       }
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
+      running = false;
+      stop();
       frame();
     };
     fracRef.current = -1; // the fill is painted fresh for this clip
     sync();
-    const events = ["play", "playing", "pause", "ended", "seeked", "timeupdate", "loadedmetadata", "emptied"] as const;
+    const events = ["play", "playing", "pause", "ended", "seeking", "seeked", "timeupdate", "loadedmetadata", "emptied"] as const;
     for (const ev of events) video.addEventListener(ev, sync);
     return () => {
       for (const ev of events) video.removeEventListener(ev, sync);
-      if (raf) cancelAnimationFrame(raf);
+      stop();
     };
   }, [video, paint, fractionToX, thumbX]);
 

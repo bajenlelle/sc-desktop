@@ -16,7 +16,7 @@ const NONE_MESSAGE: Record<Extract<ReportClipSource, { kind: "none" }>["reason"]
   no_sync: "This game isn’t synced to its video yet.",
 };
 
-/** Top-left, across from the tile's ⋯ menu, in the same material. */
+/** Top-left, across from the tile's ⋯ menu, in the same material: the tile with nothing to play. */
 function StopButton({ onClose, className }: { onClose: () => void; className?: string }) {
   return (
     <button
@@ -105,7 +105,10 @@ function NothingToPlay({ message, onClose, autoFocus, className }: { message: st
 }
 
 /**
- * The footage with a small bar over its foot: play/pause and the scrubber.
+ * The footage with its controls docked under it, never over it, as every
+ * player in the app has them: play/pause, the scrubber and Stop in a black
+ * row inside the tile's own 16:9 box (the picture gives up the row's height,
+ * so opening a clip moves nothing in the report).
  * The game's own video plays the clip's stretch (`clip`) and stops at its end;
  * an uploaded copy plays from 0 to the end of the file. At the end the last
  * frame stays, with Replay over it. The coach's drawings freeze their frames
@@ -239,27 +242,25 @@ function ClipVideo({
     togglePlay();
   }
 
-  // Shown while paused, and while the pointer is over the tile or a control has the keyboard.
-  const chrome = cn("transition-opacity duration-150 focus-within:opacity-100", live ? "opacity-0 group-hover/player:opacity-100" : "opacity-100");
-
   return (
     <div
       ref={rootRef}
       tabIndex={-1}
       onKeyDown={onKeyDown}
       className={cn(
-        "group/player relative isolate aspect-video overflow-hidden rounded-window bg-black ring-1 ring-separator outline-none transition-shadow duration-300 focus-visible:ring-2 focus-visible:ring-selection",
+        "group/player relative isolate flex aspect-video flex-col overflow-hidden rounded-window bg-black ring-1 ring-separator outline-none transition-shadow duration-300 focus-visible:ring-2 focus-visible:ring-selection",
         className,
       )}
     >
-      {/* A click on the footage plays and pauses, like any player. */}
-      <div onClick={togglePlay} className="h-full w-full [&>div]:rounded-none">
-        <VideoPlayer src={src} videoRef={videoRef} onLoadFailure={(f) => setFailed(f !== null)} />
-      </div>
+      <div className="relative min-h-0 flex-1">
+        {/* A click on the footage plays and pauses, like any player. */}
+        <div onClick={togglePlay} className="h-full w-full [&>div]:h-full [&>div]:rounded-none [&_video]:h-full [&_video]:object-contain">
+          <VideoPlayer src={src} videoRef={videoRef} onLoadFailure={(f) => setFailed(f !== null)} />
+        </div>
 
-      {fx.shown && !failed && <DrawingLayer key={fx.shown.id} shapes={fx.shown.shapes} />}
+        {fx.shown && !failed && <DrawingLayer key={fx.shown.id} shapes={fx.shown.shapes} />}
 
-      {ended && !failed && (
+        {ended && !failed && (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
           <button
             type="button"
@@ -270,20 +271,25 @@ function ClipVideo({
             Replay
           </button>
         </div>
-      )}
+        )}
 
-      <StopButton onClose={onClose} className={failed ? undefined : chrome} />
+        {/* A file that can't play says why over the picture; Stop stays reachable on it. */}
+        {failed && <StopButton onClose={onClose} />}
+      </div>
 
       {!failed && (
-        <div className={cn("dark absolute inset-x-2 bottom-2 z-30 flex items-center gap-1 rounded-lg bg-black/55 py-0.5 pr-2 pl-0.5 text-white ring-1 ring-white/10 backdrop-blur-xl", chrome)}>
+        <div role="group" aria-label="Player controls" className="dark flex h-9 shrink-0 items-center gap-1 px-1 text-white">
           <ControlButton label={live ? "Pause" : "Play"} shortcut="Space" onClick={togglePlay} className="size-7 [&_svg]:size-4">
             {live ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
           </ControlButton>
           {video && end > start ? (
-            <ClipScrubber video={video} start={start} end={end} onSeek={seek} drawings={markers} slows={bands} className="min-w-0 flex-1" />
+            <ClipScrubber video={video} start={start} end={end} onSeek={seek} drawings={markers} slows={bands} showTimes={false} className="min-w-0 flex-1" />
           ) : (
             <div className="h-6 flex-1" />
           )}
+          <ControlButton label="Stop" onClick={onClose} className="size-7 [&_svg]:size-4">
+            <X />
+          </ControlButton>
         </div>
       )}
     </div>
