@@ -14,6 +14,7 @@
  *
  * Only the importer asks for Profixio: everything else that reads leagues
  * (Teams pages, stats, reports, game marks) is built on Genius competitions.
+ * And it asks only where PROFIXIO_IMPORT is on.
  */
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -31,6 +32,14 @@ import { createClient } from "@/lib/supabase/client";
 import { Sentry } from "@/lib/sentry";
 
 const NONE: League[] = [];
+
+/**
+ * Whether the importer offers Profixio's district leagues: off in every build
+ * until they are released; `VITE_PROFIXIO_IMPORT=on` in apps/desktop/.env
+ * turns it on for a dev build. Games already imported from Profixio open and
+ * sync either way.
+ */
+export const PROFIXIO_IMPORT = import.meta.env.VITE_PROFIXIO_IMPORT === "on";
 
 export function useLeagues({ withProfixio = false }: { withProfixio?: boolean } = {}): League[] {
   const [genius, setGenius] = useState<League[]>(() => latestCatalog(GENIUS_CACHE_KEY) ?? readLeagueCache(localStorage, GENIUS_CACHE_KEY) ?? BUNDLED_LEAGUES);

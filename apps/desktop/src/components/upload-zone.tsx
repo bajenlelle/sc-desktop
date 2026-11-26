@@ -36,7 +36,7 @@ import { ImportSuccessDialog, type ImportSummary } from "@/components/import-suc
 import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
 import { fetchGameData, getLeagueSchedule, getSeasonStages, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import { matchProvider, PROFIXIO_SOURCE_PREFIX, seasonProvider } from "@scoutable/shared/lib/provider";
-import { useLeagues } from "@/lib/use-leagues";
+import { PROFIXIO_IMPORT, useLeagues } from "@/lib/use-leagues";
 import { Sentry } from "@/lib/sentry";
 import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
 import { LeaguePicker } from "@/components/league-picker";
@@ -222,7 +222,7 @@ export function UploadZone({
   const hasNtAccess = ntMemberships.length > 0;
   // Club leagues come from the edge function (see use-leagues); national teams
   // stay bundled — no competitionId, no data source decided.
-  const clubLeagues = useLeagues({ withProfixio: true });
+  const clubLeagues = useLeagues({ withProfixio: PROFIXIO_IMPORT });
   // Memoised so the selection effect below fires when the catalogue actually
   // changes, not on every render.
   const leagueList = useMemo(

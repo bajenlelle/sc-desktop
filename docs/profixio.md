@@ -15,8 +15,12 @@ season. A new season, or a series that isn't there, needs Profixio (SBBF) to
 grant it to the key; the catalogue picks it up on its next refresh, with no
 code change. A league outside the grant answers `unknown_league`.
 
-The importer's league picker (`useLeagues({ withProfixio: true })`) lists the
-granted series under their district. Everything else that reads leagues
+The importer's league picker (`useLeagues({ withProfixio: PROFIXIO_IMPORT })`)
+lists the granted series under their district. **Off for now:**
+`PROFIXIO_IMPORT` (`apps/desktop/src/lib/use-leagues.ts`) is on only where
+`VITE_PROFIXIO_IMPORT=on` is set in `apps/desktop/.env`, so no build offers
+the district leagues until they are released; games already imported from
+Profixio open and sync either way. Everything else that reads leagues
 (Teams pages, game stats, reports, game marks) stays on Genius competitions.
 A season's stages are its categories ("Nivå 1", "Nivå 2A"…), fetched once
 the season is picked; only played games are offered. "Your games" is Genius
