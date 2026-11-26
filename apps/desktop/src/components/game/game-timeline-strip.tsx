@@ -1074,7 +1074,10 @@ export function GameTimelineStrip({
       if (el.scrollWidth > el.clientWidth) time.hidden = true;
     }
     const w = el.offsetWidth;
-    el.style.transform = `translateX(${clamp(hover.x - w / 2, 0, Math.max(0, room - w))}px)`;
+    // Placed with `left`, not a transform: the measuring above lays the line out where the last hover had it, which
+    // can be past the column's edge, and WebKit keeps that overflow after a transform moves it back. The column
+    // then grows a scrollbar, the footage shrinks under the pointer, and the hover flips back and forth.
+    el.style.left = `${clamp(hover.x - w / 2, 0, Math.max(0, room - w))}px`;
   });
 
   function onDoubleClick(e: React.MouseEvent<HTMLDivElement>) {

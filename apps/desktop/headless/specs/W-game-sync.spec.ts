@@ -441,6 +441,29 @@ test("in a small window the sync's bar and its buttons stay inside the player's 
   await shot(page, `${browserName}-W-small-now-bar`);
 });
 
+test("hovering along the timeline while checking never widens the player's column", async ({ page }) => {
+  await twoQuarterGame(page);
+  await page.setViewportSize({ width: 1380, height: 830 });
+  await openSampleGame(page);
+  await status(page).click();
+  await expect(page.locator('[data-sync-frame="on"]')).toHaveCount(1);
+  const track = (await timeline(page).getByRole("slider", { name: "Position in the game" }).boundingBox())!;
+  // The column's own scroll box (the panel): a readout that once lay past its edge gave it a scrollbar, the
+  // footage shrank under the pointer, and the hover flipped between two plays many times a second.
+  const overflow = () =>
+    page.locator('[data-sync-frame="on"]').evaluate((frame) => {
+      let box: HTMLElement | null = frame as HTMLElement;
+      while (box && getComputedStyle(box).overflowX !== "auto") box = box.parentElement;
+      return box ? box.scrollWidth - box.clientWidth : 0;
+    });
+  let worst = 0;
+  for (let x = track.x + 4; x < track.x + track.width - 1; x += 8) {
+    await page.mouse.move(x, track.y + track.height * 0.6);
+    worst = Math.max(worst, await overflow());
+  }
+  expect(worst, "no hover makes the column scroll sideways").toBe(0);
+});
+
 test("a recording that jumps into the game after the tip-off: the plays before have no footage, and that can be taken back", async ({ page }) => {
   const saved = await twoQuarterGame(page, { footageStartAfterTipoff: 25 });
   await openSampleGame(page);
