@@ -73,6 +73,9 @@ const SPEED_KEY = "scoutable_watch_speed";
 const UNDER_STAGE = PLAYER_DOCK_HEIGHT + 52 + GAME_TIMELINE_HEIGHT;
 /** The sync's panel over the footage (game-sync-bar.tsx: 104 px with its two lines of what to do) takes the Now bar's 52 under it, and this much more. */
 const SYNC_PANEL_EXTRA = 52;
+/** Under the sync's frame (drawn 8 px outside the column): the same room as over it, so a window short enough to
+    leave the footage no more height doesn't cut the frame's foot off. */
+const SYNC_FRAME_ROOM = 16;
 /** Where a game opens: this long before tip-off, so the jump ball is seen. */
 const TIPOFF_LEAD_SECONDS = 5;
 
@@ -943,7 +946,9 @@ export function GameWatchView({
 
   // ---- The stage's size: as large as the column allows, 16:9 --------------------
   // A game whose sync can be checked has the sync row under its timeline.
-  const { ref: stageBoxRef, width: stageWidth } = useStageFit(UNDER_STAGE + (sync.active ? SYNC_PANEL_EXTRA + (sync.parts.length > 0 ? GAME_SYNC_ROW_HEIGHT : 0) : 0));
+  const { ref: stageBoxRef, width: stageWidth } = useStageFit(
+    UNDER_STAGE + (sync.active ? SYNC_PANEL_EXTRA + SYNC_FRAME_ROOM + (sync.parts.length > 0 ? GAME_SYNC_ROW_HEIGHT : 0) : 0),
+  );
 
   // ---- What stands in the way of the footage, and of its timing -----------------
   const fileName = match.videoUrl ? videoBasename(match.videoUrl) : null;
@@ -1192,7 +1197,9 @@ export function GameWatchView({
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel id="player" defaultSize="66" minSize="45">
-          <div className="flex h-full min-h-0 flex-col px-4 pt-4">
+          {/* Never wider than its panel: a sideways scrollbar would take height from the footage, which then fits a
+              narrower column, which changes what fits in it: the column shook between two sizes. */}
+          <div className="flex h-full min-h-0 flex-col overflow-x-clip px-4 pt-4">
             <div ref={stageBoxRef} className="flex min-h-0 flex-1 flex-col items-center">
               {/* While the sync is checked or fixed the column is one object with a frame round it: a mode, not playback. */}
               <div

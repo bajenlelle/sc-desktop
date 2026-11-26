@@ -246,8 +246,10 @@ export function GameSyncBar({ sync, links }: { sync: GameSync; links?: ReactNode
           <span className="hidden @min-[560px]/player:inline">{modeTitle(sync)}</span>
         </span>
         {/* How far the play moved is the bar's news; every other label gives way in a narrow column, to the line
-            below, so the play keeps its words. */}
-        <span data-sync="label" className={cn("shrink-0 text-callout font-medium text-foreground nums", mode.kind !== "confirm" && "hidden @min-[600px]/player:inline")}>
+            below, so the play keeps its words. The label joins this line from 760 px and Done from 640: measured, the
+            line needs about 710 with the label and 595 without, and the rest is room for longer scores. A line that
+            doesn't fit would push the column wider than its panel. */}
+        <span data-sync="label" className={cn("shrink-0 text-callout font-medium text-foreground nums", mode.kind !== "confirm" && "hidden @min-[760px]/player:inline")}>
           {words.label}
         </span>
         {/* What to look for on the video's own scoreboard, ahead of the sentence: in a narrow bar the sentence gives way, not this. */}
@@ -261,14 +263,14 @@ export function GameSyncBar({ sync, links }: { sync: GameSync; links?: ReactNode
           </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-1.5">{buttons}</span>
-        {/* The way out of the mode, always in the same place: what was answered is kept. In a narrow column it
-            ends the line below, so the answers keep their room here. */}
-        <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-separator @min-[600px]/player:block" aria-hidden />
-        <span className="hidden shrink-0 @min-[600px]/player:inline-flex">{done}</span>
+        {/* The way out of the mode, always in the same place: what was answered is kept. Only in a column too narrow
+            for it does it end the line below, so the answers keep their room here. */}
+        <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-separator @min-[640px]/player:block" aria-hidden />
+        <span className="hidden shrink-0 @min-[640px]/player:inline-flex">{done}</span>
       </div>
       {/* What to do, in full and in the text's own colour: two lines are kept for it so the footage doesn't move. */}
       <div className="mt-0.5 flex h-10 items-start gap-3 text-callout">
-        {mode.kind !== "confirm" && <span className="shrink-0 font-medium text-foreground @min-[600px]/player:hidden">{words.label}</span>}
+        {mode.kind !== "confirm" && <span className="shrink-0 font-medium text-foreground @min-[760px]/player:hidden">{words.label}</span>}
         {/* The play first, in full (it is what to look for), then what to do. */}
         <p className="line-clamp-2 min-w-0 flex-1" title={`${words.main} ${words.hint}`.trim()}>
           <span data-sync="main" aria-live="polite" className="font-medium text-foreground">
@@ -279,7 +281,8 @@ export function GameSyncBar({ sync, links }: { sync: GameSync; links?: ReactNode
           </span>
         </p>
         {links && <span className="flex shrink-0 items-center gap-3">{links}</span>}
-        <span className="-mt-1 shrink-0 @min-[600px]/player:hidden">{done}</span>
+        {/* Its words on the line of the links beside it. */}
+        <span className="-mt-2 shrink-0 @min-[640px]/player:hidden">{done}</span>
       </div>
     </div>
   );

@@ -441,6 +441,32 @@ test("in a small window the sync's bar and its buttons stay inside the player's 
   await shot(page, `${browserName}-W-small-now-bar`);
 });
 
+test("at every width of the player's column the sync bar's top line fits it, asking and finding", async ({ page }) => {
+  await twoQuarterGame(page);
+  await openSampleGame(page);
+  // Each width the column can take near the bar's switch to one line: a line wider than the column once gave the
+  // panel a scrollbar, the footage shrank, the bar switched back, and the column shook between the two.
+  const overflows = () =>
+    page.locator('[data-sync-frame="on"]').evaluate((column) => {
+      const el = column as HTMLElement;
+      const line = el.querySelector('[role="group"][aria-label="Sync"] > div') as HTMLElement;
+      const before = el.style.width;
+      const out: string[] = [];
+      for (let w = 540; w <= 820; w += 10) {
+        el.style.width = `${w}px`;
+        if (line.scrollWidth > line.clientWidth) out.push(`${w} px: ${line.scrollWidth - line.clientWidth} px over`);
+      }
+      el.style.width = before;
+      return out;
+    });
+  await status(page).click();
+  await expect(bar(page)).toBeVisible();
+  expect(await overflows(), "asking about a play").toEqual([]);
+  await bar(page).getByRole("button", { name: "It’s off" }).click();
+  await expect(findStrip(page)).toBeVisible();
+  expect(await overflows(), "finding the play").toEqual([]);
+});
+
 test("hovering along the timeline while checking never widens the player's column", async ({ page }) => {
   await twoQuarterGame(page);
   await page.setViewportSize({ width: 1380, height: 830 });
