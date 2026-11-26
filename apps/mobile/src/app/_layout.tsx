@@ -14,7 +14,8 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
 import { initAnalytics, trackEvent } from "@/lib/analytics";
-import { INTER_FONTS, interStyle, setInterLoaded } from "@/lib/fonts";
+import { DISPLAY_FONTS, INTER_FONTS, interStyle, setInterLoaded } from "@/lib/fonts";
+
 import { AuthProvider } from "@/lib/auth-context";
 import { MobileThemeProvider, useAppTheme, useThemeColors } from "@/lib/theme-context";
 import { ThemeSync } from "@/components/ThemeSync";
@@ -22,6 +23,9 @@ import { Icon } from "@/components/ui/Icon";
 import { SheetHost } from "@/components/ui/Sheet";
 import { ToastHost } from "@/components/ui/Toast";
 import { themeColors } from "@/lib/theme";
+
+/** Inter for the app, Barlow Condensed for the watch screen's display bits. */
+const APP_FONTS = { ...INTER_FONTS, ...DISPLAY_FONTS };
 
 // DSNs are public identifiers, not secrets. Dev builds stay offline unless
 // EXPO_PUBLIC_SENTRY_DSN is set (e.g. in .env) for testing the pipeline.
@@ -170,7 +174,7 @@ function ThemedShell() {
 }
 
 function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts(INTER_FONTS);
+  const [fontsLoaded, fontError] = useFonts(APP_FONTS);
   const fontsSettled = fontsLoaded || fontError != null;
   // Set before the first screen renders; without the files the app keeps the
   // system font rather than not starting.

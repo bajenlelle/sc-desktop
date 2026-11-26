@@ -1,21 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { useReducedMotion } from "react-native-reanimated";
+import { useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { reportJumpItems, JUMP_BAR_MIN_SECTIONS } from "@scoutable/shared/lib/scouting-report";
-import { inboxReportName, reportGameLabel, reportProgress } from "@scoutable/shared/lib/scouting-report-inbox";
+import { firstUnwatchedClip, inboxReportName, reportGameLabel, reportProgress, sectionClips } from "@scoutable/shared/lib/scouting-report-inbox";
+import { rgba } from "@scoutable/shared/lib/theme-derived";
+import { teamTint } from "@scoutable/shared/lib/watch-queue";
+import { MEDIA_BASE, playerPhotoUrl } from "@scoutable/shared/lib/player-photos";
 import { useReports } from "@/lib/reports-store";
-import { useThemeColors } from "@/lib/theme-context";
+import { useAppTheme, useThemeColors } from "@/lib/theme-context";
 import { Screen } from "@/components/shell/Screen";
-import { BackButton } from "@/components/shell/BackButton";
+import { GlassBackButton } from "@/components/shell/GlassButton";
 import { Button } from "@/components/ui/Button";
 import { StatusScreen } from "@/components/ui/EmptyState";
 import { Text } from "@/components/ui/Text";
+import { Icon } from "@/components/ui/Icon";
 import { JumpBar, ReportSectionView } from "@/components/report/ReportSectionView";
+import { WatchHeader, washAlpha } from "@/components/watch/WatchHeader";
 
 /**
  * A scouting report, read on the phone: one scroll, as the web page reads.
- * The team and the game first, the coach's summary, then a sticky row of
+ * The team and the game first (the watch screen's header: the team's colour,
+ * its name big, how much is watched and one Play button that starts where
+ * the reader stopped), the coach's summary, then a sticky row of
  * section chips (from three sections, as the page's jump bar) over the
  * sections themselves. Opening it tells the coach it was read; each clip
  * watched in the player is ticked here and counted for them, which the foot
@@ -26,6 +33,7 @@ export default function ReportScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { reports, loadReport, pageFor, watchedFor, markOpened } = useReports();
   const colors = useThemeColors();
+  const { resolvedMode } = useAppTheme();
   const reduceMotion = useReducedMotion();
   const page = id ? pageFor(id) : null;
   const [failed, setFailed] = useState(false);
@@ -54,8 +62,23 @@ export default function ReportScreen() {
   const sectionsTop = useRef(0);
   const barHeight = useRef(0);
   const [current, setCurrent] = useState<string | null>(null);
+  // The bar's small title comes in once the header's big one has scrolled away.
+  const titleOpacity = useSharedValue(0);
+  const titleBottom = useRef(Number.POSITIVE_INFINITY);
+  const titleShown = useRef(false);
+  const scrollY = useRef(0);
+  const syncBarTitle = useCallback(() => {
+    const show = scrollY.current > titleBottom.current - 4;
+    if (show === titleShown.current) return;
+    titleShown.current = show;
+    titleOpacity.value = reduceMotion ? (show ? 1 : 0) : withTiming(show ? 1 : 0, { duration: 180 });
+  }, [titleOpacity, reduceMotion]);
+
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      scrollY.current = e.nativeEvent.contentOffset.y;
+      syncBarTitle();
+      if (jumpItems.length === 0) return;
       const y = e.nativeEvent.contentOffset.y + barHeight.current + 24;
       let at: string | null = jumpItems[0]?.id ?? null;
       for (const it of jumpItems) {
@@ -64,7 +87,7 @@ export default function ReportScreen() {
       }
       setCurrent((c) => (c === at ? c : at));
     },
-    [jumpItems],
+    [jumpItems, syncBarTitle],
   );
   const jump = useCallback(
     (sectionId: string) => {
@@ -79,11 +102,11 @@ export default function ReportScreen() {
   const play = (sectionId: string, clipId: string | null) =>
     router.push({ pathname: "/reports/[id]/play", params: { id: id!, section: sectionId, ...(clipId ? { clip: clipId } : {}) } });
 
-  const back = <BackButton label="Reports" />;
+  const back = <GlassBackButton label="reports" />;
 
   if (!page && !failed) {
     return (
-      <Screen title="" leading={back} scroll={false}>
+      <Screen title="" leading={back} glassBar scroll={false}>
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color={colors.mutedForeground} />
         </View>
@@ -93,7 +116,7 @@ export default function ReportScreen() {
 
   if (!report) {
     return (
-      <Screen title="" leading={back} scroll={false}>
+      <Screen title="" leading={back} glassBar scroll={false}>
         <StatusScreen
           icon="basketball"
           title={failed ? "This report didn't load" : "This report isn't available"}
@@ -114,35 +137,73 @@ export default function ReportScreen() {
   const gameAt = report.header.game?.at ?? listed?.game?.at ?? null;
   const game = gameAt ? reportGameLabel(gameAt) : null;
   const sender = listed?.senderName ?? null;
-  const clipsLine =
-    progress.total > 0 ? (progress.watched > 0 ? `${progress.watched} of ${progress.total} clips watched` : `${progress.total} clips`) : null;
-  const metaLine = [sender ? `From ${sender}` : null, game, clipsLine].filter(Boolean).join(" · ");
+  const players = report.sections.filter((s) => s.player).length;
+  const metaLine = [
+    sender ? `From ${sender}` : null,
+    players > 0 ? `${players} player${players === 1 ? "" : "s"}` : null,
+    progress.total > 0 ? `${progress.total} clip${progress.total === 1 ? "" : "s"}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const tint = teamTint(name);
+  const photoFor = (sectionId: string) => {
+    const p = report.sections.find((x) => x.id === sectionId)?.player;
+    return p?.photoKey ? playerPhotoUrl(MEDIA_BASE, p.photoKey, "S1") : null;
+  };
+  // Play starts where the reader stopped: the first section with a clip not watched yet.
+  const withClips = report.sections.filter((s) => sectionClips(s).length > 0);
+  const nextSection = withClips.find((s) => sectionClips(s).some((c) => !watched.has(c.clipKey))) ?? withClips[0] ?? null;
+  const playNext = () => {
+    if (nextSection) play(nextSection.id, firstUnwatchedClip(sectionClips(nextSection), watched));
+  };
+  const started = progress.watched > 0 && progress.watched < progress.total;
 
   return (
-    <Screen title="Scouting report" leading={back} scroll={false}>
+    <Screen title={name} leading={back} glassBar titleOpacity={titleOpacity} barWash={rgba(tint, washAlpha(resolvedMode))} scroll={false}>
       <ScrollView
         ref={scrollRef}
         className="flex-1"
         contentContainerClassName="pb-12"
         stickyHeaderIndices={jumpItems.length > 0 ? [1] : undefined}
-        onScroll={jumpItems.length > 0 ? onScroll : undefined}
+        onScroll={onScroll}
         scrollEventThrottle={32}
       >
-        <View className="gap-2 px-4 pb-4 pt-3">
-          <Text variant="largeTitle" accessibilityRole="header">
-            {name}
-          </Text>
-          {metaLine ? (
-            <Text variant="subheadline" nums className="text-muted-foreground">
-              {metaLine}
-            </Text>
-          ) : null}
-          {report.header.intro ? <Text className="mt-2">{report.header.intro}</Text> : null}
-        </View>
+        <WatchHeader
+          color={tint}
+          title={name}
+          meta={metaLine}
+          watched={progress.watched}
+          total={progress.total}
+          action={nextSection ? (started ? "resume" : "play") : null}
+          onAction={playNext}
+          onTitleLayout={(bottom) => {
+            titleBottom.current = bottom;
+            syncBarTitle();
+          }}
+          top={
+            <View className="flex-row items-center justify-between gap-3">
+              <View className="min-w-0 shrink flex-row items-center gap-1.5">
+                <Icon name="basketball" size={14} color={colors.mutedForeground} />
+                <Text variant="caption" numberOfLines={1} className="uppercase tracking-widest text-muted-foreground">
+                  Scouting report
+                </Text>
+              </View>
+              {game ? (
+                <View className="shrink-0 rounded-full px-2.5 py-1" style={{ backgroundColor: rgba(tint, 0.14) }}>
+                  <Text variant="caption" nums style={{ color: tint }}>
+                    {game}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          }
+        >
+          {report.header.intro ? <Text className="mt-3">{report.header.intro}</Text> : null}
+        </WatchHeader>
 
         {jumpItems.length > 0 ? (
           <View onLayout={(e) => (barHeight.current = e.nativeEvent.layout.height)}>
-            <JumpBar items={jumpItems} current={current ?? jumpItems[0].id} onJump={jump} />
+            <JumpBar items={jumpItems} current={current ?? jumpItems[0].id} onJump={jump} photoFor={photoFor} />
           </View>
         ) : null}
 
@@ -153,7 +214,7 @@ export default function ReportScreen() {
               onLayout={(e) => offsets.current.set(s.id, e.nativeEvent.layout.y)}
               style={i > 0 ? { borderTopWidth: 0.5, borderTopColor: colors.separator, marginHorizontal: 0 } : undefined}
             >
-              <ReportSectionView section={s} watched={watched} onPlay={(clipId) => play(s.id, clipId)} />
+              <ReportSectionView section={s} watched={watched} tint={tint} coach={sender} onPlay={(clipId) => play(s.id, clipId)} />
             </View>
           ))}
         </View>

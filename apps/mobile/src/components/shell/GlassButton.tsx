@@ -85,6 +85,20 @@ export function CloseButton() {
   );
 }
 
+/**
+ * A detail screen's back button as a glass disc (the watch screen, a
+ * scouting report): the chevron alone, the previous screen named for
+ * VoiceOver. A cold deep link has nothing to go back to: then home.
+ */
+export function GlassBackButton({ label }: { label: string }) {
+  const colors = useThemeColors();
+  return (
+    <GlassButton accessibilityLabel={`Back to ${label}`} onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}>
+      <Icon name="chevronLeft" size={22} color={colors.foreground} />
+    </GlassButton>
+  );
+}
+
 /** Back to the previous page inside the sheet; it never closes the sheet. */
 export function SheetBackButton() {
   const colors = useThemeColors();

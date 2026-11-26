@@ -1,17 +1,20 @@
 /**
  * One section of a scouting report as the phone draws it, the web page's
- * report-document.tsx at phone width in the app's own type: a player's
- * photo, number and name; their numbers as big tiles that wrap rather than a
- * table that scrolls sideways; the coach's note; the section's own blocks
- * (keys numbered and large, How they play as rows, their games as a list);
- * then the section's clips as one rail of posters, with Play all. A clip
+ * report-document.tsx at phone width, in the watch screen's look: a player
+ * as a trading card (photo, the jersey number on a disc in the team's
+ * colour, the name); their numbers as one strip, the display face for the
+ * figures; the coach's note in a card with the coach's initials (it's the
+ * coach speaking); the section's own blocks (keys numbered in the team's
+ * colour, How they play as rows, their games as a list); then the section's
+ * clips as one rail of posters, each marked with its play's code, and a
+ * Play all button. A clip
  * opens the section's clips in the player (reports/[id]/play), so a player
  * watches a section through like a playlist.
  */
-import { useState } from "react";
 import { ScrollView, View } from "react-native";
 import { Image } from "expo-image";
-import { eventHue } from "@scoutable/shared/lib/events";
+import { eventHue, eventShortLabel } from "@scoutable/shared/lib/events";
+import { rgba } from "@scoutable/shared/lib/theme-derived";
 import { playerPhotoUrl, MEDIA_BASE } from "@scoutable/shared/lib/player-photos";
 import { clipsProgress, reportClipLine, sectionClips } from "@scoutable/shared/lib/scouting-report-inbox";
 import {
@@ -23,11 +26,12 @@ import {
   type ReportStats,
 } from "@scoutable/shared/lib/scouting-report";
 import { useLargeText } from "@/lib/a11y";
+import { displayStyle } from "@/lib/fonts";
 import { useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/Avatar";
 import { Icon } from "@/components/ui/Icon";
-import { Dot, TextButton } from "@/components/ui/Row";
+import { Dot } from "@/components/ui/Row";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 
@@ -38,37 +42,47 @@ function mediaUrl(key: string | null): string | null {
   return key ? `${MEDIA_BASE}/${key}` : null;
 }
 
-const TILE_GAP = 8;
-
-/** A player's numbers as tiles in a fixed grid, four across (three at large text sizes), so a fifth never stretches. */
+/**
+ * A player's numbers as one strip, the box score's way: up to five side by
+ * side (three at large text sizes), more in rows of four, hairlines between.
+ */
 export function StatTiles({ stats }: { stats: ReportStats }) {
+  const colors = useThemeColors();
   const large = useLargeText();
-  const [width, setWidth] = useState(0);
   if (stats.cells.length === 0 && !stats.context) return null;
-  const cols = large ? 3 : 4;
-  const tile = width > 0 ? Math.floor((width - TILE_GAP * (cols - 1)) / cols) : undefined;
+  const n = stats.cells.length;
+  const cols = Math.min(large ? 3 : n <= 5 ? n : 4, Math.max(1, n));
+  const rows: (typeof stats.cells)[] = [];
+  for (let i = 0; i < n; i += cols) rows.push(stats.cells.slice(i, i + cols));
   return (
     <View className="gap-1.5">
-      {stats.cells.length > 0 ? (
-        <View
-          className="flex-row flex-wrap"
-          style={{ gap: TILE_GAP }}
-          onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-        >
-          {stats.cells.map((c) => (
-            <View
-              key={c.label}
-              accessible
-              accessibilityLabel={`${c.label} ${c.value}`}
-              className="rounded-window bg-fill-1 px-3 py-2"
-              style={{ width: tile, opacity: tile ? 1 : 0 }}
-            >
-              <Text variant="title2" nums>
-                {c.value}
-              </Text>
-              <Text variant="caption" className="text-muted-foreground">
-                {c.label}
-              </Text>
+      {n > 0 ? (
+        <View className="overflow-hidden rounded-window bg-fill-1">
+          {rows.map((row, r) => (
+            <View key={r} className="flex-row" style={r > 0 ? { borderTopWidth: 0.5, borderTopColor: colors.separator } : undefined}>
+              {Array.from({ length: cols }, (_, i) => {
+                const c = row[i];
+                return (
+                  <View
+                    key={c?.label ?? `empty-${i}`}
+                    accessible={!!c}
+                    accessibilityLabel={c ? `${c.label} ${c.value}` : undefined}
+                    className="flex-1 items-center px-1 py-2.5"
+                    style={i > 0 ? { borderLeftWidth: 0.5, borderLeftColor: colors.separator } : undefined}
+                  >
+                    {c ? (
+                      <>
+                        <Text maxFontSizeMultiplier={1.4} numberOfLines={1} style={[displayStyle(800), { fontSize: 26, lineHeight: 28, color: colors.foreground }]}>
+                          {c.value}
+                        </Text>
+                        <Text variant="caption" numberOfLines={1} className="uppercase tracking-wider text-muted-foreground" style={{ fontSize: 11 }}>
+                          {c.label}
+                        </Text>
+                      </>
+                    ) : null}
+                  </View>
+                );
+              })}
             </View>
           ))}
         </View>
@@ -82,12 +96,24 @@ export function StatTiles({ stats }: { stats: ReportStats }) {
   );
 }
 
-function KeysList({ items }: { items: string[] }) {
+/** The coach's own words in a soft card, their initials in front: it's the coach speaking. */
+function CoachNote({ text, coach }: { text: string; coach?: string | null }) {
+  return (
+    <View className="flex-row items-start gap-2.5 rounded-window bg-fill-1 p-3">
+      {coach ? <Avatar name={coach} size={24} /> : null}
+      <Text variant="callout" className="min-w-0 flex-1">
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+function KeysList({ items, tint }: { items: string[]; tint: string }) {
   return (
     <View className="gap-3">
       {items.map((item, i) => (
         <View key={i} className="flex-row items-baseline gap-3">
-          <Text variant="title3" nums className="w-5 text-right font-semibold text-muted-foreground" importantForAccessibility="no">
+          <Text importantForAccessibility="no" className="w-5 text-right" style={[displayStyle(800), { fontSize: 24, lineHeight: 26, color: tint }]}>
             {i + 1}
           </Text>
           <Text variant="title3" className="min-w-0 flex-1">
@@ -188,10 +214,12 @@ function ClipPoster({ clip, watched, onPlay }: { clip: ReportClip; watched: bool
     >
       <View style={{ width: POSTER_W, height: POSTER_H, borderRadius: 10, overflow: "hidden", backgroundColor: colors.fill2 }}>
         {poster ? <Image source={{ uri: poster }} style={{ flex: 1 }} contentFit="cover" transition={150} recyclingKey={clip.id} /> : null}
-        <View className="absolute inset-0 items-center justify-center">
-          <View className="h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.45)" }}>
-            <Icon name="play" size={16} color="#fff" />
-          </View>
+        {/* The play's code in the top corner (broadcast scoreboards sit along the bottom): its colour as a dot on a dark chip, legible on any frame. */}
+        <View className="absolute left-1.5 top-1.5 flex-row items-center gap-1 rounded-[6px] px-1.5" style={{ backgroundColor: "rgba(0,0,0,0.62)", height: 20 }}>
+          <Dot size={6} color={colors.eventDot[hue]} />
+          <Text maxFontSizeMultiplier={1.2} style={[displayStyle(800), { fontSize: 13, lineHeight: 16, color: "#fff" }]}>
+            {eventShortLabel({ type: clip.type, subType: clip.subType, isSuccessful: clip.made ? 1 : 0 } as Parameters<typeof eventShortLabel>[0])}
+          </Text>
         </View>
         {watched ? (
           <View className="absolute right-1.5 top-1.5 h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.55)" }}>
@@ -200,8 +228,7 @@ function ClipPoster({ clip, watched, onPlay }: { clip: ReportClip; watched: bool
         ) : null}
       </View>
       <View className="mt-1.5 min-w-0 flex-row items-center gap-1.5">
-        <Dot size={6} color={colors.eventDot[hue]} />
-        <Text variant="subheadline" numberOfLines={1} className="shrink">
+        <Text variant="subheadline" numberOfLines={1} className="shrink font-medium">
           {clip.label}
         </Text>
         {clip.note ? <Icon name="note" size={13} color={colors.mutedForeground} /> : null}
@@ -209,6 +236,25 @@ function ClipPoster({ clip, watched, onPlay }: { clip: ReportClip; watched: bool
       </View>
       <Text variant="footnote" nums numberOfLines={large ? 2 : 1} className="text-muted-foreground">
         {[[clip.period, clip.clock].filter(Boolean).join(" "), clip.game].filter(Boolean).join(" · ")}
+      </Text>
+    </Tappable>
+  );
+}
+
+/** The section's own play button: a quiet pill (the header's cyan one is the screen's main action). */
+function PlayAllButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const colors = useThemeColors();
+  return (
+    <Tappable
+      scaleTo={0.97}
+      accessibilityRole="button"
+      onPress={onPress}
+      hitSlop={6}
+      className={({ pressed }) => cn("h-8 flex-row items-center gap-1.5 rounded-full px-3", pressed ? "bg-fill-3" : "bg-fill-2")}
+    >
+      <Icon name="play" size={12} color={colors.foreground} />
+      <Text variant="subheadline" className="font-semibold">
+        {label}
       </Text>
     </Tappable>
   );
@@ -230,7 +276,7 @@ function ClipRail({
         <Text variant="subheadline" nums className="text-muted-foreground">
           {progress.watched > 0 ? `${progress.watched} of ${progress.total} watched` : `${clips.length} clip${clips.length === 1 ? "" : "s"}`}
         </Text>
-        <TextButton label={clips.length === 1 ? "Play" : `Play all ${clips.length}`} onPress={() => onPlay(null)} />
+        <PlayAllButton label={clips.length === 1 ? "Play" : "Play all"} onPress={() => onPlay(null)} />
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-3 px-4">
         {clips.map((c) => (
@@ -241,27 +287,60 @@ function ClipRail({
   );
 }
 
-function SectionHeading({ section }: { section: ReportSection }) {
+const PHOTO = 64;
+
+function SectionHeading({ section, tint }: { section: ReportSection; tint: string }) {
   const colors = useThemeColors();
   const p = section.player;
   if (p) {
     const photo = playerPhotoUrl(MEDIA_BASE, p.photoKey, "S1");
-    const name = [p.number ? `#${p.number}` : null, p.name].filter(Boolean).join(" ");
     return (
-      <View className="flex-row items-center gap-3" accessibilityRole="header">
-        {photo ? (
-          <Image
-            source={{ uri: photo }}
-            style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: colors.fill2 }}
-            contentFit="cover"
-            transition={150}
-            accessibilityIgnoresInvertColors
-          />
-        ) : (
-          <Avatar name={p.name} size={48} />
-        )}
+      <View
+        className="flex-row items-center gap-4"
+        accessible
+        accessibilityRole="header"
+        accessibilityLabel={[p.number ? `Number ${p.number}` : null, p.name, p.teamName].filter(Boolean).join(", ")}
+      >
+        {/* A trading card's corner: the photo ringed in the team's colour, the number on a disc. */}
+        <View>
+          <View style={{ width: PHOTO + 6, height: PHOTO + 6, borderRadius: (PHOTO + 6) / 2, borderWidth: 2, borderColor: rgba(tint, 0.55), alignItems: "center", justifyContent: "center" }}>
+            {photo ? (
+              <Image
+                source={{ uri: photo }}
+                style={{ width: PHOTO, height: PHOTO, borderRadius: PHOTO / 2, backgroundColor: colors.fill2 }}
+                contentFit="cover"
+                transition={150}
+                accessibilityIgnoresInvertColors
+              />
+            ) : (
+              <Avatar name={p.name} size={PHOTO} />
+            )}
+          </View>
+          {p.number ? (
+            <View
+              style={{
+                position: "absolute",
+                right: -6,
+                bottom: -4,
+                minWidth: 28,
+                height: 28,
+                paddingHorizontal: 5,
+                borderRadius: 14,
+                backgroundColor: tint,
+                borderWidth: 2.5,
+                borderColor: colors.background,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text maxFontSizeMultiplier={1.2} style={[displayStyle(800), { fontSize: 16, lineHeight: 18, color: "#fff" }]}>
+                {p.number}
+              </Text>
+            </View>
+          ) : null}
+        </View>
         <View className="min-w-0 flex-1">
-          <Text variant="title3">{name}</Text>
+          <Text variant="title3">{p.name}</Text>
           {p.teamName ? (
             <Text variant="footnote" className="text-muted-foreground">
               {p.teamName}
@@ -272,7 +351,7 @@ function SectionHeading({ section }: { section: ReportSection }) {
     );
   }
   return (
-    <Text variant="title3" accessibilityRole="header">
+    <Text accessibilityRole="header" style={[displayStyle(800), { fontSize: 26, lineHeight: 28, textTransform: "uppercase", color: colors.foreground }]}>
       {reportSectionTitle(section.kind, section.title)}
     </Text>
   );
@@ -281,10 +360,16 @@ function SectionHeading({ section }: { section: ReportSection }) {
 export function ReportSectionView({
   section,
   watched,
+  tint,
+  coach,
   onPlay,
 }: {
   section: ReportSection;
   watched: ReadonlySet<string>;
+  /** The scouted team's colour (teamTint): the number disc, the keys. */
+  tint: string;
+  /** Who wrote it: the initials on the coach's notes. */
+  coach?: string | null;
   /** Plays the section's clips from one (null: from where the reader stopped). */
   onPlay: (clipId: string | null) => void;
 }) {
@@ -292,15 +377,16 @@ export function ReportSectionView({
   return (
     <View className="gap-4 py-6">
       <View className="gap-4 px-4">
-        <SectionHeading section={section} />
+        <SectionHeading section={section} tint={tint} />
         {section.stats ? <StatTiles stats={section.stats} /> : null}
-        {section.note ? <Text>{section.note}</Text> : null}
+        {section.note ? <CoachNote text={section.note} coach={coach} /> : null}
         {section.blocks.map((b, i) => {
           switch (b.kind) {
             case "text":
-              return <Text key={i}>{b.text}</Text>;
+              // The coach's own summary (a report from before sections keeps it here).
+              return <CoachNote key={i} text={b.text} coach={coach} />;
             case "keys":
-              return <KeysList key={i} items={b.items} />;
+              return <KeysList key={i} items={b.items} tint={tint} />;
             case "stats":
               return (
                 <View key={i} className="gap-2">
@@ -327,10 +413,13 @@ export function JumpBar({
   items,
   current,
   onJump,
+  photoFor,
 }: {
   items: { id: string; label: string }[];
   current: string | null;
   onJump: (id: string) => void;
+  /** A player section's photo for its chip; null for the others. */
+  photoFor?: (id: string) => string | null;
 }) {
   const colors = useThemeColors();
   return (
@@ -346,8 +435,18 @@ export function JumpBar({
               accessibilityState={{ selected: on }}
               accessibilityLabel={`Go to ${it.label}`}
               onPress={() => onJump(it.id)}
-              className={({ pressed }) => cn("min-h-9 justify-center rounded-full px-3.5", on ? "bg-fill-3" : pressed ? "bg-fill-2" : "bg-fill-1")}
+              className={({ pressed }) =>
+                cn("min-h-9 flex-row items-center gap-1.5 rounded-full pr-3.5", photoFor?.(it.id) ? "pl-1.5" : "pl-3.5", on ? "bg-fill-3" : pressed ? "bg-fill-2" : "bg-fill-1")
+              }
             >
+              {photoFor?.(it.id) ? (
+                <Image
+                  source={{ uri: photoFor(it.id)! }}
+                  style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: colors.fill2 }}
+                  contentFit="cover"
+                  accessibilityIgnoresInvertColors
+                />
+              ) : null}
               <Text variant="subheadline" numberOfLines={1} className={on ? "font-semibold" : undefined}>
                 {it.label}
               </Text>

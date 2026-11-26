@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { Screen } from "@/components/shell/Screen";
-import { BackButton } from "@/components/shell/BackButton";
-import { useReducedMotion } from "react-native-reanimated";
+import { GlassBackButton } from "@/components/shell/GlassButton";
+import { useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
@@ -12,6 +12,7 @@ import {
   clipKey,
   firstUnwatchedKey,
   isMultiGame,
+  playlistTint,
   watchProgress,
 } from "@scoutable/shared/lib/watch-queue";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
@@ -27,10 +28,18 @@ import { DrawingLayer } from "@/components/player/DrawingLayer";
 import { PlayerStage } from "@/components/player/PlayerStage";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
 import { CardStage } from "@/components/player/CardStage";
-import { ActivePill, WatchClipRow, WatchTextCardRow, useActivePill } from "@/components/WatchClipRow";
+import { ActivePill, WatchClipRow, WatchGroupHeader, WatchTextCardRow, useActivePill } from "@/components/WatchClipRow";
+import { WatchCover } from "@/components/watch/WatchCover";
+import { WatchHeader, type HeaderAction } from "@/components/watch/WatchHeader";
+import { relativeTime } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { StatusScreen } from "@/components/ui/EmptyState";
 import { Text } from "@/components/ui/Text";
+
+/** After a hand scroll, how long the list leaves the playing row where it is. */
+const FOLLOW_PAUSE_MS = 6000;
+
+const clipsLabel = (n: number) => `${n} clip${n === 1 ? "" : "s"}`;
 
 /**
  * Watching a shared playlist (the web's watch-view.tsx at phone width): the
@@ -45,7 +54,7 @@ export default function WatchScreen() {
   const { id, resume } = useLocalSearchParams<{ id: string; resume?: string }>();
   const { activeOrgId, activeOrgRole, user, myOrgs, isPlayerOnly, setActiveOrg } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
-  const { allPlaylists, loading, loadedOrgId, matchLookup, clipViews, recordWatched, refresh } = usePlaylists();
+  const { allPlaylists, feedItems, loading, loadedOrgId, matchLookup, clipViews, recordWatched, refresh } = usePlaylists();
   const colors = useThemeColors();
   const reduceMotion = useReducedMotion();
   const fullscreen = useStageFullscreen();
@@ -93,10 +102,31 @@ export default function WatchScreen() {
   }, [playlist, matchLookup]);
 
   const multiGame = useMemo(() => isMultiGame(items), [items]);
-  const matchTitleFor = useCallback(
-    (matchId: string) => (multiGame ? matchLookup.get(matchId)?.title : undefined),
-    [multiGame, matchLookup],
-  );
+  /** Multi-game playlists: a heading where each run of one game's clips starts (index → title and count). */
+  const groups = useMemo(() => {
+    const out = new Map<number, { title: string; count: number }>();
+    if (!multiGame) return out;
+    let current: { title: string; count: number } | null = null;
+    let lastMatch: string | null = null;
+    items.forEach((item, i) => {
+      if (item.kind !== "clip") return;
+      if (item.matchId !== lastMatch) {
+        lastMatch = item.matchId;
+        current = { title: matchLookup.get(item.matchId)?.title ?? "Game", count: 0 };
+        out.set(i, current);
+      }
+      current!.count += 1;
+    });
+    return out;
+  }, [multiGame, items, matchLookup]);
+  /** The team behind each play, in the rows only when the list mixes teams. */
+  const mixedTeams = useMemo(() => {
+    const names = new Set<string>();
+    for (const item of items) if (item.kind === "clip" && item.event.eventTeam?.teamName) names.add(item.event.eventTeam.teamName);
+    return names.size > 1;
+  }, [items]);
+  const teamColor = useMemo(() => playlistTint(items, (m) => matchLookup.get(m), id ?? ""), [items, matchLookup, id]);
+  const feedItem = useMemo(() => feedItems.find((f) => f.id === id) ?? null, [feedItems, id]);
   const progress = useMemo(() => (playlist ? watchProgress(playlist, clipViews) : { watched: 0, total: 0 }), [playlist, clipViews]);
   /** Where Play and Resume start: the first clip not yet watched. */
   const startKey = useMemo(() => (playlist ? firstUnwatchedKey(playlist, clipViews) : null), [playlist, clipViews]);
@@ -138,21 +168,57 @@ export default function WatchScreen() {
   const pill = useActivePill(queue.activeKey);
   const scrollRef = useRef<ScrollView>(null);
   const scroll = useRef({ y: 0, height: 0, rowsY: 0 });
+  // The bar's small title comes in once the header's big one has scrolled under the player.
+  const titleOpacity = useSharedValue(0);
+  const titleBottom = useRef(Number.POSITIVE_INFINITY);
+  const titleShown = useRef(false);
+  const syncBarTitle = useCallback(() => {
+    const show = scroll.current.y > titleBottom.current - 4;
+    if (show === titleShown.current) return;
+    titleShown.current = show;
+    titleOpacity.value = reduceMotion ? (show ? 1 : 0) : withTiming(show ? 1 : 0, { duration: 180 });
+  }, [titleOpacity, reduceMotion]);
   const { frames } = pill;
+  /** A row that should come into view once it has been laid out (a resume lands below the header). */
+  const pendingReveal = useRef<string | null>(null);
+  /** When the reader last scrolled by hand: the list doesn't move under them for a while after. */
+  const lastDrag = useRef(0);
+  const revealActive = useCallback(
+    (key: string | null) => {
+      if (!key) return;
+      const f = frames.current.get(key);
+      if (!f) {
+        pendingReveal.current = key;
+        return;
+      }
+      pendingReveal.current = null;
+      const s = scroll.current;
+      const top = s.rowsY + f.y;
+      const bottom = top + f.height;
+      if (top < s.y) scrollRef.current?.scrollTo({ y: Math.max(0, top - 8), animated: !reduceMotion });
+      else if (bottom > s.y + s.height) scrollRef.current?.scrollTo({ y: bottom - s.height + 8, animated: !reduceMotion });
+    },
+    [frames, reduceMotion],
+  );
   useEffect(() => {
-    if (!queue.activeKey) return;
-    const f = frames.current.get(queue.activeKey);
-    if (!f) return;
-    const s = scroll.current;
-    const top = s.rowsY + f.y;
-    const bottom = top + f.height;
-    if (top < s.y) scrollRef.current?.scrollTo({ y: Math.max(0, top - 8), animated: !reduceMotion });
-    else if (bottom > s.y + s.height) scrollRef.current?.scrollTo({ y: bottom - s.height + 8, animated: !reduceMotion });
-  }, [queue.activeKey, frames, reduceMotion]);
+    if (Date.now() - lastDrag.current < FOLLOW_PAUSE_MS) return;
+    revealActive(queue.activeKey);
+  }, [queue.activeKey, revealActive]);
+  const onRowLayout = useCallback(
+    (key: string) => {
+      const report = pill.onRowLayout(key);
+      return (e: LayoutChangeEvent) => {
+        report(e);
+        // After this frame, so the list's own offset (rowsY) is in too.
+        if (pendingReveal.current === key) requestAnimationFrame(() => revealActive(key));
+      };
+    },
+    [pill, revealActive],
+  );
 
   if (!playlist && (loading || resolving || switching)) {
     return (
-      <Screen title="" leading={<BackButton label="Playlists" />} scroll={false}>
+      <Screen title="" leading={<GlassBackButton label="playlists" />} glassBar scroll={false}>
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color={colors.mutedForeground} />
         </View>
@@ -162,7 +228,7 @@ export default function WatchScreen() {
 
   if (!playlist) {
     return (
-      <Screen title="" leading={<BackButton label="Playlists" />} scroll={false}>
+      <Screen title="" leading={<GlassBackButton label="playlists" />} glassBar scroll={false}>
         <StatusScreen
           icon="playlists"
           title="This playlist isn't available"
@@ -175,11 +241,21 @@ export default function WatchScreen() {
 
   const idleLabel =
     items.length > 0 && !queue.isQueueActive ? (progress.watched > 0 && progress.watched < progress.total ? "Resume" : "Play") : null;
+  const queuePaused = activeCard ? queue.cardPaused : queue.paused && !queue.holding;
+  const headerAction: HeaderAction | null =
+    items.length === 0 ? null : !queue.isQueueActive ? (idleLabel === "Resume" ? "resume" : "play") : queuePaused ? "play" : "pause";
+  const shared = relativeTime(feedItem?.sharedAt ?? playlist.sharedAt);
+  const cardCount = items.length - items.filter((i) => i.kind === "clip").length;
+  const meta = [clipsLabel(progress.total), cardCount > 0 ? `${cardCount} card${cardCount === 1 ? "" : "s"}` : null, shared ? `shared ${shared}` : null]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <Screen
       title={playlist.name}
-      leading={<BackButton label="Playlists" />}
+      leading={<GlassBackButton label="playlists" />}
+      glassBar
+      titleOpacity={titleOpacity}
       scroll={false}
       barHidden={fullscreen.active}
     >
@@ -230,6 +306,7 @@ export default function WatchScreen() {
           }}
           drawings={activeClip?.drawings}
           slows={activeClip?.slowMotion}
+          cover={<WatchCover color={teamColor} playLabel={idleLabel ?? "Play"} onPlay={items.length > 0 ? playOrResume : undefined} />}
         >
           {activeCard && <CardStage key={queue.activeKey} card={activeCard} fullscreen={fullscreen.active} />}
           {queue.shownDrawing && !activeCard && <DrawingLayer key={queue.shownDrawing.id} shapes={queue.shownDrawing.shapes} />}
@@ -245,21 +322,37 @@ export default function WatchScreen() {
         className="flex-1"
         contentContainerClassName="pb-10"
         scrollEventThrottle={32}
+        onScrollBeginDrag={() => {
+          lastDrag.current = Date.now();
+          pendingReveal.current = null;
+        }}
+        onScrollEndDrag={() => {
+          lastDrag.current = Date.now();
+        }}
         onScroll={(e) => {
           scroll.current.y = e.nativeEvent.contentOffset.y;
+          syncBarTitle();
         }}
         onLayout={(e) => {
           scroll.current.height = e.nativeEvent.layout.height;
         }}
       >
-        <View className="flex-row items-baseline justify-between gap-3 px-4 pb-1.5 pt-4">
-          <Text variant="headline">Clips</Text>
-          {progress.total > 0 && (
-            <Text variant="subheadline" nums className="shrink-0 text-muted-foreground">
-              {progress.watched} of {progress.total} watched
-            </Text>
-          )}
-        </View>
+        <WatchHeader
+          color={teamColor}
+          sharerName={feedItem?.sharerName}
+          sharerAvatarUrl={feedItem?.sharerAvatarUrl}
+          source={feedItem?.teamNames?.join(", ")}
+          title={playlist.name}
+          meta={meta}
+          watched={progress.watched}
+          total={progress.total}
+          action={headerAction}
+          onAction={onTogglePlay}
+          onTitleLayout={(bottom) => {
+            titleBottom.current = bottom;
+            syncBarTitle();
+          }}
+        />
 
         {items.length === 0 ? (
           <Text variant="subheadline" className="px-6 py-8 text-center text-muted-foreground">
@@ -272,35 +365,32 @@ export default function WatchScreen() {
             }}
           >
             <ActivePill style={pill.style} />
-            {items.map((item, i) => [
-              // Hairlines between rows, except where the playing row's pill sits.
-              i > 0 && queue.activeKey !== item.key && queue.activeKey !== items[i - 1].key ? (
-                <View key={`sep-${item.key}`} style={{ height: StyleSheet.hairlineWidth, marginLeft: 16, backgroundColor: colors.separator }} />
-              ) : i > 0 ? (
-                <View key={`sep-${item.key}`} style={{ height: StyleSheet.hairlineWidth }} />
-              ) : null,
-              item.kind === "text" ? (
-                <WatchTextCardRow
-                  key={item.key}
-                  card={item.card}
-                  active={queue.activeKey === item.key}
-                  onPlay={() => playFrom(item.key)}
-                  onLayout={pill.onRowLayout(item.key)}
-                />
-              ) : (
-                <WatchClipRow
-                  key={item.key}
-                  event={item.event}
-                  matchTitle={matchTitleFor(item.matchId)}
-                  note={item.note}
-                  drawings={item.drawings?.length ?? 0}
-                  watched={clipViews.has(clipViewKey(playlist.id, item.matchId, item.event.eventId))}
-                  active={queue.activeKey === item.key}
-                  onPlay={() => playFrom(item.key)}
-                  onLayout={pill.onRowLayout(item.key)}
-                />
-              ),
-            ])}
+            {items.map((item, i) => {
+              const group = groups.get(i);
+              const row =
+                item.kind === "text" ? (
+                  <WatchTextCardRow
+                    key={item.key}
+                    card={item.card}
+                    active={queue.activeKey === item.key}
+                    onPlay={() => playFrom(item.key)}
+                    onLayout={onRowLayout(item.key)}
+                  />
+                ) : (
+                  <WatchClipRow
+                    key={item.key}
+                    event={item.event}
+                    team={mixedTeams ? item.event.eventTeam?.teamName : undefined}
+                    note={item.note}
+                    drawings={item.drawings?.length ?? 0}
+                    watched={clipViews.has(clipViewKey(playlist.id, item.matchId, item.event.eventId))}
+                    active={queue.activeKey === item.key}
+                    onPlay={() => playFrom(item.key)}
+                    onLayout={onRowLayout(item.key)}
+                  />
+                );
+              return group ? [<WatchGroupHeader key={`g-${item.key}`} title={group.title} count={group.count} />, row] : row;
+            })}
           </View>
         )}
       </ScrollView>
