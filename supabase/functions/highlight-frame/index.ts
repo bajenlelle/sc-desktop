@@ -4,7 +4,7 @@
 // Stateless: the desktop samples the frames (4 a second, 960 px) and says who the player is from the play-by-play.
 // JWT verified by the platform (verify_jwt default) and again here.
 //
-//   POST { frames: [{ jpegBase64 }], target: "#78 Pedro Lelo Hök of Fryshuset", context: "…play-by-play…", shot: true }
+//   POST { frames: [{ jpegBase64 }], target: "#78 Alex Berg of Fryshuset", context: "…play-by-play…", shot: true }
 //     → { observation: { frames: [{ image, x, cameraCut }], releaseImage, rimX, madeImage, identity, note },
 //         usage: { model, inputTokens, outputTokens, latencyMs, fallback } }
 //

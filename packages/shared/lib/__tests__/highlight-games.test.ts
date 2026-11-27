@@ -13,7 +13,7 @@ function play(sec: number, type: string, who: [number, number, string, number], 
     player: { playerId, pno, firstName: "", familyName, teamNumber }, eventTeam: null, qualifiers: [], ...over,
   };
 }
-const PEDRO: [number, number, string, number] = [78001, 78, "Pedro", 2];
+const PLAYER: [number, number, string, number] = [78001, 78, "Berg", 2];
 const ELLIOT: [number, number, string, number] = [3001, 3, "Elliot", 2];
 const OPP: [number, number, string, number] = [9001, 8, "Davids", 1];
 const sync: SyncPoint = { syncVideoTime: 600, syncRealWorldTime: new Date(T0).toISOString() };
@@ -26,20 +26,20 @@ const game = (id: string, date: string, events: PlayByPlayEvent[], withSync = tr
 describe("playersInGames", () => {
   it("lists everyone once, the most games first", () => {
     const players = playersInGames([
-      game("a", "2026-10-21", [play(1, "2pt", PEDRO), play(2, "2pt", OPP), play(3, "rebound", PEDRO)]),
-      game("b", "2026-11-01", [play(1, "2pt", PEDRO), play(2, "2pt", ELLIOT)]),
+      game("a", "2026-10-21", [play(1, "2pt", PLAYER), play(2, "2pt", OPP), play(3, "rebound", PLAYER)]),
+      game("b", "2026-11-01", [play(1, "2pt", PLAYER), play(2, "2pt", ELLIOT)]),
     ]);
-    expect(players.map((p) => [p.name, p.number, p.games])).toEqual([["Pedro", "78", 2], ["Davids", "8", 1], ["Elliot", "3", 1]]);
+    expect(players.map((p) => [p.name, p.number, p.games])).toEqual([["Berg", "78", 2], ["Davids", "8", 1], ["Elliot", "3", 1]]);
     expect(players[0].teamName).toBe("Fryshuset");
   });
 });
 
 describe("myGames and bestGameId", () => {
   const a = game("a", "2026-10-21", [
-    play(1, "2pt", PEDRO, { subType: "dunk" }), play(2, "3pt", PEDRO),
-    ...Array.from({ length: 6 }, (_, i) => play(10 + i, "rebound", PEDRO, { subType: "defensive" })),
+    play(1, "2pt", PLAYER, { subType: "dunk" }), play(2, "3pt", PLAYER),
+    ...Array.from({ length: 6 }, (_, i) => play(10 + i, "rebound", PLAYER, { subType: "defensive" })),
   ]);
-  const b = game("b", "2026-11-01", [play(1, "2pt", PEDRO)]);
+  const b = game("b", "2026-11-01", [play(1, "2pt", PLAYER)]);
   const c = game("c", "2026-11-05", [play(1, "2pt", ELLIOT)]);
   const games = myGames([a, b, c], "78001");
 
@@ -54,18 +54,18 @@ describe("myGames and bestGameId", () => {
   });
 
   it("skips games that can't be found in their video", () => {
-    expect(bestGameId(myGames([game("x", "2026-10-21", [play(1, "2pt", PEDRO)], false)], "78001"))).toBeNull();
+    expect(bestGameId(myGames([game("x", "2026-10-21", [play(1, "2pt", PLAYER)], false)], "78001"))).toBeNull();
   });
 });
 
 describe("candidateWindow", () => {
   it("runs from 5 s before the first play to 2.5 s after the anchor", () => {
-    const [c] = highlightCandidates({ matchId: "a", events: [play(100, "2pt", PEDRO)] }, "78001");
+    const [c] = highlightCandidates({ matchId: "a", events: [play(100, "2pt", PLAYER)] }, "78001");
     expect(candidateWindow(c, sync)).toEqual({ start: 695, end: 702.5 });
   });
 
   it("keeps the end and caps a long steal-and-score at 10.75 s", () => {
-    const events = [play(100, "steal", PEDRO), play(109, "2pt", PEDRO)];
+    const events = [play(100, "steal", PLAYER), play(109, "2pt", PLAYER)];
     const [c] = highlightCandidates({ matchId: "a", events }, "78001");
     expect(c.events).toHaveLength(2);
     const w = candidateWindow(c, sync)!;
@@ -74,7 +74,7 @@ describe("candidateWindow", () => {
   });
 
   it("is null without a sync point", () => {
-    const [c] = highlightCandidates({ matchId: "a", events: [play(100, "2pt", PEDRO)] }, "78001");
+    const [c] = highlightCandidates({ matchId: "a", events: [play(100, "2pt", PLAYER)] }, "78001");
     expect(candidateWindow(c, undefined)).toBeNull();
   });
 });

@@ -4,15 +4,14 @@
  *   - "Who are you?" lists the players of the account's games; picking one is intercepted (no my_players write);
  *   - the games' videos read as present (their Range probes answered 206), so the best game is picked and its
  *     plays are suggested;
- *   - framing runs with frames from a recorded clip (grab_frames and probe_video answered in the page) and
- *     Claude's real answer from the 2026-11-27 staging run (the highlight-frame call answered here).
+ *   - framing runs on plain stills (grab_frames and probe_video answered in the page) with the positions of a
+ *     real Claude answer from the 2026-11-27 staging run (the highlight-frame call answered here).
  * Screenshots: highlights-<browser>-picker, -games, -tiles.
  */
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
 import { expect, shot, test } from "../helpers";
 
-const FRAMES_DIR = "/Users/leonard/Documents/super-coach/tracking-spike/work/claude/frames/pedro-q1-0543-2pt";
+/** A small plain JPEG: every frame the page asks for. */
+const FRAME_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYyLjExLjEwMAD/2wBDAAgQEBMQExYWFhYWFhoYGhsbGxoaGhobGxsdHR0iIiIdHR0bGx0dICAiIiUmJSMjIiMmJigoKDAwLi44ODpFRVP/xABMAAEBAAAAAAAAAAAAAAAAAAAABQEBAQAAAAAAAAAAAAAAAAAAAAQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAA2AGADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCWAjUgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/Z";
 const ANSWER = {
   observation: {
     frames: [0.665, 0.635, 0.61, 0.568, 0.533, 0.488, 0.44, 0.4, 0.345, 0.298, 0.262, 0.218, 0.178].map((x, i) => ({ image: i + 1, x, cameraCut: false })),
@@ -20,14 +19,14 @@ const ANSWER = {
     rimX: 0.265,
     madeImage: 11,
     identity: "likely",
-    note: "Followed the white #78 from the top of the key as he received the ball and drove left for the layup.",
+    note: "Followed the shooter from the top of the key to the layup.",
   },
   usage: { model: "claude-opus-5-5", inputTokens: 10764, outputTokens: 1232, latencyMs: 14297, fallback: false },
 };
 
 test("highlights: pick yourself, your games, framed tiles", async ({ page, browserName }) => {
   const name = (step: string) => `highlights-${browserName}-${step}`;
-  const frames = readdirSync(FRAMES_DIR).filter((f) => f.endsWith(".jpg")).sort().map((f) => readFileSync(path.join(FRAMES_DIR, f)).toString("base64"));
+  const frames = [FRAME_JPEG];
 
   let savedPlayer = false;
   await page.route("**/rest/v1/my_players*", async (route) => {

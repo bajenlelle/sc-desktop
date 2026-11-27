@@ -30,7 +30,7 @@ export interface FrameUsage {
 
 export interface FrameClipRequest {
   frames: { jpegBase64: string }[];
-  /** Who to follow: "#78 Pedro Lelo Hök of Fryshuset Basketbollklubb". */
+  /** Who to follow: "#78 Alex Berg of Fryshuset Basketbollklubb". */
   target: string;
   /** The teams and what the play-by-play says about the clip. */
   context: string;
@@ -63,7 +63,7 @@ export async function frameClip(supabase: SupabaseClient, req: FrameClipRequest)
   return { ok: true, data: data as FrameClipResponse };
 }
 
-/** "#78 Pedro Lelo Hök of Fryshuset Basketbollklubb": who Claude follows. */
+/** "#78 Alex Berg of Fryshuset Basketbollklubb": who Claude follows. */
 export function framingTarget(anchor: PlayByPlayEvent, teams: { home: string; away: string }): string {
   const p = anchor.player;
   const team = p?.teamNumber === 2 ? teams.away : teams.home;

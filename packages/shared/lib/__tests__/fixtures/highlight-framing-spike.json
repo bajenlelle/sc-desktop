@@ -1,6 +1,6 @@
 [
  {
-  "slug": "pedro-q1-0543-2pt",
+  "slug": "broadcast-layup",
   "shot": true,
   "cropW": 0.31640625,
   "times": [
@@ -90,7 +90,7 @@
    "rimX": 0.265,
    "madeImage": 11,
    "identity": "likely",
-   "note": "Followed the white #78 from the top of the key as he received the ball and drove left for the layup; after landing he is hard to separate from white #8 near the basket, so the last frames are less certain."
+   "note": ""
   },
   "pythonKeyframes": [
    {
@@ -116,7 +116,7 @@
   ]
  },
  {
-  "slug": "pedro-q3-dunk",
+  "slug": "broadcast-dunk",
   "shot": true,
   "cropW": 0.31640625,
   "times": [
@@ -242,7 +242,7 @@
    "rimX": 0.72,
    "madeImage": 14,
    "identity": "likely",
-   "note": "Followed the white-jersey Fryshuset player who cuts from the left wing through the lane and dunks; jersey number hard to read at distance, identified mainly by the dunk and frame continuity."
+   "note": ""
   },
   "pythonKeyframes": [
    {
@@ -276,7 +276,7 @@
   ]
  },
  {
-  "slug": "theo-trelleborg-3",
+  "slug": "named-player-no-shot",
   "shot": false,
   "cropW": 0.31640625,
   "times": [
@@ -438,7 +438,7 @@
    "rimX": 0.29,
    "madeImage": null,
    "identity": "likely",
-   "note": "Followed the white-jersey player with wavy hair who received the swing pass, dribbled on the right wing and drove for the shot; number not clearly readable and he was partly hidden in traffic during the drive."
+   "note": ""
   },
   "pythonKeyframes": [
    {

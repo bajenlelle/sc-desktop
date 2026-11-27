@@ -15,7 +15,7 @@ const layup: PlayByPlayEvent = {
   gameClockTime: "05:43",
   realWorldTime: "2026-10-21T17:12:00.000Z",
   isSuccessful: 1,
-  player: { playerId: 78001, pno: 78, firstName: "Pedro", familyName: "Lelo Hök", teamNumber: 2 },
+  player: { playerId: 78001, pno: 78, firstName: "Alex", familyName: "Berg", teamNumber: 2 },
   eventTeam: null,
   qualifiers: [],
   scoreHome: 13,
@@ -32,12 +32,12 @@ function supabaseReturning(result: { data?: unknown; error?: unknown }) {
 
 describe("prompts", () => {
   it("names the player with number and team", () => {
-    expect(framingTarget(layup, TEAMS)).toBe("#78 Pedro Lelo Hök of Fryshuset Basketbollklubb");
+    expect(framingTarget(layup, TEAMS)).toBe("#78 Alex Berg of Fryshuset Basketbollklubb");
   });
 
   it("states the teams and the clip's play-by-play", () => {
     expect(framingContext(candidate, TEAMS)).toBe(
-      "Eskilstuna Basket (home) vs Fryshuset Basketbollklubb (away), Superettan Herr. Play-by-play for this clip: Q1 05:43: 2PT Made by #78 Pedro Lelo Hök (score 13-15).",
+      "Eskilstuna Basket (home) vs Fryshuset Basketbollklubb (away), Superettan Herr. Play-by-play for this clip: Q1 05:43: 2PT Made by #78 Alex Berg (score 13-15).",
     );
   });
 });
