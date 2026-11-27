@@ -203,6 +203,32 @@ export async function getMyShareForPlaylist(
   return { id: data.id as string, createdAt: data.created_at as string };
 }
 
+/**
+ * Newest non-expired share the caller made without a playlist (a player's highlight video) with the same aspect and
+ * content fingerprint: the same plays, framing and graphics. Exact match only, like getMyShareForPlaylist.
+ */
+export async function getMyShareByContentKey(
+  supabase: SupabaseClient,
+  aspect: HighlightAspect,
+  contentKey: string
+): Promise<{ id: string; createdAt: string } | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await supabase
+    .from("highlight_shares")
+    .select("id, created_at")
+    .eq("user_id", user.id)
+    .is("playlist_id", null)
+    .eq("aspect", aspect)
+    .eq("content_key", contentKey)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return { id: data.id as string, createdAt: data.created_at as string };
+}
+
 /** Anonymous-safe lookup used by the public /h/{id} page. */
 export async function getHighlightShare(
   supabase: SupabaseClient,

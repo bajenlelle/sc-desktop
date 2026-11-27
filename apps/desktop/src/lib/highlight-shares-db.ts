@@ -14,3 +14,5 @@ export const getMyShareForPlaylist = (
   aspect: db.HighlightAspect,
   contentKey: string,
 ) => db.getMyShareForPlaylist(c(), playlistId, aspect, contentKey);
+export const getMyShareByContentKey = (aspect: db.HighlightAspect, contentKey: string) =>
+  db.getMyShareByContentKey(c(), aspect, contentKey);

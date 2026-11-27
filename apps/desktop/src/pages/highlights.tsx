@@ -12,14 +12,16 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Reorder } from "framer-motion";
-import { AlertTriangle, Check, Film, Pause, Play, Plus, RotateCcw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Check, Film, Pause, Play, Plus, RotateCcw, Smartphone, Sparkles, X } from "lucide-react";
 import { cropWidthFrac, cxAt, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { playClock } from "@scoutable/shared/lib/events";
 import { sampleTimes } from "@scoutable/shared/lib/highlight-framing";
 import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import { estimatedSeconds, type HighlightCandidate } from "@scoutable/shared/lib/highlight-picks";
+import { highlightWatermark } from "@scoutable/shared/lib/player-access";
 import { CropOverlay, upsertKeyframe } from "@/components/crop-editor";
 import { EmptyState } from "@/components/empty-state";
+import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +34,8 @@ import { VideoPlayer } from "@/components/video-player";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
-import { createHighlightVideo } from "@/lib/highlight-create";
+import { buildHighlightSegments, createHighlightVideo, highlightVideoName } from "@/lib/highlight-create";
+import type { ExportSegment } from "@/lib/export";
 import { getExportWatermarkDisabled } from "@/lib/prefs";
 import { Sentry } from "@/lib/sentry";
 import { streamFileSrc } from "@/lib/stream";
@@ -76,6 +79,7 @@ export function HighlightsPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [making, setMaking] = useState<{ progress: ExportProgress | null; saving: boolean } | null>(null);
   const [made, setMade] = useState<string | null>(null);
+  const [sending, setSending] = useState<{ name: string; segments: ExportSegment[]; watermark: boolean } | null>(null);
   const stopRef = useRef<AbortController | null>(null);
 
   const inVideo = h.order.map((k) => h.playByKey.get(k)).filter((p): p is HighlightPlay => !!p);
@@ -88,13 +92,34 @@ export function HighlightsPage() {
   }, 0) + 2; // the end card
   const framingCount = inVideo.filter((p) => h.framing.get(p.candidate.key)?.state === "framing").length;
   const editingPlay = editing ? h.playByKey.get(editing) : undefined;
-  const canCreate = !!h.player && inVideo.length > 0 && framingCount === 0 && !making;
+  // Every play in the video needs its framing: an unframed play would be the wide window cut to the frame's middle.
+  const unframedCount = inVideo.filter((p) => h.framing.get(p.candidate.key)?.state === "failed").length;
+  const canCreate = !!h.player && inVideo.length > 0 && framingCount === 0 && unframedCount === 0 && !making;
+  const blockedBy = framingCount > 0
+    ? "Wait for the framing to finish"
+    : unframedCount > 0
+      ? "Some plays aren't framed. Try them again or remove them."
+      : inVideo.length === 0
+        ? "Add plays to the video first"
+        : undefined;
+
+  // The same rule for the saved video and the copy sent to the phone.
+  const watermarkOn = () => highlightWatermark(activeOrgPlan, getExportWatermarkDisabled());
+
+  const sendToPhone = async () => {
+    if (!h.player || !canCreate) return;
+    try {
+      const { segments } = await buildHighlightSegments({ plays: inVideo, framing: h.framing, mine: h.mine, player: h.player });
+      setSending({ name: highlightVideoName(h.player), segments, watermark: watermarkOn() });
+    } catch (e) {
+      Sentry.captureException(e, { tags: { feature: "highlights", step: "send" } });
+      toast.error("Couldn't send the video", { description: e instanceof Error ? e.message : String(e) });
+    }
+  };
 
   const create = async () => {
     if (!h.player || !canCreate) return;
-    // Free highlights carry the watermark; Pro and Franchise may turn it off in Settings, as with any export.
-    const canDisableWatermark = activeOrgPlan === "pro" || activeOrgPlan === "franchise";
-    const watermark = !(canDisableWatermark && getExportWatermarkDisabled());
+    const watermark = watermarkOn();
     const stop = new AbortController();
     stopRef.current = stop;
     setMaking({ progress: null, saving: false });
@@ -199,6 +224,7 @@ export function HighlightsPage() {
             <p className="text-subheadline text-muted-foreground nums">
               {inVideo.length === 1 ? "1 play" : `${inVideo.length} plays`} · about {Math.round(seconds)} s
               {framingCount > 0 && ` · Framing ${framingCount}…`}
+              {framingCount === 0 && unframedCount > 0 && ` · ${unframedCount} not framed`}
             </p>
           </div>
           {inVideo.length === 0 ? (
@@ -232,14 +258,20 @@ export function HighlightsPage() {
         title="Highlights"
         subtitle="Your best plays, framed for your phone"
         actions={
-          <Button
-            disabled={!canCreate}
-            onClick={() => void create()}
-            title={framingCount > 0 ? "Wait for the framing to finish" : inVideo.length === 0 ? "Add plays to the video first" : undefined}
-          >
-            <Sparkles />
-            Create video
-          </Button>
+          <>
+            <Button variant="ghost" disabled={!canCreate} onClick={() => void sendToPhone()} title={blockedBy}>
+              <Smartphone />
+              Send to phone
+            </Button>
+            <Button
+              disabled={!canCreate}
+              onClick={() => void create()}
+              title={blockedBy}
+            >
+              <Sparkles />
+              Create video
+            </Button>
+          </>
         }
       />
       <PageContent width="medium">{body()}</PageContent>
@@ -265,7 +297,18 @@ export function HighlightsPage() {
           </DialogContent>
         </Dialog>
       )}
-      {made && <MadeDialog path={made} onClose={() => setMade(null)} />}
+      {made && <MadeDialog path={made} onClose={() => setMade(null)} onSend={() => { setMade(null); void sendToPhone(); }} />}
+      <SendToPhoneDialog
+        open={!!sending}
+        onClose={() => setSending(null)}
+        playlist={sending ? { id: null, name: sending.name } : null}
+        segments={sending?.segments ?? []}
+        preRoll={0}
+        postRoll={0}
+        isSelection={false}
+        vertical
+        highlight={sending ? { watermark: sending.watermark } : undefined}
+      />
       {editingPlay && (
         <CropDialog
           play={editingPlay}
@@ -401,7 +444,11 @@ function VideoTile({ play, index, framing, onRemove, onOpen, onRetry }: {
         {framing?.state === "failed" && (
           <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center text-xs text-muted-foreground">
             <RotateCcw className="size-4" />
-            {framing.error === "too_many_requests" ? "Daily limit reached. Try again tomorrow." : framing.error === "framing_disabled" ? "Framing is off right now." : "Couldn't frame this play. Click to try again."}
+            {framing.error === "too_many_requests"
+              ? "Daily limit reached. Try again tomorrow."
+              : framing.error === "framing_disabled" || framing.error === "framing_unavailable"
+                ? "Framing isn't available right now. Click to try again later."
+                : "Couldn't frame this play. Click to try again."}
           </span>
         )}
       </button>
@@ -542,7 +589,7 @@ function LoopingClip({ src, videoRef, start, end, onPlaying }: {
 }
 
 /** The finished video, playing, with a way to it on disk. */
-function MadeDialog({ path, onClose }: { path: string; onClose: () => void }) {
+function MadeDialog({ path, onClose, onSend }: { path: string; onClose: () => void; onSend: () => void }) {
   const name = path.split(/[/\\]/).pop() ?? path;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -556,6 +603,10 @@ function MadeDialog({ path, onClose }: { path: string; onClose: () => void }) {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => revealItemInDir(path).catch(() => {})}>Show in folder</Button>
+          <Button variant="outline" onClick={onSend}>
+            <Smartphone />
+            Send to phone
+          </Button>
           <Button onClick={onClose}>Done</Button>
         </DialogFooter>
       </DialogContent>

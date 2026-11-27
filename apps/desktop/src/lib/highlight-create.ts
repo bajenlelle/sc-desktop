@@ -28,7 +28,8 @@ export interface CreateHighlightArgs {
   opts?: Pick<ExportOptions, "onProgress" | "signal" | "onPathChosen">;
 }
 
-export async function createHighlightVideo({ plays, framing, mine, player, watermark, opts }: CreateHighlightArgs): Promise<{ path: string | null; clips: number; seconds: number }> {
+/** The video's segments: every play with its graphics, then the end card. Throws when no play can be placed. */
+export async function buildHighlightSegments({ plays, framing, mine, player }: Omit<CreateHighlightArgs, "watermark" | "opts">): Promise<{ segments: ExportSegment[]; clips: number; seconds: number }> {
   const inputs: HighlightPlanInput[] = plays.flatMap((p) => {
     const f = framing.get(p.candidate.key);
     const ready = f?.state === "ready" ? f.clip : null;
@@ -70,7 +71,14 @@ export async function createHighlightVideo({ plays, framing, mine, player, water
     { kind: "image", pngBase64: endCard, durationSeconds: HIGHLIGHT_END_CARD_SECONDS },
   ];
   const seconds = plan.reduce((s, c) => s + c.preRollOffset + c.postRollOffset, HIGHLIGHT_END_CARD_SECONDS);
-  const name = `${player.name} highlights`;
-  const path = await exportPlaylist(segments, 0, 0, name, watermark, true, { ...opts, hardCuts: true });
-  return { path, clips: plan.length, seconds };
+  return { segments, clips: plan.length, seconds };
+}
+
+/** The file's name and the share's title. */
+export const highlightVideoName = (player: MyPlayer) => `${player.name} highlights`;
+
+export async function createHighlightVideo({ watermark, opts, ...args }: CreateHighlightArgs): Promise<{ path: string | null; clips: number; seconds: number }> {
+  const { segments, clips, seconds } = await buildHighlightSegments(args);
+  const path = await exportPlaylist(segments, 0, 0, highlightVideoName(args.player), watermark, true, { ...opts, hardCuts: true });
+  return { path, clips, seconds };
 }

@@ -50,6 +50,11 @@ test("highlights: pick yourself, your games, framed tiles", async ({ page, brows
     const original = internals.invoke.bind(internals);
     internals.invoke = (cmd, args, opts) => {
       if (cmd === "probe_video") return Promise.resolve({ durationMs: 7_200_000, width: 1920, height: 1080, fps: 25 });
+      if (cmd === "export_playlist") {
+        // Record what the render was asked for, and keep it running: the dialog's working state is what's checked.
+        (window as unknown as { __exports: unknown[] }).__exports = [...((window as unknown as { __exports?: unknown[] }).__exports ?? []), args];
+        return new Promise(() => {});
+      }
       if (cmd === "grab_frames") {
         const req = (args?.req ?? {}) as { at?: { kind: string; times?: number[] } };
         const times = req.at?.times ?? [0];
@@ -74,4 +79,20 @@ test("highlights: pick yourself, your games, framed tiles", async ({ page, brows
   expect(framed, "the plays in the video were framed").toBeGreaterThan(0);
   await page.waitForTimeout(800); // the stills settle in
   await shot(page, name("tiles"));
+
+  // Send to phone: no earlier link for these plays, so it renders at once, 9:16, with hard cuts and the watermark.
+  await page.route("**/rest/v1/highlight_shares*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "null" }));
+  await page.getByRole("button", { name: "Send to phone" }).click();
+  const dialog = page.getByRole("dialog", { name: "Send to your phone" });
+  await expect(dialog.getByText("Rendering your highlight…")).toBeVisible({ timeout: 15_000 });
+  const exports = () => page.evaluate(() => (window as unknown as { __exports?: Array<Record<string, unknown>> }).__exports ?? []);
+  await expect.poll(async () => (await exports()).length, { message: "the render starts", timeout: 15_000 }).toBe(1);
+  const asked = await exports();
+  expect(asked[0]).toMatchObject({ vertical: true, watermark: true, hardCuts: true });
+  const segs = asked[0].segments as Array<Record<string, unknown>>;
+  expect(segs.at(-1), "the video ends on the end card").toMatchObject({ kind: "image" });
+  await shot(page, name("send"));
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
 });

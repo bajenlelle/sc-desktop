@@ -211,6 +211,12 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error("[highlight-frame] model call failed:", e instanceof Error ? e.message : e);
+    // The account can't call the API at all (no credit, a revoked key): every other play would fail the same way, so
+    // say so once and let the app stop asking. Anything else is this one call.
+    if (e instanceof Anthropic.APIError && (e.status === 401 || e.status === 403 || (e.status === 400 && /credit balance/i.test(e.message)))) {
+      await logRun("unavailable");
+      return err(503, "framing_unavailable");
+    }
     await logRun("api_error");
     return err(502, "model_error");
   }

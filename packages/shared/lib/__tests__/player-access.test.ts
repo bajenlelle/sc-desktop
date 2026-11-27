@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activePass,
   canExport,
+  highlightWatermark,
   formatKronor,
   gameBadge,
   importBadge,
@@ -254,5 +255,15 @@ describe("importBadge", () => {
       "Uses 1 of your 2 games",
     );
     expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 0 }))).toEqual({ label: "129 kr", tone: "price" });
+  });
+});
+
+describe("highlightWatermark", () => {
+  it("stays on for free and rookie, and Pro or Franchise may turn it off", () => {
+    expect(highlightWatermark("free", true)).toBe(true);
+    expect(highlightWatermark("rookie", true)).toBe(true);
+    expect(highlightWatermark("pro", false)).toBe(true);
+    expect(highlightWatermark("pro", true)).toBe(false);
+    expect(highlightWatermark("franchise", true)).toBe(false);
   });
 });

@@ -44,7 +44,7 @@ export interface FrameClipResponse {
 }
 
 /** Errors the page doesn't report: the feature switched off, or the daily limit reached. */
-export const SILENT_FRAME_ERRORS = new Set(["framing_disabled", "too_many_requests"]);
+export const SILENT_FRAME_ERRORS = new Set(["framing_disabled", "too_many_requests", "framing_unavailable"]);
 
 export async function frameClip(supabase: SupabaseClient, req: FrameClipRequest): Promise<HighlightFrameResult<FrameClipResponse>> {
   const { data, error } = await supabase.functions.invoke("highlight-frame", { body: req });

@@ -14,9 +14,8 @@ import { Button } from "@/components/ui/button";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { sendHighlightToPhone, type SendToPhoneStage } from "@/lib/highlight-share";
-import { getMyShareForPlaylist } from "@/lib/highlight-shares-db";
-import { highlightContentKey } from "@scoutable/shared/lib/highlight-shares-db";
+import { sendHighlightToPhone, shareContentKey, type SendToPhoneStage } from "@/lib/highlight-share";
+import { getMyShareByContentKey, getMyShareForPlaylist } from "@/lib/highlight-shares-db";
 import {
   exportProgressLabel,
   exportProgressPercent,
@@ -65,17 +64,22 @@ export function SendToPhoneDialog({
   postRoll,
   isSelection,
   vertical = false,
+  highlight,
 }: {
   open: boolean;
   onClose: () => void;
-  playlist: { id: string; name: string } | null;
+  /** What is sent; a player's highlight video has no playlist (id null). */
+  playlist: { id: string | null; name: string } | null;
   segments: ExportSegment[];
   preRoll: number;
   postRoll: number;
   isSelection: boolean;
   /** Render 9:16 instead of 16:9. Always renders fresh — stored links point at 16:9 masters. */
   vertical?: boolean;
+  /** A player's highlight video: hard cuts, and the watermark follows the player's plan. */
+  highlight?: { watermark: boolean };
 }) {
+  const noun = highlight ? "video" : "playlist";
   const [stage, setStage] = useState<SendToPhoneStage | null>(null);
   const [renderProgress, setRenderProgress] = useState<ExportProgress | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -94,7 +98,7 @@ export function SendToPhoneDialog({
   // never the raw prop, or the cached link stops matching its content.
   const keptRef = useRef<ExportSegment[]>(segments);
 
-  function runPipeline(pl: { id: string; name: string }) {
+  function runPipeline(pl: { id: string | null; name: string }) {
     if (runningRef.current) return;
     runningRef.current = true;
     const run = ++runIdRef.current;
@@ -106,7 +110,8 @@ export function SendToPhoneDialog({
     setReusedFrom(null);
     setRenderProgress(null);
     const kept = keptRef.current;
-    sendHighlightToPhone(pl, kept, preRoll, postRoll, setStage, vertical, setRenderProgress, controller.signal)
+    sendHighlightToPhone(pl, kept, preRoll, postRoll, setStage, vertical, setRenderProgress, controller.signal,
+      highlight ? { hardCuts: true, watermark: highlight.watermark } : undefined)
       .then((url) => {
         if (controller.signal.aborted || !current()) return;
         setShareUrl(url);
@@ -117,6 +122,7 @@ export function SendToPhoneDialog({
           reused: false,
           is_selection: isSelection,
           ...(vertical ? { aspect: "9:16" } : {}),
+          ...(highlight ? { kind: "player_highlight", watermark: highlight.watermark } : {}),
         });
       })
       .catch((e) => {
@@ -161,7 +167,8 @@ export function SendToPhoneDialog({
       // KEPT set: relinking the full recording changes it → fresh render
       // instead of reusing a partial master.
       const aspect = vertical ? ("9:16" as const) : ("16:9" as const);
-      getMyShareForPlaylist(playlist.id, aspect, highlightContentKey(kept, preRoll, postRoll, aspect))
+      const key = shareContentKey(kept, preRoll, postRoll, vertical, highlight);
+      (playlist.id ? getMyShareForPlaylist(playlist.id, aspect, key) : getMyShareByContentKey(aspect, key))
         .then((existing) => {
           if (cancelled) return;
           if (existing) {
@@ -171,6 +178,7 @@ export function SendToPhoneDialog({
               playlist_id: playlist.id,
               reused: true,
               ...(vertical ? { aspect: "9:16" } : {}),
+              ...(highlight ? { kind: "player_highlight" } : {}),
             });
           } else {
             runPipeline(playlist);
@@ -271,13 +279,13 @@ export function SendToPhoneDialog({
                           Create new link
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Renders again, for when the playlist changed after this link was made</TooltipContent>
+                      <TooltipContent>Renders again, for when the {noun} changed after this link was made</TooltipContent>
                     </Tooltip>
                   )}
                 </div>
                 <p className="text-center text-callout text-muted-foreground">
                   {reusedFrom
-                    ? `Link created ${relativeDays(reusedFrom)} — playlist changed since? Create a new link.`
+                    ? `Link created ${relativeDays(reusedFrom)} — ${noun} changed since? Create a new link.`
                     : "The link works for 30 days — save the video to your phone right away."}
                 </p>
               </motion.div>
@@ -300,7 +308,7 @@ export function SendToPhoneDialog({
                     </>
                   )}
                   {stage !== "rendering" && (
-                    <p className="text-callout text-muted-foreground">Long playlists can take a few minutes.</p>
+                    <p className="text-callout text-muted-foreground">{highlight ? "This takes about a minute." : "Long playlists can take a few minutes."}</p>
                   )}
                 </div>
               </motion.div>
