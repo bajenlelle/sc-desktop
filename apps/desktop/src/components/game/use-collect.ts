@@ -8,6 +8,7 @@ import { mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
 import { isClipItem, type Playlist, type PlaylistClipItem, type PlaylistItem, type StoredMatch } from "@/types/match";
 import { trackEvent } from "@/lib/analytics";
 import { announcePlaylistsChanged } from "@/lib/playlist-events";
+import { allPlaylistWritesSettled, enqueuePlaylistWrite, forgetPlaylistWrites, playlistWritesSettled } from "@/lib/playlist-write-queue";
 import { listEventsForMatches, listMatchesByIds } from "@/lib/matches-db";
 import { appendClips, createPlaylist, listPlaylists, writePlaylistItems } from "@/lib/playlists-db";
 import { getCollectTarget, setAddClipsScope, setCollectTarget } from "@/lib/prefs";
@@ -34,17 +35,10 @@ const COLLECT_TOAST = "game-collect";
 /** This session's last playlists read, by `${orgId}|${includeUnscoped}`: the next visit shows them at once and reads again behind. */
 let lastList: { key: string; list: Playlist[] } | null = null;
 
-/**
- * Each playlist's writes in flight, by playlist id, for the whole app: a game
- * a tab switch just left may still be writing, and the next game's read and
- * writes wait for it.
- */
-const chains = new Map<string, Promise<void>>();
-
 /** Forgets the last read, so another user signing in never sees this one's playlists. */
 export function forgetPlaylistsRead(): void {
   lastList = null;
-  chains.clear();
+  forgetPlaylistWrites();
 }
 
 /**
@@ -145,7 +139,7 @@ export function useCollect({
     setReadLanded(false);
     setPlaylists(cached);
     // After the writes still in flight (from the game just left, too): never a base about to change.
-    const read = Promise.all([...chains.values()].map((c) => c.catch(() => {})))
+    const read = allPlaylistWritesSettled()
       .then(() => listPlaylists(orgId ?? undefined, { includeUnscoped }))
       .then((list) => {
         // Set even when the page has gone, so writes made before it left still land. Merged: a playlist made
@@ -227,14 +221,9 @@ export function useCollect({
     [edit],
   );
 
+  // A playlist's writes wait for each other app-wide (lib/playlist-write-queue.ts), and for this page's read: never from the earlier list.
   const enqueue = useCallback((playlistId: string, job: () => Promise<void>) => {
-    // A playlist's first write here waits for this page's read: never from the earlier list.
-    const before = chains.get(playlistId);
-    const next = (before ? Promise.all([before, loadedRef.current]) : loadedRef.current).then(job).catch(() => {});
-    chains.set(playlistId, next);
-    void next.then(() => {
-      if (chains.get(playlistId) === next) chains.delete(playlistId);
-    });
+    void enqueuePlaylistWrite(playlistId, job, loadedRef.current);
   }, []);
 
   const undo = useCallback(
@@ -282,7 +271,7 @@ export function useCollect({
     (playlist: Playlist): ShipJob =>
       async ({ trigger, report }) => {
         try {
-          await (chains.get(playlist.id) ?? Promise.resolve());
+          await playlistWritesSettled(playlist.id);
           // What the server holds, so a clip whose add is still out is never cut without its row.
           const items = saved.current.get(playlist.id) ?? playlist.items;
           const count = items.filter((i) => isClipItem(i) && !i.r2Url).length;

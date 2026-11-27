@@ -77,7 +77,50 @@ is the selected sidebar row. A link from before the page
   Back button (`leading`) and **Edit clips** (`onEditClips`), which opens the
   playlist in the editor; a clip's "Edit clip" opens it there with that clip
   selected (`reveal`).
-- Esc stops a clip, then the selection, then goes Back.
+- Esc stops a clip, then the selection, then goes Back (not while the Add
+  clips sheet is open: Esc is the sheet's).
+
+## Adding clips (`report-view.tsx`, `lib/use-report-add-clips.ts`)
+
+The coach adds clips without leaving the report, as FastScout adds video to
+a report tile: the playlist editor's **Add clips** sheet (`ClipBrowserPanel`)
+opens over the report, adding to one section.
+
+- **Where it opens.** A quiet **+ Add clips** under every section that holds
+  clips (Keys, each player, Their actions, a section of the coach's own) adds
+  to that section; the toolbar's **Add clips** adds "Sorted by player" (no
+  placement: each clip goes where its player is, else Their actions). The
+  sheet's header names the report ("Add clips to AIK · Sat 28 Nov") and the
+  section ("Adding to #11 Nilsson ▾", a menu of every section, hidden ones
+  marked), which the coach changes without closing it.
+- **Where it starts** (`ClipBrowserStart`): the games last browsed for this
+  report, else the opponent's played games in the library
+  (`teamLibraryGames`, from the draft's `team`), else the editor's default.
+  From a player's section the Player filter starts on that player
+  (`id:<personId>`, or the `px:` key); from any other with the opponent's
+  name as the Team filter. Both are pruned, as any filter, to what the games'
+  plays have.
+- **What a row says** (`ClipBrowserTarget.placement`): + for a play not in
+  the report; ✓ for one in this section (a press leaves it out of the
+  report, with the report's Undo); ⇄ "In Keys. Move to Their actions" for one
+  in another section or left out (a press, or ticking it with the rest, moves
+  it here); a still ✓ while adding sorted by player.
+- **Adding** (`useReportWorkspace.addClips`): the plays of games new to the
+  report are read first (a failed read adds nothing: "Couldn't add the
+  clips"), the report shows the clips, and `appendClips` writes them through
+  the app's per-playlist write queue (`lib/playlist-write-queue.ts`, shared
+  with the game view's collecting). Then `placeClips` pins them to the
+  section, except a clip that would land there anyway (its player's section,
+  or Their actions for a play about no one), which keeps following its
+  player. New clips read last in their section. The toast says "3 clips
+  added to #11 Nilsson" with **Undo**, which takes them out of the playlist
+  again (`removeClips`).
+- The sheet reads the labels on the games it shows through
+  `useClipLabels().ensure`, merged into the report's own.
+- The playlist editor's report view has no Add clips (it has the playlist's).
+- A legacy report whose playlist is shared with players: clips added here go
+  out with the playlist's next send from the editor or the game view, not at
+  once.
 
 ## Sections (`blocks` in the draft)
 

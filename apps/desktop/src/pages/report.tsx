@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { FileText } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -54,6 +54,9 @@ export function ReportPage() {
     (reveal?: string) => navigate("/playlists", { state: { restore: { playlistId }, ...(reveal ? { reveal } : {}) } }),
     [navigate, playlistId],
   );
+  // Add clips from the report itself: the sheet adds to the report's playlist through the page.
+  const { addClips: add, removeClips, ensureLabels, labelHandlers } = ws;
+  const addClips = useMemo(() => ({ add, remove: removeClips, ensureLabels, labelHandlers }), [add, removeClips, ensureLabels, labelHandlers]);
   // Read once: a reload or Back to this page doesn't open the share sheet again.
   const clearShare = useCallback(() => navigate(location.pathname, { replace: true, state: { ...state, share: false } }), [navigate, location.pathname, state]);
 
@@ -116,6 +119,7 @@ export function ReportPage() {
         localVideoPath={ws.localVideoPath}
         autoOpenShare={!!state.share}
         onAutoShared={clearShare}
+        addClips={addClips}
       />
     </Page>
   );

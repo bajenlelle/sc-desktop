@@ -207,5 +207,40 @@ export function useClipLabels(orgId: string | null, matchIds: readonly string[],
 
   const labelsOf = useCallback((key: string): ReadonlySet<string> | undefined => assignments.get(key), [assignments]);
 
-  return { labels, assignments, labelsOf, handlers, applied };
+  /**
+   * The labels on more games' clips than `matchIds` (the Add clips sheet over a report browses the
+   * library): read once per game and merged in, without a new read of the rest. A game already
+   * among `matchIds`, or asked for before, reads nothing.
+   */
+  const extra = useRef<{ key: string; games: Set<string> }>({ key: cacheKey, games: new Set() });
+  const ensure = useCallback(
+    async (ids: string[]) => {
+      if (extra.current.key !== cacheKey) extra.current = { key: cacheKey, games: new Set() };
+      const own = new Set(gamesKey ? gamesKey.split(",") : []);
+      const missing = ids.filter((id) => !own.has(id) && !extra.current.games.has(id));
+      if (!orgId || missing.length === 0) return;
+      for (const id of missing) extra.current.games.add(id);
+      const asked = extra.current;
+      try {
+        const rows = await listAssignmentsForMatches(orgId, missing);
+        if (extra.current !== asked) return;
+        setAssignments((prev) => {
+          const next = new Map(prev);
+          for (const row of rows) {
+            const key = clipKey(row.matchId, row.eventId);
+            if (prev.has(key)) continue; // A toggle here since is newer than this read.
+            const set = next.get(key) ?? new Set<string>();
+            set.add(row.labelId);
+            next.set(key, set);
+          }
+          return next;
+        });
+      } catch {
+        for (const id of missing) asked.games.delete(id);
+      }
+    },
+    [orgId, cacheKey, gamesKey],
+  );
+
+  return { labels, assignments, labelsOf, handlers, applied, ensure };
 }

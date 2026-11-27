@@ -509,6 +509,36 @@ export function moveClip(draft: ReportDraft, key: string, to: Placement): Report
   return { ...draft, placements: { ...draft.placements, [key]: to } };
 }
 
+/** Where a clip goes when nothing placed it: its player's section, else the team. */
+function naturalPlacement(draft: ReportDraft, event: PlayByPlayEvent | undefined): Placement {
+  const playerId = event ? personKey(event) : null;
+  const own = playerId === null ? undefined : sectionOf(draft, playerId);
+  return own ? own.id : TEAM_SECTION;
+}
+
+/**
+ * Clips just added to the report from a section's Add clips: each goes to
+ * `to`. A clip that would land there by itself (its player's section, or
+ * Their actions for a play about no one) gets no placement, so it keeps
+ * following its player; any other gets one. `to` null ("Sorted by player")
+ * lets every clip follow its player. Unchanged for a target that doesn't
+ * exist. New clips read last in their section (the order doesn't name them).
+ */
+export function placeClips(
+  draft: ReportDraft,
+  keys: readonly string[],
+  to: Placement | null,
+  eventByKey: ReadonlyMap<string, PlayByPlayEvent>,
+): ReportDraft {
+  if (to !== null && !isTarget(draft, to)) return draft;
+  let next = draft;
+  for (const key of keys) {
+    if (to === null || naturalPlacement(next, eventByKey.get(key)) === to) next = clearPlacement(next, key);
+    else next = moveClip(next, key, to);
+  }
+  return next;
+}
+
 /** Lets the clip follow its player again. */
 export function clearPlacement(draft: ReportDraft, key: string): ReportDraft {
   if (!(key in draft.placements)) return draft;

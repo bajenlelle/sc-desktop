@@ -1,6 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { UserPlus } from "lucide-react";
+import { Plus, UserPlus } from "lucide-react";
+import { toast } from "sonner";
+import { ClipBrowserPanel, SORTED_BY_PLAYER, type ClipBrowserLabelHandlers, type ClipBrowserStart, type ClipBrowserTarget } from "@/components/editor/clip-browser-panel";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useReportAddClips } from "@/lib/use-report-add-clips";
+import { useAuth } from "@/lib/auth-context";
+import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import type { AddedClips } from "@/lib/use-report-workspace";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/shell/toolbar";
 import type { BackFallback } from "@/lib/nav-history";
@@ -32,8 +39,10 @@ import {
   setBlockTitle,
   defaultOpponent,
   deriveReportLayout,
+  clearPlacement,
   includeClips,
   moveClips,
+  placeClips,
   moveSection,
   nudgeClips,
   removeSection,
@@ -54,7 +63,7 @@ import { buildScoutingReport, reportOutline } from "@scoutable/shared/lib/scouti
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
 import type { OrgPlanTier } from "@scoutable/shared/types/org";
-import { isClipItem, type PlayByPlayEvent, type Playlist, type StoredMatch } from "@/types/match";
+import { isClipItem, type PlayByPlayEvent, type Playlist, type PlaylistClipItem, type StoredMatch } from "@/types/match";
 import { ReportDocument, clipDomSelector, sectionDomId, type SectionStatsContext, type ViewClip, type ViewSection } from "./report-document";
 import { ReportOutline, type MoveVia, type OutlineClipInfo, type OutlineSectionInfo } from "./report-outline";
 import { ReportPlayerPicker, type PickerConfirm } from "./report-player-picker";
@@ -110,7 +119,20 @@ export interface ReportViewProps {
   /** Share again from the Reports page: open the share sheet once the draft is read, then call onAutoShared. */
   autoOpenShare?: boolean;
   onAutoShared?: () => void;
+  /**
+   * Add clips from the report itself (its own page): the sheet adds through these and the report
+   * places what it added. Without them (the playlist editor's view) the report has no Add clips.
+   */
+  addClips?: {
+    add: (clips: PlaylistClipItem[]) => Promise<AddedClips | null>;
+    remove: (keys: readonly string[]) => Promise<boolean>;
+    ensureLabels: (matchIds: string[]) => Promise<void>;
+    labelHandlers: ClipBrowserLabelHandlers;
+  };
 }
+
+/** One toast for the report's adds: a new one replaces the last. */
+const ADD_TOAST = "report-add-clips";
 
 const STATS_CONCURRENCY = 3;
 
@@ -121,6 +143,11 @@ const collapsedByPlaylist = new Map<string, ReadonlySet<Placement>>();
 const FLASH_MS = 1200;
 
 const NO_TEAM_ROWS: TeamPlayerRow[] = [];
+
+/** The report's name: the coach's title, else the playlist's. */
+function effectiveTitleOf(draft: ReportDraft | null, playlistName: string): string {
+  return draft?.title ?? playlistName;
+}
 
 function toPerson(p: PlayerChoice): StatsPerson {
   return { playerId: p.playerId, name: p.name, number: p.number, teamName: p.teamName, matchId: p.matchId };
@@ -556,6 +583,105 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   }
 
   // ---------------------------------------------------------------------------
+  // Add clips (docs/scouting-reports.md, "Adding clips")
+  // ---------------------------------------------------------------------------
+
+  // The section the sheet adds to while it is open (SORTED_BY_PLAYER: none, each clip goes to its player); null: closed.
+  const [addTo, setAddTo] = useState<string | null>(null);
+  const addToRef = useRef(addTo);
+  addToRef.current = addTo;
+  const addSource = useReportAddClips(addTo !== null, playlist, draft?.team ?? null);
+  const { activeOrgId } = useAuth();
+  // What the sheet starts on, fixed when it opens: the opponent's games, and the section's player.
+  const [addStart, setAddStart] = useState<ClipBrowserStart | undefined>(undefined);
+  const sectionName = useCallback(
+    (id: string) => {
+      if (id === SORTED_BY_PLAYER) return "Sorted by player";
+      const info = sectionInfo.get(id);
+      if (!info) return "Section";
+      return info.number ? `#${info.number} ${info.label}` : info.label;
+    },
+    [sectionInfo],
+  );
+  const openAddClips = useCallback(
+    (sectionId: string | null) => {
+      if (!props.addClips) return;
+      const to = sectionId ?? SORTED_BY_PLAYER;
+      const player = draft?.sections.find((s) => s.id === to)?.player;
+      // The Player filter holds playerKey()s: a league person id, or a Profixio key as it is.
+      const playerKey = player ? (player.id.startsWith("px:") ? player.id : `id:${player.id}`) : null;
+      setAddStart({ games: addSource.opponentGames, teams: playerKey ? [] : addSource.opponentNames, players: playerKey ? [playerKey] : [] });
+      setPlaying(null);
+      setAddTo(to);
+      trackEvent("scouting_report_add_clips_opened", { from: sectionId === null ? "toolbar" : to === TEAM_SECTION ? "team" : player ? "player" : "section" });
+    },
+    [props.addClips, draft?.sections, addSource.opponentGames, addSource.opponentNames],
+  );
+
+  const addOptions = useMemo(
+    () => [
+      { id: SORTED_BY_PLAYER, label: "Sorted by player" },
+      ...(layout?.sections ?? []).filter((s) => s.accepts).map((s) => ({ id: s.id, label: sectionName(s.id), hidden: s.hidden })),
+    ],
+    [layout, sectionName],
+  );
+  const addPlacement = useMemo(() => {
+    const m = new Map<string, { id: string; label: string }>();
+    for (const [key, at] of placeOf) m.set(key, { id: at, label: at === LEFT_OUT ? "Not in report" : sectionName(at) });
+    return m;
+  }, [placeOf, sectionName]);
+
+  const handleAddClips = useCallback(
+    async (clips: PlaylistClipItem[]) => {
+      const add = props.addClips;
+      const to = addToRef.current;
+      if (!add || to === null) return;
+      const outcome = await add.add(clips);
+      if (!outcome) {
+        toast.error("Couldn’t add the clips", { id: ADD_TOAST, description: "Check your connection and try again." });
+        return;
+      }
+      if (outcome.clips.length === 0) return;
+      const keys = outcome.clips.map(itemKey);
+      const section = to === SORTED_BY_PLAYER ? null : to;
+      apply((d) => placeClips(d, keys, section, outcome.events));
+      const noun = keys.length === 1 ? "1 clip" : `${keys.length} clips`;
+      toast(section ? `${noun} added to ${sectionName(section)}` : `${noun} added`, {
+        id: ADD_TOAST,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void add.remove(keys).then((ok) => {
+              if (!ok) {
+                toast.error("Couldn’t take the clips out", { id: ADD_TOAST, description: "Check your connection and try again." });
+                return;
+              }
+              apply((d) => keys.reduce(clearPlacement, d));
+            });
+          },
+        },
+      });
+      trackEvent("scouting_report_clips_added", { clips: keys.length, to: section === null ? "sorted" : section === TEAM_SECTION ? "team" : draft?.sections.some((s) => s.id === section) ? "player" : "section" });
+    },
+    [props.addClips, apply, sectionName, draft?.sections],
+  );
+
+  const addLookup = useMemo(() => new Map((addSource.games ?? []).map((m) => [m.id, m])), [addSource.games]);
+
+  const addTarget = useMemo((): ClipBrowserTarget | undefined => {
+    if (addTo === null) return undefined;
+    return {
+      name: effectiveTitleOf(draft, playlist.name),
+      options: addOptions,
+      value: addTo,
+      onChange: setAddTo,
+      placement: addPlacement,
+      onMove: (keys) => moveClipsTo(keys, addTo, null, "add_clips"),
+      onRemove: (key) => moveClipsTo([key], LEFT_OUT, null, "add_clips"),
+    };
+  }, [addTo, draft, playlist.name, addOptions, addPlacement, moveClipsTo]);
+
+  // ---------------------------------------------------------------------------
   // Sharing
   // ---------------------------------------------------------------------------
 
@@ -625,7 +751,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       if (done) e.preventDefault();
       return;
     }
-    if (e.key === "Escape" && !pickerOpen && !shareOpen) {
+    if (e.key === "Escape" && !pickerOpen && !shareOpen && addTo === null) {
       e.preventDefault();
       // The playing clip stops first, then the selection goes, then the view.
       if (livePlaying) setPlaying(null);
@@ -685,6 +811,12 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
           {props.onEditClips && (
             <Button variant="ghost" size="sm" onClick={props.onEditClips}>
               Edit clips
+            </Button>
+          )}
+          {props.addClips && (
+            <Button variant="outline" size="sm" onClick={() => openAddClips(null)} disabled={!draft}>
+              <Plus />
+              Add clips
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={openPicker} disabled={!draft}>
@@ -788,6 +920,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 onMoveBlock={moveBlockBy}
                 onRemoveBlock={removeBlockWithUndo}
                 onAddBlock={addBlockOf}
+                onAddClips={props.addClips ? openAddClips : undefined}
               />
             </>
           ) : status === "error" ? (
@@ -802,6 +935,37 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
           )}
         </div>
       </div>
+
+      {props.addClips && (
+        <Sheet open={addTo !== null} onOpenChange={(open) => !open && setAddTo(null)}>
+          {/* As in the editor: only a press on the dim scrim closes it, never an Undo on a toast. */}
+          <SheetContent
+            onInteractOutside={(e) => {
+              const t = e.detail.originalEvent.target;
+              if (!(t instanceof Element && t.closest('[data-slot="sheet-overlay"]'))) e.preventDefault();
+            }}
+          >
+            {addSource.games ? (
+              <ClipBrowserPanel
+                matches={addSource.games}
+                matchLookup={addLookup}
+                playlist={playlist}
+                onAddClips={handleAddClips}
+                activeOrgId={activeOrgId}
+                labels={props.labels}
+                labelAssignments={props.clipAssignments as Map<string, Set<string>>}
+                labelHandlers={props.addClips.labelHandlers}
+                onNeedLabels={props.addClips.ensureLabels}
+                videoStatusByMatch={addSource.videoStatus}
+                target={addTarget}
+                start={addStart}
+              />
+            ) : (
+              <AddClipsLoading failed={addSource.failed} onClose={() => setAddTo(null)} />
+            )}
+          </SheetContent>
+        </Sheet>
+      )}
 
       <ReportPlayerPicker open={pickerOpen} onOpenChange={setPickerOpen} rows={leaderRowsAll} inReport={taken} noted={noted} initialTicked={initialTicked} loading={seasonsLoading} onConfirm={handlePicked} />
 
@@ -823,3 +987,22 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     </div>
   );
 });
+
+/** The Add clips sheet before the library is in, or when it couldn't be read. */
+function AddClipsLoading({ failed, onClose }: { failed: boolean; onClose: () => void }) {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="px-5 pt-4 pb-3">
+        <SheetTitle>Add clips</SheetTitle>
+        <SheetDescription>{failed ? "Couldn’t read your games." : "Reading your games…"}</SheetDescription>
+      </div>
+      {failed && (
+        <div className="px-5">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

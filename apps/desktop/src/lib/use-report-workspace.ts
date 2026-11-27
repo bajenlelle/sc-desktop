@@ -2,19 +2,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import type { ReportSeasonSnapshot } from "@scoutable/shared/lib/scouting-report";
-import { isClipItem, type PlayByPlayEvent, type Playlist, type StoredMatch } from "@/types/match";
+import { isClipItem, type PlayByPlayEvent, type Playlist, type PlaylistClipItem, type PlaylistItem, type StoredMatch } from "@/types/match";
 import type { ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import { openUpgradeFlow } from "@/lib/billing";
 import { listEventsForMatchesChecked, listMatchesByIds } from "@/lib/matches-db";
-import { getPlaylist } from "@/lib/playlists-db";
+import { appendClips, getPlaylist, writePlaylistItems } from "@/lib/playlists-db";
+import { announcePlaylistsChanged } from "@/lib/playlist-events";
+import { enqueuePlaylistWrite } from "@/lib/playlist-write-queue";
+import { itemKey } from "@scoutable/shared/lib/playlist-edits";
 import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-report";
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { buildShipSegments, DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL, demoShipBlockReason } from "@/lib/ship-clips";
 import { isLocalPath } from "@/lib/stream";
 import { useClipLabels } from "@/lib/use-clip-labels";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
+
+/** An add's outcome: the clips that went in, and the plays to place them by. */
+export interface AddedClips {
+  clips: PlaylistClipItem[];
+  events: ReadonlyMap<string, PlayByPlayEvent>;
+}
 
 export type ReportWorkspaceStatus = "loading" | "ready" | "missing" | "failed";
 
@@ -67,6 +76,99 @@ export function useReportWorkspace(playlistId: string) {
   const eventByKey: ReadonlyMap<string, PlayByPlayEvent> = current?.events ?? EMPTY_EVENTS;
   const playlistRef = useRef(playlist);
   playlistRef.current = playlist;
+
+  // What the server holds for the playlist: every write here goes from it (lib/playlist-write-queue.ts keeps them in turn).
+  const saved = useRef<{ id: string; items: PlaylistItem[] } | null>(null);
+  if (playlist && saved.current?.id !== playlist.id) saved.current = { id: playlist.id, items: playlist.items };
+
+  /**
+   * Adds clips to the report's playlist (its Add clips sheet): their games and plays are read
+   * first, so the report places them the moment they show; then the playlist shows them and the
+   * write follows. Resolves with the clips added (none already there) and the plays of every clip
+   * given, for placing them before the page has drawn them; or null when nothing could be added
+   * (the plays weren't read, or the write failed: the clips are taken back).
+   */
+  const addClips = useCallback(async (clips: PlaylistClipItem[]): Promise<AddedClips | null> => {
+    const pl = playlistRef.current;
+    if (!pl) return null;
+    const present = new Set(pl.items.filter(isClipItem).map(itemKey));
+    const fresh = clips.filter((c) => !present.has(itemKey(c)));
+    if (fresh.length === 0) return { clips: [], events: current?.events ?? new Map() };
+    const newGames = [...new Set(fresh.map((c) => c.matchId))].filter((id) => !(current?.matches.has(id) ?? false));
+    let games: StoredMatch[] = [];
+    let plays: Record<string, PlayByPlayEvent[]> = {};
+    if (newGames.length > 0) {
+      try {
+        const [read, checked] = await Promise.all([listMatchesByIds(newGames), listEventsForMatchesChecked(newGames)]);
+        if (checked.failed.length > 0) return null;
+        games = read;
+        plays = checked.byMatch;
+      } catch {
+        return null;
+      }
+    }
+    setState((s) => {
+      if (s.playlist?.id !== pl.id) return s;
+      const matches = new Map(s.matches);
+      for (const m of games) matches.set(m.id, m);
+      const events = new Map(s.events);
+      for (const [matchId, list] of Object.entries(plays)) for (const e of list) events.set(`${matchId}:${e.eventId}`, e);
+      const there = new Set(s.playlist.items.filter(isClipItem).map(itemKey));
+      return { ...s, matches, events, playlist: { ...s.playlist, items: [...s.playlist.items, ...fresh.filter((c) => !there.has(itemKey(c)))] } };
+    });
+    let ok = true;
+    await enqueuePlaylistWrite(pl.id, async () => {
+      const base = saved.current?.id === pl.id ? saved.current.items : pl.items;
+      try {
+        const added = await appendClips({ id: pl.id, items: base }, fresh);
+        saved.current = { id: pl.id, items: [...base, ...added] };
+        if (added.length > 0) announcePlaylistsChanged();
+      } catch (e) {
+        console.error("[report] adding clips failed:", e);
+        ok = false;
+      }
+    });
+    if (!ok) {
+      const failed = new Set(fresh.map(itemKey));
+      setState((s) =>
+        s.playlist?.id !== pl.id ? s : { ...s, playlist: { ...s.playlist, items: s.playlist.items.filter((i) => !(isClipItem(i) && failed.has(itemKey(i)))) } },
+      );
+      return null;
+    }
+    const events = new Map(current?.events ?? []);
+    for (const [matchId, list] of Object.entries(plays)) for (const e of list) events.set(`${matchId}:${e.eventId}`, e);
+    return { clips: fresh, events };
+  }, [current]);
+
+  /** Takes clips out of the report's playlist (an add's Undo). False when the write failed: they stay. */
+  const removeClips = useCallback(async (keys: readonly string[]): Promise<boolean> => {
+    const pl = playlistRef.current;
+    if (!pl || keys.length === 0) return true;
+    const gone = new Set(keys);
+    const isGone = (i: PlaylistItem) => isClipItem(i) && gone.has(itemKey(i));
+    let removed: PlaylistItem[] = [];
+    setState((s) => {
+      if (s.playlist?.id !== pl.id) return s;
+      removed = s.playlist.items.filter(isGone);
+      return { ...s, playlist: { ...s.playlist, items: s.playlist.items.filter((i) => !isGone(i)) } };
+    });
+    let ok = true;
+    await enqueuePlaylistWrite(pl.id, async () => {
+      const base = saved.current?.id === pl.id ? saved.current.items : pl.items;
+      const without = base.filter((i) => !isGone(i));
+      if (without.length === base.length) return;
+      try {
+        await writePlaylistItems(pl.id, base, without);
+        saved.current = { id: pl.id, items: without };
+        announcePlaylistsChanged();
+      } catch (e) {
+        console.error("[report] removing clips failed:", e);
+        ok = false;
+      }
+    });
+    if (!ok) setState((s) => (s.playlist?.id !== pl.id ? s : { ...s, playlist: { ...s.playlist, items: [...s.playlist.items, ...removed] } }));
+    return ok;
+  }, []);
 
   // Whether each game's video is on this computer: read once the games are in, and again when the window comes back (at most every 30 s).
   const [video, setVideo] = useState<Map<string, VideoFileStatus>>(new Map());
@@ -194,5 +296,10 @@ export function useReportWorkspace(playlistId: string) {
     preRoll: DEFAULT_PRE_ROLL,
     postRoll: DEFAULT_POST_ROLL,
     run,
+    addClips,
+    removeClips,
+    /** Reads the labels on more games' clips (the Add clips sheet's games). */
+    ensureLabels: clipLabels.ensure,
+    labelHandlers: clipLabels.handlers,
   };
 }

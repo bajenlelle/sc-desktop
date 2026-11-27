@@ -27,6 +27,7 @@ import {
   moveSection,
   nudgeClips,
   parseReportDraft,
+  placeClips,
   placementOf,
   pruneDraft,
   recordReportEdit,
@@ -293,6 +294,38 @@ describe("placements", () => {
     const draft = moveClip(two(), "m1:1", "s2");
     const out = { ...draft, placements: { "m1:1": LEFT_OUT } };
     expect(placementOf(out, clip("m1", 1), events.get("m1:1"))).toBe(LEFT_OUT);
+  });
+});
+
+describe("placeClips", () => {
+  it("pins a clip only when its section isn't where it would land by itself", () => {
+    // Alva's play (s1) and a play about no one, added to Ola's section.
+    const draft = placeClips(two(), ["m1:1", "m1:4"], "s2", events);
+    expect(draft.placements).toEqual({ "m1:1": "s2", "m1:4": "s2" });
+    // Alva's play added to Alva: it follows her, no placement.
+    expect(placeClips(two(), ["m1:1"], "s1", events).placements).toEqual({});
+    // A play about no one added to Their actions: no placement.
+    expect(placeClips(two(), ["m1:4"], TEAM_SECTION, events).placements).toEqual({});
+  });
+
+  it("brings a left-out or moved clip back to the target, or lets it follow its player when sorted by player", () => {
+    const draft = { ...two(), placements: { "m1:1": LEFT_OUT, "m1:3": TEAM_SECTION } };
+    // Ola's play (m1:3) back in Ola's section follows her again.
+    expect(placeClips(draft, ["m1:1", "m1:3"], "s2", events).placements).toEqual({ "m1:1": "s2" });
+    expect(placeClips(draft, ["m1:1", "m1:3"], null, events).placements).toEqual({});
+  });
+
+  it("reaches the keys and custom sections, and changes nothing for a target that is gone", () => {
+    const withKeys = addBlock(two(), "keys");
+    expect(placeClips(withKeys, ["m1:1"], "keys", events).placements).toEqual({ "m1:1": "keys" });
+    const draft = two();
+    expect(placeClips(draft, ["m1:1"], "zzz", events)).toBe(draft);
+  });
+
+  it("reads a new clip last in its section", () => {
+    const draft = placeClips({ ...two(), order: ["m1:2", "m1:1"] }, ["m1:3"], "s1", events);
+    const layout = deriveReportLayout(draft, [clip("m1", 3), clip("m1", 1), clip("m1", 2)], events);
+    expect(layout.sections.find((s) => s.id === "s1")!.clips.map((c) => c.eventId)).toEqual([2, 1, 3]);
   });
 });
 

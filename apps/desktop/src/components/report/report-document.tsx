@@ -130,6 +130,8 @@ export interface ReportDocumentProps {
   onMoveBlock: (id: string, dir: -1 | 1) => void;
   onRemoveBlock: (id: string) => void;
   onAddBlock: (kind: ReportBlockKind) => void;
+  /** + Add clips under a section's clips: the Add clips sheet, adding to that section. Undefined draws none (the editor's view). */
+  onAddClips?: (sectionId: Placement) => void;
 }
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
@@ -544,9 +546,45 @@ const ClipTileCard = memo(function ClipTileCard({
   );
 });
 
-function ClipGrid({ clips, here, targets, empty, props }: { clips: ViewClip[]; here: Placement; targets: { id: Placement; label: string }[]; empty: string; props: ReportDocumentProps }) {
-  if (clips.length === 0) return <p className="text-callout text-muted-foreground">{empty}</p>;
+/** + Add clips under a section's clips: quiet until hovered, as Add section is. */
+function AddClipsRow({ onAdd }: { onAdd: () => void }) {
   return (
+    <button
+      type="button"
+      onClick={onAdd}
+      className="-ml-2 flex h-8 items-center gap-2 self-start rounded-md px-2 text-callout text-muted-foreground outline-none transition-[background-color,color,transform] duration-100 hover:bg-fill-1 hover:text-foreground active:scale-[0.98] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+    >
+      <Plus className="size-4" />
+      Add clips
+    </button>
+  );
+}
+
+function ClipGrid({
+  clips,
+  here,
+  targets,
+  empty,
+  props,
+}: {
+  clips: ViewClip[];
+  here: Placement;
+  targets: { id: Placement; label: string }[];
+  /** What an empty section says: [with Add clips, without it (the editor's view: drag here)]. */
+  empty: readonly [string, string];
+  props: ReportDocumentProps;
+}) {
+  const add = props.onAddClips ? <AddClipsRow onAdd={() => props.onAddClips!(here)} /> : null;
+  if (clips.length === 0) {
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-callout text-muted-foreground">{add ? empty[0] : empty[1]}</p>
+        {add}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3">
     <div className="grid grid-cols-1 gap-x-4 gap-y-6 min-[36rem]:grid-cols-2">
       {clips.map((clip) => {
         const ids = props.clipAssignments.get(clip.key);
@@ -576,6 +614,8 @@ function ClipGrid({ clips, here, targets, empty, props }: { clips: ViewClip[]; h
           />
         );
       })}
+    </div>
+    {add}
     </div>
   );
 }
@@ -645,7 +685,7 @@ function PlayerSection({ view, targets, props }: { view: ViewSection; targets: {
         clips={view.clips}
         here={section.id}
         targets={targets}
-        empty={`No clips of ${firstName(player.name)} yet. Add some in the playlist, or drag clips here in the side panel.`}
+        empty={[`No clips of ${firstName(player.name)} yet.`, `No clips of ${firstName(player.name)} yet. Add some in the playlist, or drag clips here in the side panel.`]}
         props={props}
       />
     </section>
@@ -659,11 +699,13 @@ const BLOCK_PLACEHOLDER: Partial<Record<ReportBlockKind, string>> = {
   custom: "Write anything players should know",
 };
 
-const BLOCK_EMPTY_CLIPS: Partial<Record<ReportBlockKind, string>> = {
-  keys: "Clips that show the keys go here. Drag one here in the side panel.",
-  actions: "Clips that aren't about one player show here. Drag one here in the side panel.",
-  custom: "Drag clips here in the side panel.",
+/** What a section with no clips says: with Add clips, and without it (the editor's view). */
+const BLOCK_EMPTY_CLIPS: Partial<Record<ReportBlockKind, readonly [string, string]>> = {
+  keys: ["Clips that show the keys go here.", "Clips that show the keys go here. Drag one here in the side panel."],
+  actions: ["Clips that aren't about one player show here.", "Clips that aren't about one player show here. Drag one here in the side panel."],
+  custom: ["No clips yet.", "Drag clips here in the side panel."],
 };
+const NO_EMPTY: readonly [string, string] = ["", ""];
 
 /**
  * A section's heading row and its menu, the same for every section: its
@@ -855,7 +897,7 @@ function BlockSection({
       {block.kind === "profile" &&
         (props.season?.profile ? <ProfileView season={props.season.profile} /> : <p className="text-callout text-muted-foreground">{seasonLine}</p>)}
       {block.kind === "games" && (props.season?.games ? <GamesView rows={props.season.games} /> : <p className="text-callout text-muted-foreground">{seasonLine}</p>)}
-      {holdsClips(block.kind) && <ClipGrid clips={view.clips} here={block.id} targets={targets} empty={BLOCK_EMPTY_CLIPS[block.kind] ?? ""} props={props} />}
+      {holdsClips(block.kind) && <ClipGrid clips={view.clips} here={block.id} targets={targets} empty={BLOCK_EMPTY_CLIPS[block.kind] ?? NO_EMPTY} props={props} />}
     </SectionFrame>
   );
 }

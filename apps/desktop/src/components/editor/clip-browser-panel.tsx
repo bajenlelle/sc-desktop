@@ -14,7 +14,7 @@ import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing"
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
-import { orderForAdd, playerTeam, startGames } from "@scoutable/shared/lib/add-clips-games";
+import { MAX_BROWSER_GAMES, orderForAdd, playerTeam, startGames, type StartSource } from "@scoutable/shared/lib/add-clips-games";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import {
   keepKnownChoices,
@@ -46,6 +46,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { PopUpButton } from "@/components/ui/pop-up-button";
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PlaysFilterBar } from "@/components/plays/plays-filter-bar";
@@ -102,7 +103,9 @@ const BrowserRow = memo(function BrowserRow({
   matchTitle,
   showGame,
   isSelected,
-  alreadyIn,
+  slot,
+  slotWhere,
+  targetName,
   isActive,
   assignedLabels,
   canLabel,
@@ -110,6 +113,7 @@ const BrowserRow = memo(function BrowserRow({
   onAdd,
   onPress,
   onLabel,
+  onRemove,
 }: {
   /** `matchId:eventId`: event ids repeat across games. */
   rowKey: string;
@@ -120,7 +124,12 @@ const BrowserRow = memo(function BrowserRow({
   matchTitle: string;
   showGame: boolean;
   isSelected: boolean;
-  alreadyIn: boolean;
+  /** Whether the target has the play (rowSlot): +, ✓, ⇄ (in another part of it) or a still ✓. */
+  slot: "none" | "in" | "added" | "elsewhere";
+  /** "elsewhere": where the play sits now ("Keys"). */
+  slotWhere?: string;
+  /** What the row's + adds to ("this playlist", "#11 Nilsson"). */
+  targetName: string;
   isActive: boolean;
   assignedLabels: Label[];
   /** Whether rows can be labelled at all (a space is active). */
@@ -133,6 +142,8 @@ const BrowserRow = memo(function BrowserRow({
   onPress: (event: PlayByPlayEvent, matchId: string, mods: { shift: boolean; toggle: boolean }) => void;
   /** The Tag button: opens the label picker on this row. */
   onLabel: (rowKey: string) => void;
+  /** ✓ on a play the target has: takes it out (a report's section); undefined keeps the ✓ still. */
+  onRemove?: (rowKey: string) => void;
 }) {
   return (
     <div
@@ -167,10 +178,12 @@ const BrowserRow = memo(function BrowserRow({
             {canLabel &&
               (labelPicker ?? <RowLabelButton title="Labels" aria-label="Labels" onClick={() => onLabel(rowKey)} />)}
             <RowPlaylistSlot
-              status={alreadyIn ? "in" : "none"}
-              targetName="this playlist"
+              status={slot}
+              targetName={targetName}
+              where={slotWhere}
               visible={isActive}
               onAdd={(anchor) => onAdd(rowKey, anchor)}
+              onRemove={onRemove ? () => onRemove(rowKey) : undefined}
             />
           </>
         }
@@ -197,6 +210,40 @@ export interface ClipBrowserLabelHandlers {
   /** Gives a label its key (1–9), or takes it away (null). */
   onSetKey: (id: string, slot: number | null) => Promise<void>;
   onSeedDefaults: () => Promise<void>;
+}
+
+/** A report's "Sorted by player": no section, each clip goes where its player is (report-draft.ts). */
+export const SORTED_BY_PLAYER = "auto";
+
+/**
+ * Add clips to a part of what is open, not the whole of it: a scouting
+ * report's sections. The header names the section (a menu changes it), a row
+ * says where its play sits, ✓ in this section takes it out, ⇄ in another
+ * moves it here (+ / A on it, or ticked with the rest).
+ */
+export interface ClipBrowserTarget {
+  /** What the clips go into ("AIK · Sat 28 Nov"): "Add clips to {name}". */
+  name: string;
+  /** The parts to add to, in reading order; SORTED_BY_PLAYER first when it is offered. */
+  options: readonly { id: string; label: string; hidden?: boolean }[];
+  value: string;
+  onChange: (id: string) => void;
+  /** Where each play the report has sits, by `matchId:eventId` (id and label; "Not in report" for a left-out one). */
+  placement: ReadonlyMap<string, { id: string; label: string }>;
+  /** Plays the report has, elsewhere: moved to `value`. */
+  onMove: (keys: string[]) => void;
+  /** A play in `value`: taken out of the report. */
+  onRemove: (key: string) => void;
+}
+
+/** What the sheet starts on when the page knows better than the last round (a report's opponent and player). */
+export interface ClipBrowserStart {
+  /** The games, when nothing was browsed for this target yet (latest first; the first MAX_BROWSER_GAMES). */
+  games: readonly string[];
+  /** Team names to filter to, kept only where the plays name them so. */
+  teams: readonly string[];
+  /** Player filter (playerKey()s), kept only where the plays have them. */
+  players: readonly string[];
 }
 
 /**
@@ -230,6 +277,8 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   onNeedLabels,
   videoStatusByMatch,
   preferredMatchId = null,
+  target,
+  start: given,
 }: {
   /** The games to offer: read for their ids, titles, dates, teams and video, never their plays (the sheet reads those). */
   matches: StoredMatch[];
@@ -247,12 +296,20 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   onNeedLabels: (matchIds: string[]) => Promise<void>;
   /** Per-match video-file health from the page's probe (machine switches). */
   videoStatusByMatch: Map<string, VideoFileStatus>;
+  /** Adding to a part of the playlist (a report's section); undefined adds to the playlist. */
+  target?: ClipBrowserTarget;
+  /** Where to start when nothing was browsed for this playlist yet, and the filters to start with. */
+  start?: ClipBrowserStart;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [start] = useState(() => {
     const scope = getAddClipsScope(playlist.id);
     const s = startGames(matches, playlist.items, scope?.gameIds ?? [], preferredMatchId);
-    return { ...s, teams: s.source === "remembered" ? (scope?.teams ?? []) : [] };
+    const givenGames = (given?.games ?? []).filter((id) => matches.some((m) => m.id === id)).slice(0, MAX_BROWSER_GAMES);
+    const picked: { ids: string[]; source: StartSource | "given" } =
+      s.source !== "remembered" && s.source !== "preferred" && givenGames.length > 0 ? { ids: givenGames, source: "given" } : s;
+    const teams = s.source === "remembered" && picked === s ? (scope?.teams ?? []) : [...(given?.teams ?? [])];
+    return { ...picked, teams };
   });
   const [gameIds, setGameIds] = useState<string[]>(start.ids);
   // Once per opening: where it started, and that start is now the playlist's last games.
@@ -261,7 +318,10 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     if (start.ids.length > 0 && start.source !== "remembered") setAddClipsScope(playlist.id, { gameIds: start.ids, teams: [] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [filters, setFilters] = useState<PlayFilters>(EMPTY_PLAY_FILTERS);
+  // A given player is the filter from the start; pruned like any other once the games' plays are in.
+  const [filters, setFilters] = useState<PlayFilters>(() =>
+    given && given.players.length > 0 ? { ...EMPTY_PLAY_FILTERS, players: new Set(given.players) } : EMPTY_PLAY_FILTERS,
+  );
   const [filterOpen, setFilterOpen] = useState(false);
   const filterSearchRef = useRef<HTMLInputElement | null>(null);
 
@@ -354,6 +414,32 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     () => new Set(playlist.items.filter(isClipItem).map((c) => `${c.matchId}:${c.eventId}`)),
     [playlist.items],
   );
+  /**
+   * What a row's slot says: + (not there), ✓ just added here or in this section (a click takes it
+   * out), ⇄ in another section (moves here), a still ✓ (there, nothing to do).
+   */
+  const slotOf = useCallback(
+    (key: string): { status: "none" | "in" | "added" | "elsewhere"; where?: string } => {
+      if (!target) return { status: existingSet.has(key) ? "in" : "none" };
+      const at = target.placement.get(key);
+      if (!at) return { status: existingSet.has(key) ? "in" : "none" };
+      if (target.value === SORTED_BY_PLAYER) return { status: "in" };
+      return at.id === target.value ? { status: "added" } : { status: "elsewhere", where: at.label };
+    },
+    [target, existingSet],
+  );
+  // Plays nothing can be done with here: never ticked, never added.
+  const blockedSet = useMemo(() => {
+    if (!target) return existingSet;
+    const out = new Set<string>();
+    for (const key of existingSet) {
+      const s = slotOf(key).status;
+      if (s === "in" || s === "added") out.add(key);
+    }
+    return out;
+  }, [target, existingSet, slotOf]);
+  const targetLabel = target ? (target.options.find((o) => o.id === target.value)?.label ?? target.name) : "this playlist";
+  const onRowRemove = useMemo(() => (target && target.value !== SORTED_BY_PLAYER ? (key: string) => target.onRemove(key) : undefined), [target]);
 
   const gameIdSet = useMemo(() => new Set(gameIds), [gameIds]);
   // The chosen games in the page's order, each with the plays the sheet holds for it.
@@ -826,11 +912,11 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   }
   const orderOf = () => filteredRef.current.map(({ event, matchId }) => `${matchId}:${event.eventId}`);
   function withoutExisting(keys: Set<string>) {
-    for (const key of existingSet) keys.delete(key);
+    for (const key of blockedSet) keys.delete(key);
     return keys;
   }
   function applyClick(key: string, shift: boolean, toggle: boolean) {
-    if (!shift && existingSet.has(key)) {
+    if (!shift && blockedSet.has(key)) {
       setAnchor(key);
       return;
     }
@@ -912,9 +998,13 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     // Every game the sheet holds, not only the chosen ones: a selection stays across a change of games.
     const held = playsRef.current;
     const games = matches.filter((m) => held.has(m.id)).map((m) => ({ ...m, events: held.get(m.id)! }));
-    const toAdd = orderForAdd([...keys].filter((k) => !existingSet.has(k)), games);
-    if (toAdd.length === 0) return false;
-    onAddClips(toAdd);
+    const wanted = [...keys].filter((k) => !blockedSet.has(k));
+    const toAdd = orderForAdd(wanted.filter((k) => !existingSet.has(k)), games);
+    // A report's play in another section moves here; the page says so with its own Undo.
+    const toMove = target ? wanted.filter((k) => existingSet.has(k)) : [];
+    if (toAdd.length === 0 && toMove.length === 0) return false;
+    if (toAdd.length > 0) onAddClips(toAdd);
+    if (toMove.length > 0) target!.onMove(toMove);
     return true;
   }
   /** The selection's Add (⌘↩): the selected plays go in, and the sheet stays open for the next round. */
@@ -936,7 +1026,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     else if (activeEventKeyRef.current) addKeys([activeEventKeyRef.current]);
   }
 
-  const newCount = Array.from(selectedIds).filter((k) => !existingSet.has(k)).length;
+  const newCount = Array.from(selectedIds).filter((k) => !blockedSet.has(k)).length;
   const isMultiMatch = gameIds.length > 1;
 
   /**
@@ -1008,7 +1098,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
         return;
       }
       const key = activeEventKeyRef.current;
-      if (key && !existingSet.has(key)) toggleOne(key);
+      if (key && !blockedSet.has(key)) toggleOne(key);
       if (key) setAnchor(key);
       return;
     }
@@ -1144,10 +1234,30 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
       {/* Header */}
       <div className="flex shrink-0 items-start gap-3 px-5 pt-4 pb-3">
         <div className="min-w-0 flex-1">
-          <SheetTitle>Add clips</SheetTitle>
-          <SheetDescription className="truncate">
-            to <span className="font-medium text-foreground">{playlist.name}</span>
-          </SheetDescription>
+          <SheetTitle>{target ? `Add clips to ${target.name}` : "Add clips"}</SheetTitle>
+          {target ? (
+            // The section the clips go to, changed without closing the sheet.
+            <SheetDescription asChild>
+              <div className="-ml-1.5 flex min-w-0 items-center gap-0.5">
+                <span className="pl-1.5">Adding to</span>
+                <PopUpButton
+                  size="sm"
+                  aria-label="Section to add to"
+                  value={target.value}
+                  onValueChange={target.onChange}
+                  options={target.options.map((o) => ({
+                    value: o.id,
+                    label: o.label,
+                    description: o.hidden ? "Hidden from players" : undefined,
+                  }))}
+                />
+              </div>
+            </SheetDescription>
+          ) : (
+            <SheetDescription className="truncate">
+              to <span className="font-medium text-foreground">{playlist.name}</span>
+            </SheetDescription>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button asChild size="sm" variant="ghost">
@@ -1306,7 +1416,10 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                       matchTitle={matchTitle}
                       showGame={isMultiMatch}
                       isSelected={selectedIds.has(key)}
-                      alreadyIn={existingSet.has(key)}
+                      slot={slotOf(key).status}
+                      slotWhere={slotOf(key).where}
+                      targetName={targetLabel}
+                      onRemove={onRowRemove}
                       isActive={activeEventKey === key}
                       assignedLabels={canLabel ? (labelsByKey.get(key) ?? NO_LABELS) : NO_LABELS}
                       canLabel={canLabel}
@@ -1351,9 +1464,9 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
               ) : undefined
             }
             addTo={
-              <PillButton title={`Add ${selectedIds.size} ${selectedIds.size === 1 ? "play" : "plays"} to this playlist (⌘↩)`} onClick={handleAdd}>
+              <PillButton title={`Add ${selectedIds.size} ${selectedIds.size === 1 ? "play" : "plays"} to ${targetLabel} (⌘↩)`} onClick={handleAdd}>
                 <Plus />
-                <span className={PILL_LABEL}>Add to playlist</span>
+                <span className={PILL_LABEL}>{target ? (target.value === SORTED_BY_PLAYER ? "Add to report" : "Add to section") : "Add to playlist"}</span>
               </PillButton>
             }
           />
@@ -1420,8 +1533,9 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                 breakScore={null}
                 details={isMultiMatch ? [activeEntry.matchTitle] : []}
                 labels={labelsByKey.get(activeKeyOf(activeEntry)) ?? NO_LABELS}
-                collect={existingSet.has(activeKeyOf(activeEntry)) ? "in" : "none"}
-                targetName="this playlist"
+                collect={blockedSet.has(activeKeyOf(activeEntry)) ? "in" : "none"}
+                targetName={targetLabel}
+                inLabel={target ? `In ${slotOf(activeKeyOf(activeEntry)).status === "added" ? targetLabel : "report"}` : undefined}
                 labelButton={(trigger) =>
                   activeOrgId ? (
                     <LabelPickerPopover
