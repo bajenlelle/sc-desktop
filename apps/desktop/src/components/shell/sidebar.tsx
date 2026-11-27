@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Link, useLocation } from "react-router-dom";
-import { BookOpen, FileText, Film, Home, ListVideo, Plus, Search, Share2 } from "lucide-react";
+import { BookOpen, FileText, Film, Home, ListVideo, Plus, Search, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { UpdateCard } from "@/components/UpdateChecker";
@@ -171,6 +171,11 @@ export function Sidebar() {
         {ready && (
           <nav aria-label="Main" className={cn("flex flex-col gap-0.5 px-2", isCoachOrAdmin ? "mt-0.5" : "mt-3")}>
             {sidebarPages({ staff: isCoachOrAdmin, personal: activeOrgIsPersonal }).map(row)}
+            {/* A player's own highlights, in their personal space (pages/highlights.tsx). Not a Go-menu page yet:
+                the number keys stop at 5 and ⌘6 is Organization (packages/shared/lib/menu-shortcuts.ts). */}
+            {activeOrgIsPersonal && (
+              <NavItem to="/highlights" icon={Sparkles} label="Highlights" active={pathname.startsWith("/highlights")} />
+            )}
           </nav>
         )}
 
