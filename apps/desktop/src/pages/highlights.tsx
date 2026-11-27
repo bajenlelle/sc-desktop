@@ -7,10 +7,10 @@
  * framed still, and "Check" when the framing should get a look. Clicking a tile opens the clip with the crop window
  * to adjust it. Making the video is the next step.
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Reorder } from "framer-motion";
-import { AlertTriangle, Check, Film, Plus, RotateCcw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Check, Film, Pause, Play, Plus, RotateCcw, Sparkles, X } from "lucide-react";
 import { cropWidthFrac, cxAt, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { playClock } from "@scoutable/shared/lib/events";
 import { sampleTimes } from "@scoutable/shared/lib/highlight-framing";
@@ -150,7 +150,13 @@ export function HighlightsPage() {
             </p>
           </div>
           {inVideo.length === 0 ? (
-            <p className="rounded-lg bg-fill-1 px-4 py-6 text-center text-sm text-muted-foreground">No plays in the video. Add plays from below.</p>
+            <p className="rounded-lg bg-fill-1 px-4 py-6 text-center text-sm text-muted-foreground">
+              {h.selected.size === 0
+                ? "No game picked. Pick a game above to see your plays."
+                : more.length > 0
+                  ? "No plays in the video. Add plays from below."
+                  : "No made baskets, blocks or steals of yours in these games. Pick another game."}
+            </p>
           ) : (
             <VideoStrip plays={inVideo} framing={h.framing} onReorder={h.reorder} onRemove={h.remove} onOpen={setEditing} onRetry={h.retry} />
           )}
@@ -251,6 +257,11 @@ function VideoStrip({ plays, framing, onReorder, onRemove, onOpen, onRetry }: {
   onRetry: (key: string) => void;
 }) {
   const reduced = useReducedMotionSafe();
+  // A drop ends with a click on the tile under the pointer: ignore the click that comes right after a drag.
+  const dragging = useRef(false);
+  const open = (key: string) => {
+    if (!dragging.current) onOpen(key);
+  };
   return (
     <Reorder.Group
       axis="x"
@@ -264,9 +275,11 @@ function VideoStrip({ plays, framing, onReorder, onRemove, onOpen, onRetry }: {
           value={p.candidate.key}
           transition={reduced ? { duration: 0 } : springs.standard}
           whileDrag={{ scale: 1.03 }}
+          onDragStart={() => { dragging.current = true; }}
+          onDragEnd={() => { window.setTimeout(() => { dragging.current = false; }, 100); }}
           className="shrink-0 cursor-grab active:cursor-grabbing"
         >
-          <VideoTile play={p} index={i} framing={framing.get(p.candidate.key)} onRemove={() => onRemove(p.candidate.key)} onOpen={() => onOpen(p.candidate.key)} onRetry={() => onRetry(p.candidate.key)} />
+          <VideoTile play={p} index={i} framing={framing.get(p.candidate.key)} onRemove={() => onRemove(p.candidate.key)} onOpen={() => open(p.candidate.key)} onRetry={() => onRetry(p.candidate.key)} />
         </Reorder.Item>
       ))}
     </Reorder.Group>
@@ -366,6 +379,8 @@ function CropDialog({ play, framing, onClose, onSave }: {
   const ready = framing?.state === "ready" ? framing.clip : null;
   const [kfs, setKfs] = useState<CropKeyframe[]>(ready?.keyframes ?? []);
   const win = ready?.window ?? play.window;
+  const [playing, setPlaying] = useState(false);
+
   if (!play.match.videoUrl || !win) return null;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -374,22 +389,68 @@ function CropDialog({ play, framing, onClose, onSave }: {
           <DialogTitle>{playName(play.candidate)} · {playClock(play.candidate.anchor)}</DialogTitle>
           <DialogDescription>Drag the window to keep yourself in the frame. Each drag sets the window at that moment.</DialogDescription>
         </DialogHeader>
-        <div
-          className="relative aspect-video w-full overflow-hidden rounded-lg bg-black"
-          onLoadedMetadata={() => { if (videoRef.current) videoRef.current.currentTime = win.start; }}
-          onTimeUpdate={() => {
-            const v = videoRef.current;
-            if (v && v.currentTime >= win.end) v.currentTime = win.start;
-          }}
-        >
-          <VideoPlayer src={streamFileSrc(play.match.videoUrl)} videoRef={videoRef} />
+        <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
+          <LoopingClip src={streamFileSrc(play.match.videoUrl)} videoRef={videoRef} start={win.start} end={win.end} onPlaying={setPlaying} />
           <CropOverlay videoRef={videoRef} keyframes={kfs} dimmed={false} onCommit={(t, cx) => setKfs((k) => upsertKeyframe(k, t, cx))} />
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onSave(kfs)}>Save framing</Button>
+        <DialogFooter className="sm:justify-between">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              const v = videoRef.current;
+              if (!v) return;
+              if (v.paused) void v.play().catch(() => {});
+              else v.pause();
+            }}
+          >
+            {playing ? <Pause /> : <Play />}
+            {playing ? "Pause" : "Play"}
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={() => onSave(kfs)}>Save framing</Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * The clip's window on a loop, muted, from its start. Its own component so the effect runs once the video exists:
+ * the dialog's content mounts after the dialog itself (Radix portal). Media events don't bubble, so they're on the video.
+ */
+function LoopingClip({ src, videoRef, start, end, onPlaying }: {
+  src: string;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  start: number;
+  end: number;
+  onPlaying: (playing: boolean) => void;
+}) {
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const begin = () => {
+      v.currentTime = start;
+      v.muted = true;
+      void v.play().catch(() => {});
+    };
+    const loop = () => {
+      if (v.currentTime >= end || v.currentTime < start - 0.5) v.currentTime = start;
+    };
+    const onPlay = () => onPlaying(true);
+    const onPause = () => onPlaying(false);
+    if (v.readyState >= HTMLMediaElement.HAVE_METADATA) begin();
+    else v.addEventListener("loadedmetadata", begin, { once: true });
+    v.addEventListener("timeupdate", loop);
+    v.addEventListener("play", onPlay);
+    v.addEventListener("pause", onPause);
+    return () => {
+      v.removeEventListener("loadedmetadata", begin);
+      v.removeEventListener("timeupdate", loop);
+      v.removeEventListener("play", onPlay);
+      v.removeEventListener("pause", onPause);
+    };
+  }, [videoRef, start, end, onPlaying]);
+  return <VideoPlayer src={src} videoRef={videoRef} />;
 }
