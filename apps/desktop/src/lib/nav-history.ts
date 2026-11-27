@@ -22,6 +22,20 @@ import {
 let history: NavHistory = EMPTY_NAV_HISTORY;
 const listeners = new Set<() => void>();
 let navigateRef: NavigateFunction | null = null;
+/**
+ * Every router location key seen, with the entry it was. A navigation renders as a transition (React Router 7):
+ * the page being left stays on screen, and may render again, after the history has moved on. Read by its own
+ * location key it keeps its own entry, so it never names the next page after itself or keeps its memory there.
+ */
+const idOfKey = new Map<string, number>();
+/** Keys kept: far more than the history's entries, so a page still on screen always finds its own. */
+const KEYS_KEPT = 1000;
+
+function rememberKeys(h: NavHistory) {
+  for (const e of h.entries) idOfKey.set(e.key, e.id);
+  while (idOfKey.size > KEYS_KEPT) idOfKey.delete(idOfKey.keys().next().value!);
+}
+
 /** The next arrival comes from the sidebar (or a Go menu page): it starts afresh, with no back button. */
 let nextIsRoot = false;
 
@@ -76,6 +90,7 @@ export function useTrackNavHistory(): NavEntry | null {
     nextIsRoot = false;
     stepping = false;
     history = next;
+    rememberKeys(next);
     // Listeners hear of it after the render (they are components; setting state in another's render warns).
     queueMicrotask(() => {
       for (const l of listeners) l();
@@ -84,11 +99,14 @@ export function useTrackNavHistory(): NavEntry | null {
   return navCurrent(history);
 }
 
-/** The id of the entry on screen: stable while the page replaces its own entry (lib/page-memory.ts keys by it). */
+/**
+ * The id of the page's own entry: stable while the page replaces its own entry (lib/page-memory.ts keys by it),
+ * and still its own while the router moves on to the next page (idOfKey), never the entry now current.
+ */
 export function useNavEntryId(): number {
-  // The location ties a render to the tracker's step for it.
-  useLocation();
-  return navCurrent(history)?.id ?? 0;
+  // The page's own location: the tracker has stepped for it before the page renders.
+  const location = useLocation();
+  return idOfKey.get(location.key) ?? navCurrent(history)?.id ?? 0;
 }
 
 /**
