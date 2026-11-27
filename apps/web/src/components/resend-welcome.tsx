@@ -15,7 +15,11 @@ const RESULT_COPY: Record<Result, string> = {
   error: "We couldn't send it right now. Try again later.",
 };
 
-/** Phone variant of the get-started welcome: the download link is in the email, with a way to send it again. */
+/**
+ * Phone variant of the get-started welcome: the download address to type on a computer, and a button that
+ * emails the link now. The automatic welcome is held 3–4 minutes (20261122100000_welcome_hold_3_minutes), so the
+ * page must not claim it has already gone out.
+ */
 export function ResendWelcome() {
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -37,12 +41,13 @@ export function ResendWelcome() {
   return (
     <>
       <p className="max-w-md text-sm text-muted-foreground">
-        Scoutable runs on Mac and Windows. We&apos;ve emailed you the download link: open it on your computer and
-        sign in with this account.
+        Scoutable runs on Mac and Windows. On your computer, go to{" "}
+        <span className="select-all font-medium text-foreground">scoutable.se/download</span> and sign in with this
+        account. We&apos;ll also email you the link.
       </p>
       <Button className="mt-2" onClick={resend} disabled={pending}>
         {pending ? <Loader2 className="animate-spin" /> : <Mail />}
-        Send the link again
+        Email me the link
       </Button>
       {result && (
         <p role="status" className="text-callout text-muted-foreground">

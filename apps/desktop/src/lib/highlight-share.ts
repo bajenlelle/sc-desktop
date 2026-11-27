@@ -12,10 +12,26 @@ import { highlightContentKey, highlightShareKeys } from "@scoutable/shared/lib/h
 
 const APP_URL = "https://app.scoutable.se";
 
+/**
+ * The fingerprint a later send must match to reuse this link. A highlight sent without the watermark is a different
+ * video from the same plays sent with it.
+ */
+export function shareContentKey(
+  segments: ExportSegment[],
+  preRoll: number,
+  postRoll: number,
+  vertical: boolean,
+  highlight?: { watermark: boolean },
+): string {
+  const key = highlightContentKey(segments, preRoll, postRoll, vertical ? "9:16" : "16:9");
+  return highlight && !highlight.watermark ? `${key}|nw` : key;
+}
+
 export type SendToPhoneStage = "rendering" | "uploading" | "saving";
 
 export async function sendHighlightToPhone(
-  playlist: { id: string; name: string },
+  /** A playlist, or a player's highlight video (id null). */
+  playlist: { id: string | null; name: string },
   segments: ExportSegment[],
   preRoll: number,
   postRoll: number,
@@ -24,6 +40,11 @@ export async function sendHighlightToPhone(
   onExportProgress?: (progress: ExportProgress) => void,
   /** Aborting stops the render (ffmpeg is killed) or the upload, whichever is running. */
   signal?: AbortSignal,
+  /**
+   * The player's highlight video: cut straight from clip to clip instead of the short fades, and its own watermark
+   * rule (a player who paid can turn it off). Everything else sent to a phone is always watermarked.
+   */
+  highlight?: { hardCuts: boolean; watermark: boolean },
 ): Promise<string> {
   const stopIfCancelled = () => {
     if (signal?.aborted) throw new DOMException("Send to phone cancelled", "AbortError");
@@ -44,9 +65,10 @@ export async function sendHighlightToPhone(
     // Watermark always on: send-to-phone clips land on Instagram/TikTok;
     // this surface is public distribution regardless of the sender's plan.
     // The signal stops the render itself, not only what comes after it.
-    await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true, vertical, {
+    await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, highlight?.watermark ?? true, vertical, {
       onProgress: onExportProgress,
       signal,
+      ...(highlight?.hardCuts ? { hardCuts: true } : {}),
     });
     stopIfCancelled();
     onStage?.("uploading");
@@ -70,7 +92,7 @@ export async function sendHighlightToPhone(
     onStage?.("saving");
     await createHighlightShare({
       id: shareId,
-      playlistId: playlist.id,
+      playlistId: playlist.id ?? undefined,
       title: playlist.name,
       r2Url,
       r2Key: keys.video,
@@ -80,7 +102,7 @@ export async function sendHighlightToPhone(
       // Aspect + fingerprint make the row reusable ONLY for an identical
       // later send (same clips/order/rolls/crop pans, same orientation).
       aspect: vertical ? "9:16" : "16:9",
-      contentKey: highlightContentKey(segments, preRoll, postRoll, vertical ? "9:16" : "16:9"),
+      contentKey: shareContentKey(segments, preRoll, postRoll, vertical, highlight),
     });
 
     return `${APP_URL}/h/${shareId}`;

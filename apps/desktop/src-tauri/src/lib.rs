@@ -294,6 +294,7 @@ fn export_frame_rate(probed: Option<f64>) -> String {
 /// join them again in one graph, so every seam lands on a frame of the
 /// export's rate and the sound stays in step; the overlays then count the
 /// rendered segment's time.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)] // mirrors the segment's fields; the goldens call it positionally
 fn clip_segment_args(
     video_path: &str,
@@ -306,6 +307,24 @@ fn clip_segment_args(
     rate: &str,
     out: &str,
 ) -> Vec<String> {
+    clip_segment_args_with(video_path, start, end, crop_keyframes, overlays, pieces, vertical, rate, out, true)
+}
+
+/// clip_segment_args, with the 0.25 s fades in and out (`fades`) or hard cuts (a player highlight cuts on the action).
+#[allow(clippy::too_many_arguments)]
+fn clip_segment_args_with(
+    video_path: &str,
+    start: f64,
+    end: f64,
+    crop_keyframes: Option<&[CropKf]>,
+    overlays: &[OverlayInput<'_>],
+    pieces: &[ClipPiece],
+    vertical: bool,
+    rate: &str,
+    out: &str,
+    fades: bool,
+) -> Vec<String> {
+    let with_fades = fades;
     let duration = if pieces.is_empty() { (end - start).max(0.001) } else { pieces_output_duration(pieces).max(0.001) };
     let fade_out_start = (duration - 0.25).max(0.0);
     let geometry = if vertical {
@@ -321,7 +340,11 @@ fn clip_segment_args(
     } else {
         LANDSCAPE_FRAME.to_string()
     };
-    let fades = format!("fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25");
+    let fades = if with_fades {
+        format!("fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25")
+    } else {
+        "null".to_string()
+    };
 
     let mut args: Vec<String> = vec![
         "-y".into(),
@@ -435,8 +458,15 @@ fn pieces_graph(pieces: &[ClipPiece], geometry: &str, rate: &str) -> String {
 }
 
 /// ffmpeg argv that turns a rendered text-card PNG into a segment with silent audio.
+#[cfg(test)]
 fn text_card_args(png: &str, duration_seconds: f64, rate: &str, out: &str) -> Vec<String> {
+    text_card_args_with(png, duration_seconds, rate, out, true)
+}
+
+/// text_card_args, with fades or hard cuts (see clip_segment_args_with).
+fn text_card_args_with(png: &str, duration_seconds: f64, rate: &str, out: &str, fades: bool) -> Vec<String> {
     let fade_out_start = (duration_seconds - 0.25).max(0.0);
+    let vf = if fades { format!("fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25") } else { "null".to_string() };
     [
         "-y",
         "-framerate", rate,
@@ -444,7 +474,7 @@ fn text_card_args(png: &str, duration_seconds: f64, rate: &str, out: &str) -> Ve
         "-i", png,
         "-f", "lavfi",
         "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-vf", &format!("fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"),
+        "-vf", &vf,
         "-af", "asetpts=PTS-STARTPTS",
         "-c:v", "libx264",
         "-preset", "fast",
@@ -626,8 +656,10 @@ async fn export_playlist(
     watermark: bool,
     vertical: Option<bool>,
     progress_id: Option<String>,
+    hard_cuts: Option<bool>,
 ) -> Result<(), String> {
     use tauri::Manager;
+    let fades = !hard_cuts.unwrap_or(false);
 
     if segments.is_empty() {
         return Err("No segments to export".into());
@@ -691,7 +723,7 @@ async fn export_playlist(
                     .iter()
                     .map(|(path, from, to)| OverlayInput { png: path.to_str().unwrap(), from: *from, to: *to })
                     .collect();
-                let args = clip_segment_args(
+                let args = clip_segment_args_with(
                     video_path,
                     *start,
                     *end,
@@ -701,6 +733,7 @@ async fn export_playlist(
                     vertical,
                     &rate,
                     temp_path.to_str().unwrap(),
+                    fades,
                 );
 
                 let result = run_ffmpeg(&app, &args, job).await;
@@ -762,11 +795,12 @@ async fn export_playlist(
                 img.save(&png_path)
                     .map_err(|e| format!("Failed to save text frame: {e}"))?;
 
-                let args = text_card_args(
+                let args = text_card_args_with(
                     png_path.to_str().unwrap(),
                     *duration_seconds,
                     &rate,
                     temp_path.to_str().unwrap(),
+                    fades,
                 );
 
                 let result = run_ffmpeg(&app, &args, job).await;
@@ -779,11 +813,12 @@ async fn export_playlist(
                 std::fs::write(&png_path, &bytes)
                     .map_err(|e| format!("Failed to save card frame: {e}"))?;
 
-                let args = text_card_args(
+                let args = text_card_args_with(
                     png_path.to_str().unwrap(),
                     *duration_seconds,
                     &rate,
                     temp_path.to_str().unwrap(),
+                    fades,
                 );
 
                 let result = run_ffmpeg(&app, &args, job).await;
@@ -1824,6 +1859,16 @@ mod tests {
                 "/tmp/seg.mp4",
             ]
         );
+    }
+
+    #[test]
+    fn clip_segment_hard_cuts_have_no_fades() {
+        let args = clip_segment_args_with("/v/game.mp4", 0.0, 3.0, Some(&[]), &[], &[], true, "25", "/tmp/seg.mp4", false);
+        let vf = &args[args.iter().position(|a| a == "-vf").unwrap() + 1];
+        assert!(!vf.contains("fade="), "{vf}");
+        assert!(vf.ends_with(",null"), "{vf}");
+        let card = text_card_args_with("/tmp/card.png", 2.0, "25", "/tmp/t.mp4", false);
+        assert_eq!(card[card.iter().position(|a| a == "-vf").unwrap() + 1], "null");
     }
 
     #[test]

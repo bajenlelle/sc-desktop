@@ -53,8 +53,12 @@ export type HighlightContentSegment =
       /** Drawings and slow motion, burned in as held frames and slowed stretches. */
       drawings?: ClipDrawing[];
       slowMotion?: SlowSection[];
+      /** App-drawn PNGs over the clip (a player highlight's name and labels), keyed by their content. */
+      overlays?: { pngBase64: string; from?: number; to?: number }[];
     }
-  | { kind: "text"; text: string; durationSeconds: number; card?: StatsCardSpec };
+  | { kind: "text"; text: string; durationSeconds: number; card?: StatsCardSpec }
+  /** An app-drawn still (a player highlight's end card), keyed by its content. */
+  | { kind: "image"; pngBase64: string; durationSeconds: number };
 
 /** cyrb53 — small, fast, deterministic 53-bit string hash (public domain). */
 export function cyrb53(str: string, seed = 0): string {
@@ -114,8 +118,11 @@ export function highlightContentKey(
       const drawn = s.card ? JSON.stringify(cardContent(s.card)) : s.text;
       return `${s.card ? "s" : "t"}|${s.durationSeconds}|${drawn}|r${CARD_RENDER_VERSION}`;
     }
+    if (s.kind === "image") return `i|${s.durationSeconds}|${cyrb53(s.pngBase64)}`;
     const videoTime = s.syncPoint ? computeVideoTime(s.event, s.syncPoint) : null;
     const note = s.note?.trim();
+    // A clip without overlays keeps the key it always had.
+    const overlays = (s.overlays ?? []).map((o) => `${o.from ?? ""}-${o.to ?? ""}:${cyrb53(o.pngBase64)}`).join(",");
     return `c|${s.matchId}|${s.event.eventId}|${videoTime?.toFixed(1) ?? "x"}|${
       s.preRollOffset ?? 0
     }|${s.postRollOffset ?? 0}|${
@@ -128,7 +135,7 @@ export function highlightContentKey(
       s.drawings,
       s.slowMotion,
       videoTime === null ? null : clipBounds(videoTime, preRoll, postRoll, s.preRollOffset ?? 0, s.postRollOffset ?? 0),
-    )}`;
+    )}${overlays ? `|o:${overlays}` : ""}`;
   });
   return cyrb53(`v2|${preRoll}|${postRoll}|${parts.join(";")}`);
 }
@@ -186,6 +193,32 @@ export async function getMyShareForPlaylist(
     .from("highlight_shares")
     .select("id, created_at")
     .eq("playlist_id", playlistId)
+    .eq("aspect", aspect)
+    .eq("content_key", contentKey)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return { id: data.id as string, createdAt: data.created_at as string };
+}
+
+/**
+ * Newest non-expired share the caller made without a playlist (a player's highlight video) with the same aspect and
+ * content fingerprint: the same plays, framing and graphics. Exact match only, like getMyShareForPlaylist.
+ */
+export async function getMyShareByContentKey(
+  supabase: SupabaseClient,
+  aspect: HighlightAspect,
+  contentKey: string
+): Promise<{ id: string; createdAt: string } | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await supabase
+    .from("highlight_shares")
+    .select("id, created_at")
+    .eq("user_id", user.id)
+    .is("playlist_id", null)
     .eq("aspect", aspect)
     .eq("content_key", contentKey)
     .gt("expires_at", new Date().toISOString())

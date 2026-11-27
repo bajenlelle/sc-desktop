@@ -180,6 +180,15 @@ export function canExport(tier: OrgPlanTier, access: PlayerAccess | null): boole
 }
 
 /**
+ * Whether a player's highlight video (the Highlights page: saved or sent to the phone) carries the watermark.
+ * Highlights are open on every plan, unlike canExport: what limits them is the games a player can import. Free
+ * highlights always carry the watermark; Pro and Franchise may turn it off in Settings, as with every export.
+ */
+export function highlightWatermark(tier: OrgPlanTier, watermarkDisabled: boolean): boolean {
+  return !((tier === "pro" || tier === "franchise") && watermarkDisabled);
+}
+
+/**
  * What importing a game takes from what is left: "Uses 1 of your 4 games",
  * "Uses your last game". Free and bought games count together, because to the
  * player they are the same thing; free ones are used first, and the split is

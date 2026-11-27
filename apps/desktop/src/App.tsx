@@ -18,6 +18,7 @@ import { ReportPage } from "@/pages/report";
 import { TeamsPage } from "@/pages/teams";
 import { TeamPage } from "@/pages/team";
 import { TeamFindPage } from "@/pages/team-find";
+import { HighlightsPage } from "@/pages/highlights";
 import { GamePage } from "@/pages/game";
 import { UploadPage } from "@/pages/upload";
 import { PlaylistsPage } from "@/pages/playlists";
@@ -262,6 +263,7 @@ export default function App() {
               <Route path="/teams" element={<ProtectedRoute><TeamsPage /></ProtectedRoute>} />
               <Route path="/teams/find/:leagueTeamId" element={<ProtectedRoute><TeamFindPage /></ProtectedRoute>} />
               <Route path="/teams/:competitionId/:teamId" element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
+              <Route path="/highlights" element={<ProtectedRoute><HighlightsPage /></ProtectedRoute>} />
               <Route
                 path="/matches"
                 element={

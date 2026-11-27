@@ -27,7 +27,8 @@ describe("menuIdForChord", () => {
       ["3", "go-my-playlists"],
       ["4", "go-library"],
       ["5", "go-teams"],
-      ["6", "go-organization"],
+      ["6", "go-highlights"],
+      ["7", "go-organization"],
       ["w", "close-tab"],
       ["t", "new-game-tab"],
       ["k", "search"],
@@ -113,11 +114,10 @@ const playerInClub = { staff: false, personal: false };
 describe("sidebarPages", () => {
   it("is every page for a coach in a club, in the sidebar's order", () => {
     expect(sidebarPages(coachInClub)).toEqual(["go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams"]);
-    expect(sidebarPages(coachInClub)).toEqual([...GO_PAGES]);
   });
 
-  it("has no shared playlists in a personal space", () => {
-    expect(sidebarPages(coachAlone)).toEqual(["go-playlists", "go-reports", "go-library", "go-teams"]);
+  it("has no shared playlists in a personal space, and Highlights last", () => {
+    expect(sidebarPages(coachAlone)).toEqual(["go-playlists", "go-reports", "go-library", "go-teams", "go-highlights"]);
   });
 
   it("is only their playlists for a player in a club: no Teams row", () => {
@@ -127,9 +127,9 @@ describe("sidebarPages", () => {
 
 describe("goKeyOrder", () => {
   it("gives the rows shown the first keys in the sidebar's order, and the pages not shown the keys after them", () => {
-    expect(goKeyOrder(coachInClub)).toEqual(["go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams"]);
-    expect(goKeyOrder(coachAlone)).toEqual(["go-playlists", "go-reports", "go-library", "go-teams", "go-my-playlists"]);
-    expect(goKeyOrder(playerInClub)).toEqual(["go-my-playlists", "go-playlists", "go-reports", "go-library", "go-teams"]);
+    expect(goKeyOrder(coachInClub)).toEqual(["go-playlists", "go-reports", "go-my-playlists", "go-library", "go-teams", "go-highlights"]);
+    expect(goKeyOrder(coachAlone)).toEqual(["go-playlists", "go-reports", "go-library", "go-teams", "go-highlights", "go-my-playlists"]);
+    expect(goKeyOrder(playerInClub)).toEqual(["go-my-playlists", "go-playlists", "go-reports", "go-library", "go-teams", "go-highlights"]);
   });
 
   it("always holds every page once, so each keeps a key of its own", () => {
@@ -157,12 +157,17 @@ describe("menuIdForChord with the rows a sidebar shows", () => {
     expect(press("4", coachAlone)).toBe("go-teams");
   });
 
+  it("opens Highlights with the fifth key in a personal space, and leaves it off in a club", () => {
+    expect(press("5", coachAlone)).toBe("go-highlights");
+    expect(sidebarPages(coachInClub)).not.toContain("go-highlights");
+  });
+
   it("opens Playlists with the first key, for a coach in a club or on their own", () => {
     expect(press("1", coachInClub)).toBe("go-playlists");
     expect(press("1", coachAlone)).toBe("go-playlists");
   });
 
-  it("keeps Organization on 6, after the rows, whatever they are", () => {
-    for (const who of [coachInClub, coachAlone, playerInClub]) expect(press("6", who)).toBe("go-organization");
+  it("keeps Organization on 7, after the rows, whatever they are", () => {
+    for (const who of [coachInClub, coachAlone, playerInClub]) expect(press("7", who)).toBe("go-organization");
   });
 });

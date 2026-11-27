@@ -213,6 +213,10 @@ export function MenuHandler() {
           markNextNavRoot();
           navigate("/teams");
           break;
+        case "go-highlights":
+          markNextNavRoot();
+          navigate("/highlights");
+          break;
         case "go-organization":
           markNextNavRoot();
           navigate("/organization");
@@ -367,6 +371,8 @@ export function MenuHandler() {
   useEffect(() => {
     for (const id of COACH_ADMIN_IDS) setEnabled(id, isCoachOrAdmin);
     setEnabled("go-my-playlists", !!user && !activeOrgIsPersonal);
+    // A player's own highlights live in their personal space (pages/highlights.tsx).
+    setEnabled("go-highlights", !!user && activeOrgIsPersonal);
     // Club staff only — role alone would enable it in personal spaces, where
     // there is no organization to manage.
     setEnabled("go-organization", activeOrgCanManage);

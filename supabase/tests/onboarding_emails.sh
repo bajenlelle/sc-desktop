@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# Checks for the onboarding emails (20261118100000_onboarding_emails.sql).
+# Checks for the onboarding emails (20261118100000_onboarding_emails.sql, hold
+# and cron from 20261122100000_welcome_hold_3_minutes.sql).
 #
-# Confirming an account queues one welcome; the 5-minute cron sends it once it
-# is 10 minutes old, unless by then the account came from an invite, joined a
+# Confirming an account queues one welcome; the 1-minute cron sends it once it
+# is 3 minutes old, unless by then the account came from an invite, joined a
 # club or signed in on the phone app (then it's marked skipped, never sent),
 # and never once it is a day old. A trigger error never blocks sign-up. The
 # email's language is read when it is sent. One reminder follows 2 to 7 days
@@ -131,12 +132,12 @@ SEED="INSERT INTO app_config (key, value) VALUES ('onboarding_emails_enabled', '
 # Queue rows that aren't the probe's are set aside, so the senders' counts are
 # the probe's alone once the migration is live.
 ONLY="DELETE FROM onboarding_emails WHERE user_id NOT IN ($(d $A), $(d $B));"
-DUE="$ONLY UPDATE onboarding_emails SET queued_at = now() - interval '11 minutes' WHERE user_id = $(d $A);"
+DUE="$ONLY UPDATE onboarding_emails SET queued_at = now() - interval '4 minutes' WHERE user_id = $(d $A);"
 OFF="DELETE FROM app_config WHERE key = 'onboarding_emails_enabled';"
 # A's row fails while being built (the data helper is swapped, inside the
 # probe only, for one that raises for A); B is due too and must still go out.
 BAD_A="$DUE UPDATE auth.users SET email_confirmed_at = now() WHERE id = $(d $B);
-  UPDATE onboarding_emails SET queued_at = now() - interval '11 minutes' WHERE user_id = $(d $B);
+  UPDATE onboarding_emails SET queued_at = now() - interval '4 minutes' WHERE user_id = $(d $B);
   CREATE OR REPLACE FUNCTION _onboarding_email_data(p_user uuid, p_kind text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS \$f\$
     BEGIN IF p_user = $(d $A)::uuid THEN RAISE EXCEPTION 'probe_bad_row'; END IF; RETURN '{\"lang\":\"en\"}'::jsonb; END \$f\$;"
@@ -178,8 +179,8 @@ run "trigger failure never blocks auth"                                      "AL
 
 echo
 echo "## Sending the welcome"
-run "hold: 5 minutes old isn't sent"                                         "ALLOWED rows=0"  "$SVC SELECT send_queued_welcomes() AS n" "$ONLY UPDATE onboarding_emails SET queued_at = now() - interval '5 minutes' WHERE user_id = $(d $A);"
-run "send: 11 minutes old, personal space only, is sent"                     "ALLOWED rows=1"  "$SVC SELECT send_queued_welcomes() AS n" "$DUE"
+run "hold: 2 minutes old isn't sent"                                         "ALLOWED rows=0"  "$SVC SELECT send_queued_welcomes() AS n" "$ONLY UPDATE onboarding_emails SET queued_at = now() - interval '2 minutes' WHERE user_id = $(d $A);"
+run "send: 4 minutes old, personal space only, is sent"                      "ALLOWED rows=1"  "$SVC SELECT send_queued_welcomes() AS n" "$DUE"
 run "send: the row is marked sent"                                           "ALLOWED rows=1"  "$SVC SELECT send_queued_welcomes(); $(row welcome "sent_at IS NOT NULL AND skipped_reason IS NULL")" "$DUE"
 run "send: one request with template welcome"                                "ALLOWED rows=1"  "$SVC SELECT send_queued_welcomes(); $(reqs welcome)" "$DUE"
 run "send: language is read at send time"                                    "ALLOWED rows=1"  "$SVC SELECT send_queued_welcomes(); $(reqs welcome "m->'data'->>'lang' = 'sv'")" "$DUE $(lang sv)"

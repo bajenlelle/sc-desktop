@@ -2,7 +2,7 @@ import * as React from "react";
 import { motion } from "framer-motion";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { markNextNavRoot } from "@/lib/nav-history";
-import { BookOpen, FileText, Film, ListVideo, Plus, Search, Share2, Shield } from "lucide-react";
+import { BookOpen, FileText, Film, ListVideo, Plus, Search, Share2, Shield, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -213,6 +213,8 @@ export function Sidebar() {
         return <NavItem key={page} to="/matches" icon={Film} label="Games" active={libraryActive} />;
       case "go-teams":
         return <NavItem key={page} to="/teams" icon={Shield} label="Teams" active={teamsActive} />;
+      case "go-highlights":
+        return <NavItem key={page} to="/highlights" icon={Sparkles} label="Highlights" active={pathname.startsWith("/highlights")} />;
     }
   };
 

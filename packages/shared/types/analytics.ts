@@ -52,6 +52,15 @@ export type AnalyticsEvent =
   | "tipoff_suggestion_dismissed" // source, kind, method, agreement (was tipoff_hint_rejected in 0.6.17, hints only)
   | "tipoff_suggestion_resolved" // path (lib/tipoff-analytics.ts), source, suggested_seconds, confirmed_seconds, delta_seconds, ms_since_link
   | "tipoff_hint_saved" // method
+  // Player highlights (desktop Highlights page). Props in comments.
+  | "highlight_page_opened" // has_player, games
+  | "highlight_player_set" // changed
+  | "highlight_suggestions_shown" // games, candidates, picked
+  | "highlight_clip_toggled" // on, kind, rank
+  | "highlight_framing_completed" // clips, ok, failed, checks, elapsed_ms, model, fallback
+  | "highlight_framing_failed" // error
+  | "highlight_crop_adjusted" // kind
+  | "highlight_rendered" // clips, seconds, watermark
   // Quarter-by-quarter sync, for a video that skips the breaks (desktop). surface: import | game_page | editor
   | "sync_cut_detected" // surface, overrun_s
   | "sync_cut_mode_toggled" // surface, on, detected
