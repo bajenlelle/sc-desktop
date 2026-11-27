@@ -53,8 +53,12 @@ export type HighlightContentSegment =
       /** Drawings and slow motion, burned in as held frames and slowed stretches. */
       drawings?: ClipDrawing[];
       slowMotion?: SlowSection[];
+      /** App-drawn PNGs over the clip (a player highlight's name and labels), keyed by their content. */
+      overlays?: { pngBase64: string; from?: number; to?: number }[];
     }
-  | { kind: "text"; text: string; durationSeconds: number; card?: StatsCardSpec };
+  | { kind: "text"; text: string; durationSeconds: number; card?: StatsCardSpec }
+  /** An app-drawn still (a player highlight's end card), keyed by its content. */
+  | { kind: "image"; pngBase64: string; durationSeconds: number };
 
 /** cyrb53 — small, fast, deterministic 53-bit string hash (public domain). */
 export function cyrb53(str: string, seed = 0): string {
@@ -114,8 +118,11 @@ export function highlightContentKey(
       const drawn = s.card ? JSON.stringify(cardContent(s.card)) : s.text;
       return `${s.card ? "s" : "t"}|${s.durationSeconds}|${drawn}|r${CARD_RENDER_VERSION}`;
     }
+    if (s.kind === "image") return `i|${s.durationSeconds}|${cyrb53(s.pngBase64)}`;
     const videoTime = s.syncPoint ? computeVideoTime(s.event, s.syncPoint) : null;
     const note = s.note?.trim();
+    // A clip without overlays keeps the key it always had.
+    const overlays = (s.overlays ?? []).map((o) => `${o.from ?? ""}-${o.to ?? ""}:${cyrb53(o.pngBase64)}`).join(",");
     return `c|${s.matchId}|${s.event.eventId}|${videoTime?.toFixed(1) ?? "x"}|${
       s.preRollOffset ?? 0
     }|${s.postRollOffset ?? 0}|${
@@ -128,7 +135,7 @@ export function highlightContentKey(
       s.drawings,
       s.slowMotion,
       videoTime === null ? null : clipBounds(videoTime, preRoll, postRoll, s.preRollOffset ?? 0, s.postRollOffset ?? 0),
-    )}`;
+    )}${overlays ? `|o:${overlays}` : ""}`;
   });
   return cyrb53(`v2|${preRoll}|${postRoll}|${parts.join(";")}`);
 }

@@ -9,11 +9,14 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Reorder } from "framer-motion";
 import { AlertTriangle, Check, Film, Pause, Play, Plus, RotateCcw, Sparkles, X } from "lucide-react";
 import { cropWidthFrac, cxAt, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { playClock } from "@scoutable/shared/lib/events";
 import { sampleTimes } from "@scoutable/shared/lib/highlight-framing";
+import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import { estimatedSeconds, type HighlightCandidate } from "@scoutable/shared/lib/highlight-picks";
 import { CropOverlay, upsertKeyframe } from "@/components/crop-editor";
 import { EmptyState } from "@/components/empty-state";
@@ -23,9 +26,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GroupedList, GroupHeader, GroupRow } from "@/components/ui/group";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { SearchField } from "@/components/ui/search-field";
 import { VideoPlayer } from "@/components/video-player";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
+import { trackEvent } from "@/lib/analytics";
+import { useAuth } from "@/lib/auth-context";
+import { createHighlightVideo } from "@/lib/highlight-create";
+import { getExportWatermarkDisabled } from "@/lib/prefs";
+import { Sentry } from "@/lib/sentry";
 import { streamFileSrc } from "@/lib/stream";
 import { useHighlightStill } from "@/lib/highlight-stills";
 import { useHighlights, type Framing, type HighlightPlay } from "@/lib/use-highlights";
@@ -62,18 +71,61 @@ const CROP_W = cropWidthFrac(1920, 1080);
 
 export function HighlightsPage() {
   const h = useHighlights();
+  const { activeOrgPlan } = useAuth();
   const [choosing, setChoosing] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [making, setMaking] = useState<{ progress: ExportProgress | null; saving: boolean } | null>(null);
+  const [made, setMade] = useState<string | null>(null);
+  const stopRef = useRef<AbortController | null>(null);
 
   const inVideo = h.order.map((k) => h.playByKey.get(k)).filter((p): p is HighlightPlay => !!p);
   const more = h.plays.filter((p) => !h.order.includes(p.candidate.key));
   const seconds = inVideo.reduce((s, p) => {
     const f = h.framing.get(p.candidate.key);
-    const w = f?.state === "ready" ? f.clip.window : null;
+    // The same window the video uses: the framing's tighter one, else the whole window looked at.
+    const w = (f?.state === "ready" ? f.clip.window : null) ?? (f?.state === "ready" ? p.window : null);
     return s + (w ? w.end - w.start : estimatedSeconds(p.candidate));
-  }, 0);
+  }, 0) + 2; // the end card
   const framingCount = inVideo.filter((p) => h.framing.get(p.candidate.key)?.state === "framing").length;
   const editingPlay = editing ? h.playByKey.get(editing) : undefined;
+  const canCreate = !!h.player && inVideo.length > 0 && framingCount === 0 && !making;
+
+  const create = async () => {
+    if (!h.player || !canCreate) return;
+    // Free highlights carry the watermark; Pro and Franchise may turn it off in Settings, as with any export.
+    const canDisableWatermark = activeOrgPlan === "pro" || activeOrgPlan === "franchise";
+    const watermark = !(canDisableWatermark && getExportWatermarkDisabled());
+    const stop = new AbortController();
+    stopRef.current = stop;
+    setMaking({ progress: null, saving: false });
+    try {
+      const { path, clips, seconds: length } = await createHighlightVideo({
+        plays: inVideo,
+        framing: h.framing,
+        mine: h.mine,
+        player: h.player,
+        watermark,
+        opts: {
+          signal: stop.signal,
+          onPathChosen: () => setMaking({ progress: null, saving: true }),
+          onProgress: (progress) => setMaking({ progress, saving: true }),
+        },
+      });
+      if (path) {
+        trackEvent("highlight_rendered", { clips, seconds: Math.round(length), watermark });
+        setMade(path);
+      }
+    } catch (e) {
+      if (isExportCancelled(e)) toast("Video stopped");
+      else {
+        Sentry.captureException(e, { tags: { feature: "highlights", step: "render" } });
+        toast.error("Couldn't make the video", { description: e instanceof Error ? e.message : String(e) });
+      }
+    } finally {
+      setMaking(null);
+      stopRef.current = null;
+    }
+  };
 
   const body = () => {
     if (h.loading) {
@@ -180,13 +232,40 @@ export function HighlightsPage() {
         title="Highlights"
         subtitle="Your best plays, framed for your phone"
         actions={
-          <Button disabled title="Making the video comes next">
+          <Button
+            disabled={!canCreate}
+            onClick={() => void create()}
+            title={framingCount > 0 ? "Wait for the framing to finish" : inVideo.length === 0 ? "Add plays to the video first" : undefined}
+          >
             <Sparkles />
             Create video
           </Button>
         }
       />
       <PageContent width="medium">{body()}</PageContent>
+      {making?.saving && (
+        <Dialog open onOpenChange={() => {}}>
+          <DialogContent className="max-w-sm" onInteractOutside={(e) => e.preventDefault()}>
+            <DialogHeader>
+              <DialogTitle>Making your video</DialogTitle>
+              <DialogDescription className="nums">
+                {making.progress?.phase === "stitching"
+                  ? "Putting the clips together…"
+                  : making.progress
+                    ? `${making.progress.done} of ${making.progress.total} parts done`
+                    : "Starting…"}
+              </DialogDescription>
+            </DialogHeader>
+            <ProgressBar
+              percent={making.progress ? (making.progress.phase === "stitching" ? 95 : (90 * making.progress.done) / Math.max(1, making.progress.total)) : null}
+            />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => stopRef.current?.abort()}>Stop</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+      {made && <MadeDialog path={made} onClose={() => setMade(null)} />}
       {editingPlay && (
         <CropDialog
           play={editingPlay}
@@ -300,6 +379,8 @@ function VideoTile({ play, index, framing, onRemove, onOpen, onRetry }: {
     ready && play.match.videoUrl ? { path: play.match.videoUrl, at, crop: { cx: cxAt(ready.clip.keyframes, at), w: CROP_W } } : null,
   );
   const c = play.candidate;
+  // A made basket Claude saw no release of: the shot is likely outside the clip (the game's sync has drifted).
+  const shotMissing = !!ready && (c.anchor.type === "2pt" || c.anchor.type === "3pt") && ready.clip.observation.releaseImage == null;
   return (
     <div className="group relative flex w-[150px] flex-col gap-1.5">
       <button
@@ -335,12 +416,17 @@ function VideoTile({ play, index, framing, onRemove, onOpen, onRetry }: {
       <div className="px-0.5 text-xs leading-tight">
         <p className="font-medium text-foreground">{playName(c)}</p>
         <p className="text-muted-foreground nums">{playClock(c.anchor)}{scoreLine(c) ? ` · ${scoreLine(c)}` : ""}</p>
-        {ready?.clip.check && !ready.edited && (
+        {ready && !ready.edited && (shotMissing ? (
+          <p className="mt-1 flex items-start gap-1 font-medium text-warning" title="The play may happen outside this clip. Fix sync in the game view, then come back.">
+            <AlertTriangle className="mt-px size-3 shrink-0" />
+            Shot not found. The game's sync may be off.
+          </p>
+        ) : ready.clip.check ? (
           <button type="button" onClick={onOpen} className="mt-1 inline-flex items-center gap-1 font-medium text-warning outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection">
             <AlertTriangle className="size-3" />
             Check framing
           </button>
-        )}
+        ) : null)}
       </div>
     </div>
   );
@@ -453,4 +539,26 @@ function LoopingClip({ src, videoRef, start, end, onPlaying }: {
     };
   }, [videoRef, start, end, onPlaying]);
   return <VideoPlayer src={src} videoRef={videoRef} />;
+}
+
+/** The finished video, playing, with a way to it on disk. */
+function MadeDialog({ path, onClose }: { path: string; onClose: () => void }) {
+  const name = path.split(/[/\\]/).pop() ?? path;
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Your highlight is ready</DialogTitle>
+          <DialogDescription className="truncate">{name}</DialogDescription>
+        </DialogHeader>
+        <div className="mx-auto aspect-[9/16] h-[60vh] max-h-[560px] overflow-hidden rounded-xl bg-black">
+          <video src={streamFileSrc(path)} className="size-full" controls autoPlay playsInline />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => revealItemInDir(path).catch(() => {})}>Show in folder</Button>
+          <Button onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

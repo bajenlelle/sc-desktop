@@ -50,7 +50,8 @@ import type { PlaylistTextCard } from "@/types/match";
 /** What a card is drawn from: its text, or its stats spec when it has one. */
 export type CardSource = Pick<PlaylistTextCard, "text" | "card">;
 
-const FAMILY = "Scoutable Card";
+/** The bundled Roboto, as every painter draws it (loadCardFonts). */
+export const FAMILY = "Scoutable Card";
 
 let fontsLoading: Promise<void> | null = null;
 
@@ -291,7 +292,7 @@ export function paintClipDrawing(
   return canvas;
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+export function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Couldn't draw the image"))), "image/png"),
   );
@@ -302,7 +303,7 @@ async function paintToBlob(source: CardSource, aspect: CardAspect): Promise<Blob
   return canvasToBlob(paintCard(source, aspect));
 }
 
-async function blobToBase64(blob: Blob): Promise<string> {
+export async function blobToBase64(blob: Blob): Promise<string> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) {

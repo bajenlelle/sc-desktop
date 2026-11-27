@@ -27,6 +27,8 @@ export interface ExportOptions {
   signal?: AbortSignal;
   /** Save to computer: the save panel returned a path and rendering starts. */
   onPathChosen?: () => void;
+  /** No 0.25 s fades between segments: a player highlight cuts on the action. */
+  hardCuts?: boolean;
 }
 
 /** What an export that was stopped rejects with; see isExportCancelled. */
@@ -47,7 +49,7 @@ async function invokeExportPlaylist(
   vertical: boolean,
   opts?: ExportOptions,
 ): Promise<void> {
-  const { onProgress, signal } = opts ?? {};
+  const { onProgress, signal, hardCuts } = opts ?? {};
   if (signal?.aborted) throw exportStopped();
   const progressId = crypto.randomUUID();
   const unlisten = onProgress
@@ -60,7 +62,7 @@ async function invokeExportPlaylist(
   const stop = () => void invoke<boolean>("cancel_export", { id: progressId }).catch(() => {});
   signal?.addEventListener("abort", stop, { once: true });
   try {
-    await invoke<void>("export_playlist", { segments: rustSegments, outputPath, watermark, vertical, progressId });
+    await invoke<void>("export_playlist", { segments: rustSegments, outputPath, watermark, vertical, progressId, ...(hardCuts ? { hardCuts: true } : {}) });
   } catch (e) {
     throw isExportCancelled(e) ? exportStopped() : e;
   } finally {
@@ -79,8 +81,16 @@ export type ExportSegment =
       drawings?: ClipDrawing[];
       /** Slow-motion sections (absolute source time). */
       slowMotion?: SlowSection[];
+      /**
+       * Full-frame transparent PNGs (base64, the export's size) drawn over the clip, on top of everything else:
+       * a highlight's name and stat line, its play labels. `from`/`to` are seconds of the rendered clip; the
+       * whole clip when left out.
+       */
+      overlays?: { pngBase64: string; from?: number; to?: number }[];
     }
-  | { kind: 'text'; text: string; durationSeconds: number; card?: StatsCardSpec };
+  | { kind: 'text'; text: string; durationSeconds: number; card?: StatsCardSpec }
+  /** A still the app drew (base64 PNG, the export's size), shown for a while: a highlight's end card. */
+  | { kind: 'image'; pngBase64: string; durationSeconds: number };
 
 // Legacy interface kept for callers that haven't migrated yet
 export interface ExportItem {
@@ -312,6 +322,7 @@ async function buildRustSegments(
   const rustSegments: RustSegment[] = segments
     .map((seg): RustSegment | null => {
       if (seg.kind === 'text') return cards.get(seg) ?? null;
+      if (seg.kind === 'image') return { kind: 'image', png_base64: seg.pngBase64, duration_seconds: seg.durationSeconds };
       const at = placed.get(seg);
       if (!at) return null;
       const { start, end, timeline, pngs } = at;
@@ -323,6 +334,11 @@ async function buildRustSegments(
       const list: RustOverlay[] = [
         ...timeline.windows.map((w, j) => ({ png_base64: pngs[j], from_seconds: w.from, to_seconds: w.to })),
         ...(png ? [{ png_base64: png, from_seconds: 0, to_seconds: timeline.duration }] : []),
+        ...(seg.overlays ?? []).map((o) => ({
+          png_base64: o.pngBase64,
+          from_seconds: Math.max(0, o.from ?? 0),
+          to_seconds: Math.min(timeline.duration, o.to ?? timeline.duration),
+        })),
       ];
       const overlays = list.length > 0 ? { overlays: list } : {};
       // A clip without drawings or slow motion sends exactly what it always did.
