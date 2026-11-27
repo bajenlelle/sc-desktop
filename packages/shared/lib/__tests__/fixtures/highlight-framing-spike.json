@@ -1,0 +1,482 @@
+[
+ {
+  "slug": "pedro-q1-0543-2pt",
+  "shot": true,
+  "cropW": 0.31640625,
+  "times": [
+   773.4,
+   773.65,
+   773.9,
+   774.15,
+   774.4,
+   774.65,
+   774.9,
+   775.15,
+   775.4,
+   775.65,
+   775.9,
+   776.15,
+   776.4
+  ],
+  "obs": {
+   "frames": [
+    {
+     "image": 1,
+     "x": 0.665,
+     "cameraCut": false
+    },
+    {
+     "image": 2,
+     "x": 0.635,
+     "cameraCut": false
+    },
+    {
+     "image": 3,
+     "x": 0.61,
+     "cameraCut": false
+    },
+    {
+     "image": 4,
+     "x": 0.568,
+     "cameraCut": false
+    },
+    {
+     "image": 5,
+     "x": 0.533,
+     "cameraCut": false
+    },
+    {
+     "image": 6,
+     "x": 0.488,
+     "cameraCut": false
+    },
+    {
+     "image": 7,
+     "x": 0.44,
+     "cameraCut": false
+    },
+    {
+     "image": 8,
+     "x": 0.4,
+     "cameraCut": false
+    },
+    {
+     "image": 9,
+     "x": 0.345,
+     "cameraCut": false
+    },
+    {
+     "image": 10,
+     "x": 0.298,
+     "cameraCut": false
+    },
+    {
+     "image": 11,
+     "x": 0.262,
+     "cameraCut": false
+    },
+    {
+     "image": 12,
+     "x": 0.218,
+     "cameraCut": false
+    },
+    {
+     "image": 13,
+     "x": 0.178,
+     "cameraCut": false
+    }
+   ],
+   "releaseImage": 10,
+   "rimX": 0.265,
+   "madeImage": 11,
+   "identity": "likely",
+   "note": "Followed the white #78 from the top of the key as he received the ball and drove left for the layup; after landing he is hard to separate from white #8 near the basket, so the last frames are less certain."
+  },
+  "pythonKeyframes": [
+   {
+    "t": 773.4,
+    "cx": 0.6580587817345371
+   },
+   {
+    "t": 773.8166666666668,
+    "cx": 0.6167658492042338
+   },
+   {
+    "t": 774.3166666666671,
+    "cx": 0.5438788162277014
+   },
+   {
+    "t": 775.5666666666676,
+    "cx": 0.31800717311592847
+   },
+   {
+    "t": 776.4000000000013,
+    "cx": 0.26776785517420987
+   }
+  ]
+ },
+ {
+  "slug": "pedro-q3-dunk",
+  "shot": true,
+  "cropW": 0.31640625,
+  "times": [
+   3984.0,
+   3984.25,
+   3984.5,
+   3984.75,
+   3985.0,
+   3985.25,
+   3985.5,
+   3985.75,
+   3986.0,
+   3986.25,
+   3986.5,
+   3986.75,
+   3987.0,
+   3987.25,
+   3987.5,
+   3987.75,
+   3988.0,
+   3988.25,
+   3988.5
+  ],
+  "obs": {
+   "frames": [
+    {
+     "image": 1,
+     "x": 0.28,
+     "cameraCut": false
+    },
+    {
+     "image": 2,
+     "x": 0.26,
+     "cameraCut": false
+    },
+    {
+     "image": 3,
+     "x": 0.25,
+     "cameraCut": false
+    },
+    {
+     "image": 4,
+     "x": 0.26,
+     "cameraCut": false
+    },
+    {
+     "image": 5,
+     "x": 0.29,
+     "cameraCut": false
+    },
+    {
+     "image": 6,
+     "x": 0.34,
+     "cameraCut": false
+    },
+    {
+     "image": 7,
+     "x": 0.39,
+     "cameraCut": false
+    },
+    {
+     "image": 8,
+     "x": 0.44,
+     "cameraCut": false
+    },
+    {
+     "image": 9,
+     "x": 0.5,
+     "cameraCut": false
+    },
+    {
+     "image": 10,
+     "x": 0.57,
+     "cameraCut": false
+    },
+    {
+     "image": 11,
+     "x": 0.63,
+     "cameraCut": false
+    },
+    {
+     "image": 12,
+     "x": 0.67,
+     "cameraCut": false
+    },
+    {
+     "image": 13,
+     "x": 0.72,
+     "cameraCut": false
+    },
+    {
+     "image": 14,
+     "x": 0.74,
+     "cameraCut": false
+    },
+    {
+     "image": 15,
+     "x": 0.74,
+     "cameraCut": false
+    },
+    {
+     "image": 16,
+     "x": 0.73,
+     "cameraCut": false
+    },
+    {
+     "image": 17,
+     "x": 0.72,
+     "cameraCut": false
+    },
+    {
+     "image": 18,
+     "x": 0.71,
+     "cameraCut": false
+    },
+    {
+     "image": 19,
+     "x": 0.69,
+     "cameraCut": false
+    }
+   ],
+   "releaseImage": 13,
+   "rimX": 0.72,
+   "madeImage": 14,
+   "identity": "likely",
+   "note": "Followed the white-jersey Fryshuset player who cuts from the left wing through the lane and dunks; jersey number hard to read at distance, identified mainly by the dunk and frame continuity."
+  },
+  "pythonKeyframes": [
+   {
+    "t": 3984.0,
+    "cx": 0.27544580900980664
+   },
+   {
+    "t": 3984.500000000001,
+    "cx": 0.25571198365350994
+   },
+   {
+    "t": 3984.9166666666683,
+    "cx": 0.2828288588054851
+   },
+   {
+    "t": 3985.6666666666697,
+    "cx": 0.4243893560340432
+   },
+   {
+    "t": 3986.5000000000045,
+    "cx": 0.6253368058960486
+   },
+   {
+    "t": 3987.0000000000055,
+    "cx": 0.7084489300270126
+   },
+   {
+    "t": 3988.500000000008,
+    "cx": 0.7200000000000001
+   }
+  ]
+ },
+ {
+  "slug": "theo-trelleborg-3",
+  "shot": false,
+  "cropW": 0.31640625,
+  "times": [
+   4074.1181875986695,
+   4074.3681875986695,
+   4074.6181875986695,
+   4074.8681875986695,
+   4075.1181875986695,
+   4075.3681875986695,
+   4075.6181875986695,
+   4075.8681875986695,
+   4076.1181875986695,
+   4076.3681875986695,
+   4076.6181875986695,
+   4076.8681875986695,
+   4077.1181875986695,
+   4077.3681875986695,
+   4077.6181875986695,
+   4077.8681875986695,
+   4078.1181875986695,
+   4078.3681875986695,
+   4078.6181875986695,
+   4078.8681875986695,
+   4079.1181875986695,
+   4079.3681875986695,
+   4079.6181875986695,
+   4079.8681875986695,
+   4080.1181875986695
+  ],
+  "obs": {
+   "frames": [
+    {
+     "image": 1,
+     "x": 0.41,
+     "cameraCut": false
+    },
+    {
+     "image": 2,
+     "x": 0.46,
+     "cameraCut": false
+    },
+    {
+     "image": 3,
+     "x": 0.5,
+     "cameraCut": false
+    },
+    {
+     "image": 4,
+     "x": 0.56,
+     "cameraCut": false
+    },
+    {
+     "image": 5,
+     "x": 0.6,
+     "cameraCut": false
+    },
+    {
+     "image": 6,
+     "x": 0.65,
+     "cameraCut": false
+    },
+    {
+     "image": 7,
+     "x": 0.69,
+     "cameraCut": false
+    },
+    {
+     "image": 8,
+     "x": 0.72,
+     "cameraCut": false
+    },
+    {
+     "image": 9,
+     "x": 0.76,
+     "cameraCut": false
+    },
+    {
+     "image": 10,
+     "x": 0.8,
+     "cameraCut": false
+    },
+    {
+     "image": 11,
+     "x": 0.83,
+     "cameraCut": false
+    },
+    {
+     "image": 12,
+     "x": 0.85,
+     "cameraCut": false
+    },
+    {
+     "image": 13,
+     "x": 0.87,
+     "cameraCut": false
+    },
+    {
+     "image": 14,
+     "x": 0.88,
+     "cameraCut": false
+    },
+    {
+     "image": 15,
+     "x": 0.87,
+     "cameraCut": false
+    },
+    {
+     "image": 16,
+     "x": 0.84,
+     "cameraCut": false
+    },
+    {
+     "image": 17,
+     "x": 0.8,
+     "cameraCut": false
+    },
+    {
+     "image": 18,
+     "x": 0.73,
+     "cameraCut": false
+    },
+    {
+     "image": 19,
+     "x": 0.67,
+     "cameraCut": false
+    },
+    {
+     "image": 20,
+     "x": 0.6,
+     "cameraCut": false
+    },
+    {
+     "image": 21,
+     "x": 0.54,
+     "cameraCut": false
+    },
+    {
+     "image": 22,
+     "x": 0.47,
+     "cameraCut": false
+    },
+    {
+     "image": 23,
+     "x": 0.42,
+     "cameraCut": false
+    },
+    {
+     "image": 24,
+     "x": 0.4,
+     "cameraCut": false
+    },
+    {
+     "image": 25,
+     "x": 0.38,
+     "cameraCut": false
+    }
+   ],
+   "releaseImage": 24,
+   "rimX": 0.29,
+   "madeImage": null,
+   "identity": "likely",
+   "note": "Followed the white-jersey player with wavy hair who received the swing pass, dribbled on the right wing and drove for the shot; number not clearly readable and he was partly hidden in traffic during the drive."
+  },
+  "pythonKeyframes": [
+   {
+    "t": 4074.1181875986695,
+    "cx": 0.421551069973406
+   },
+   {
+    "t": 4075.451520932005,
+    "cx": 0.6619564113317358
+   },
+   {
+    "t": 4076.5348542653405,
+    "cx": 0.8185969929646093
+   },
+   {
+    "t": 4076.784854265341,
+    "cx": 0.841796875
+   },
+   {
+    "t": 4077.784854265343,
+    "cx": 0.841796875
+   },
+   {
+    "t": 4078.20152093201,
+    "cx": 0.7739093401681209
+   },
+   {
+    "t": 4079.4515209320125,
+    "cx": 0.4564863317390136
+   },
+   {
+    "t": 4079.701520932013,
+    "cx": 0.41648618977405166
+   },
+   {
+    "t": 4080.1181875986804,
+    "cx": 0.38466280994636326
+   }
+  ]
+ }
+]
