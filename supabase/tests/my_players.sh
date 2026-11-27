@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Checks for my players (20261127100000): the my_players table.
+# Checks for my players (20261127200000): the my_players table.
 #
 # A row says which roster player an account is (one per account and source). The owner reads, changes and
 # deletes theirs; a second row for the same source is refused; the person id, name and number are checked.
@@ -8,7 +8,7 @@
 #
 # Every statement runs inside BEGIN … ROLLBACK, so nothing is committed.
 #
-#   SUPABASE_DB_URL=<url> RLS_PREFLIGHT=supabase/migrations/20261127100000_my_players.sql supabase/tests/my_players.sh   # before applying
+#   SUPABASE_DB_URL=<url> RLS_PREFLIGHT=supabase/migrations/20261127200000_my_players.sql supabase/tests/my_players.sh   # before applying
 #   SUPABASE_DB_URL=<url> supabase/tests/my_players.sh                                                                  # after
 #
 # Runs through psql over SUPABASE_DB_URL (e.g. staging's session pooler). The URL is never printed; its
@@ -91,9 +91,9 @@ ACTOR=$V run "someone else saves their own"              "ALLOWED rows=1" "$(sav
 
 echo "== the checks"
 run "a second Genius row for the same account is refused" "ERR:23505"     "$(save $W 999 'Probe twice' NULL)"
-run "a person id that isn't a number is refused"         "ERR:23514"      "$(save $V 'abc' 'Probe bad' NULL)"
-run "a blank name is refused"                            "ERR:23514"      "$(save $V 123 '   ' NULL)"
-run "a shirt number of four digits is refused"           "ERR:23514"      "$(save $V 123 'Probe four' "$(d 1234)")"
+ACTOR=$V run "a person id that isn't a number is refused"         "ERR:23514"      "$(save $V 'abc' 'Probe bad' NULL)"
+ACTOR=$V run "a blank name is refused"                            "ERR:23514"      "$(save $V 123 '   ' NULL)"
+ACTOR=$V run "a shirt number of four digits is refused"           "ERR:23514"      "$(save $V 123 'Probe four' "$(d 1234)")"
 
 echo "== everyone else"
 ACTOR=$V run "someone else can't see the player's row"   "ALLOWED rows=0" "SELECT count(*) AS n FROM my_players WHERE user_id = $(d $W)"

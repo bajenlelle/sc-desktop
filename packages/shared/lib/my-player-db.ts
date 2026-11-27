@@ -1,5 +1,5 @@
 /**
- * Database operations for the `my_players` table (20261127100000): which roster player the signed-in account is,
+ * Database operations for the `my_players` table (20261127200000): which roster player the signed-in account is,
  * so the Highlights page knows the player's own plays in every game. One row per account and source (Genius).
  *
  * Each function accepts a SupabaseClient so this module is isomorphic.
