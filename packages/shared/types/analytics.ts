@@ -94,6 +94,7 @@ export type AnalyticsEvent =
   | "scouting_report_players_picked" // players (in the report after), added, removed, with_clips, from_leaders, sorted_by
   | "scouting_report_clip_moved" // to (player | team | out | in: put back), clips, via (drag | keys | menu | add_clips: the Add clips sheet), reorder (stayed in its section)
   | "scouting_report_add_clips_opened" // from (toolbar | player | team | section): the report's own Add clips sheet
+  | "scouting_report_saved_as_playlist" // clips: the report page's Save as playlist (a copy, in reading order)
   | "scouting_report_deleted" // own_clips (the report owned its clips: they went with it), was_live
   | "scouting_report_clips_added" // clips, to (sorted | player | team | section): added from the report's Add clips sheet
   | "scouting_report_clip_played" // via (tile | panel), source (local | shared | none)

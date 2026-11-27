@@ -29,6 +29,7 @@ import {
   parseReportDraft,
   placeClips,
   placementOf,
+  reportAsPlaylistClips,
   pruneDraft,
   recordReportEdit,
   removeSection,
@@ -645,5 +646,21 @@ describe("the report's sections (blocks)", () => {
   it("reads keys a line each, without the bullets", () => {
     expect(keyLines("• Box out\n- No threes\n\n2) Run")).toEqual(["Box out", "No threes", "Run"]);
     expect(keyLines(undefined)).toEqual([]);
+  });
+});
+
+describe("reportAsPlaylistClips", () => {
+  it("copies the clips in reading order, without hidden sections, left-out clips, uploads or groups", () => {
+    const base = setBlockHidden(addBlock(two(), "keys", { at: 0 }), "keys", false);
+    const draft = { ...placeClips(base, ["m1:4"], "keys", events), placements: { ...placeClips(base, ["m1:4"], "keys", events).placements, "m1:3": LEFT_OUT } };
+    const items: PlaylistItem[] = [clip("m1", 1, { r2Url: "https://r2/x.mp4", note: "watch", groupId: "g" }), clip("m1", 3), clip("m1", 4), clip("m1", 2)];
+    // Keys (m1:4), Their actions (none), then Alva's clips (m1:1, m1:2); Ola's m1:3 is left out.
+    expect(reportAsPlaylistClips(draft, items, events)).toEqual([
+      { type: "clip", matchId: "m1", eventId: 4 },
+      { type: "clip", matchId: "m1", eventId: 1, note: "watch" },
+      { type: "clip", matchId: "m1", eventId: 2 },
+    ]);
+    // Hiding Keys leaves its clip out.
+    expect(reportAsPlaylistClips(setBlockHidden(draft, "keys", true), items, events).map((c) => c.eventId)).toEqual([1, 2]);
   });
 });

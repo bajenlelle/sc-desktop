@@ -602,6 +602,26 @@ export interface ReportLayout {
   missing: { key: string; matchId: string; eventId: number }[];
 }
 
+/**
+ * The report's clips as a playlist of their own (Save as playlist): in
+ * reading order, section by section, without the hidden sections or the clips
+ * left out, each with its trim, note and drawings but not its uploaded file
+ * (a new playlist sends its own) or a group of the report's playlist.
+ */
+export function reportAsPlaylistClips(
+  draft: ReportDraft,
+  items: readonly PlaylistItem[],
+  eventByKey: ReadonlyMap<string, PlayByPlayEvent>,
+): PlaylistClipItem[] {
+  return deriveReportLayout(draft, items, eventByKey)
+    .sections.filter((s) => !s.hidden)
+    .flatMap((s) => s.clips)
+    .map((c) => {
+      const { r2Url: _shipped, groupId: _group, ...rest } = c;
+      return rest;
+    });
+}
+
 /** The ranked clips by rank, then the rest as they came (playlist order). */
 function inOrder(clips: PlaylistClipItem[], rank: ReadonlyMap<string, number>): PlaylistClipItem[] {
   const ranked = clips.filter((c) => rank.has(itemKey(c))).sort((a, b) => rank.get(itemKey(a))! - rank.get(itemKey(b))!);

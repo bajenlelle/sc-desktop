@@ -90,6 +90,12 @@ test("the editor's New report makes a report from a copy of the playlist's clips
   expect(copied.map((r) => `${r.match_id}:${r.event_id}`).sort()).toEqual([...keys].sort());
   await expect(page.getByRole("button", { name: "Edit clips" })).toHaveCount(0);
 
+  // Save as playlist: a second playlist the coach sees, with a copy of what the report shows.
+  await page.getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Save as playlist" }).click();
+  await expect(page.getByText("Saved as a playlist with 2 clips")).toBeVisible({ timeout: 15_000 });
+  await expect.poll(async () => (await selectRows<{ kind: string }>(page, "playlists", "kind", { name: KEPT })).map((r) => r.kind).sort(), { timeout: 15_000 }).toEqual(["playlist", "playlist", "report"]);
+
   // Delete report: asked first; then on to Reports, the report's own clips gone, the playlist kept.
   await page.getByRole("button", { name: "More" }).click();
   await page.getByRole("menuitem", { name: "Delete report…" }).click();
@@ -97,5 +103,5 @@ test("the editor's New report makes a report from a copy of the playlist's clips
   await expect(dialog.getByText("Its clips go with it.")).toBeVisible();
   await dialog.getByRole("button", { name: "Delete report" }).click();
   await expect(page).toHaveURL(/\/reports$/, { timeout: 30_000 });
-  await expect.poll(async () => (await selectRows<{ kind: string }>(page, "playlists", "kind", { name: KEPT })).map((r) => r.kind), { timeout: 15_000 }).toEqual(["playlist"]);
+  await expect.poll(async () => (await selectRows<{ kind: string }>(page, "playlists", "kind", { name: KEPT })).map((r) => r.kind), { timeout: 15_000 }).toEqual(["playlist", "playlist"]);
 });

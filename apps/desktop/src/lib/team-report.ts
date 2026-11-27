@@ -220,3 +220,23 @@ export async function deleteReport(report: { playlistId: string; ownClips: boole
   trackEvent("scouting_report_deleted", { own_clips: report.ownClips, was_live: !!report.liveReportId });
   announcePlaylistsChanged();
 }
+
+/**
+ * Save as playlist (the report page's ⋯): a new playlist the coach sees, named
+ * after the report, with a copy of the clips the report shows, in its order
+ * (reportAsPlaylistClips). The report keeps its own. Resolves with the new
+ * playlist's id; a failed copy takes the playlist back.
+ */
+export async function saveReportAsPlaylist(name: string, clips: PlaylistClipItem[], ctx: { orgId: string | null }): Promise<string> {
+  const playlist = await createPlaylist(name, undefined, ctx.orgId ?? undefined);
+  try {
+    if (clips.length > 0) await appendClips({ id: playlist.id, items: [] }, clips);
+  } catch (e) {
+    await deletePlaylist(playlist.id).catch(() => {});
+    throw e;
+  }
+  trackEvent("playlist_created", { playlist_id: playlist.id, in_folder: false, surface: "report" });
+  trackEvent("scouting_report_saved_as_playlist", { clips: clips.length });
+  announcePlaylistsChanged();
+  return playlist.id;
+}

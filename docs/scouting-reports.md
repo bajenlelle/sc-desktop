@@ -114,6 +114,11 @@ never sees as a playlist:
   delete trigger stops its link and takes its uploads down); one made on a
   kept playlist stops its link and deletes its draft, and the playlist stays
   (`deleteReport`, `lib/team-report.ts`).
+- **Save as playlist** (the report page's ⋯) makes a playlist the coach
+  sees, named after the report, with a copy of the clips the report shows,
+  in reading order, without hidden sections or left-out clips
+  (`reportAsPlaylistClips`, `saveReportAsPlaylist`): for exporting a video or
+  showing it at practice. The report keeps its own clips.
 - **Reports from before.** A report made on a playlist before this stays on
   that playlist (`kind = 'playlist'`): nothing tells the two apart, so only
   reports whose draft names a team (made from a team, staging only) became

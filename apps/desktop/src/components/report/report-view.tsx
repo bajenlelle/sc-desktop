@@ -1,7 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontal, Plus, UserPlus } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useNavigate } from "react-router-dom";
+import { saveReportAsPlaylist } from "@/lib/team-report";
 import { DeleteReportDialog } from "./delete-report-dialog";
 import { toast } from "sonner";
 import { ClipBrowserPanel, SORTED_BY_PLAYER, type ClipBrowserLabelHandlers, type ClipBrowserStart, type ClipBrowserTarget } from "@/components/editor/clip-browser-panel";
@@ -45,6 +47,7 @@ import {
   includeClips,
   moveClips,
   placeClips,
+  reportAsPlaylistClips,
   moveSection,
   nudgeClips,
   removeSection,
@@ -811,6 +814,29 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   };
   const ownClips = isReportClips(playlist);
 
+  // Save as playlist: a playlist the coach sees, with a copy of what the report shows, in its order.
+  const navigate = useNavigate();
+  const savingAsPlaylist = useRef(false);
+  const saveAsPlaylist = () => {
+    if (!draft || savingAsPlaylist.current) return;
+    const clips = reportAsPlaylistClips(draft, items, eventByKey);
+    if (clips.length === 0) {
+      toast("This report has no clips to save yet");
+      return;
+    }
+    savingAsPlaylist.current = true;
+    saveReportAsPlaylist(effectiveTitleOf(draft, playlist.name), clips, { orgId: playlist.orgId ?? activeOrgId ?? null })
+      .then((id) =>
+        toast(`Saved as a playlist with ${clips.length === 1 ? "1 clip" : `${clips.length} clips`}`, {
+          action: { label: "Open", onClick: () => navigate("/playlists", { state: { restore: { playlistId: id } } }) },
+        }),
+      )
+      .catch(() => toast.error("Couldn’t save the playlist. Check your connection and try again."))
+      .finally(() => {
+        savingAsPlaylist.current = false;
+      });
+  };
+
   const saveCaption =
     status === "saving" ? "Saving…" : status === "error" ? "Not saved" : status === "ready" && !isNew ? "Saved" : null;
   const shareLabel = liveReport ? (stale ? "Changed since sharing" : "Shared") : "Share";
@@ -864,6 +890,10 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onSelect={saveAsPlaylist} disabled={!draft}>
+                  Save as playlist
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleteOpen(true)}>
                   Delete report…
                 </DropdownMenuItem>
