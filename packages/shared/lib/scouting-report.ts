@@ -25,7 +25,7 @@ import { SLOW_MAX_LENGTH, SLOW_RATES } from "./clip-timeline";
 import { eventLabel, formatGameClock, periodLabel } from "./events";
 import { cyrb53 } from "./highlight-shares-db";
 import { itemKey } from "./playlist-edits";
-import { deriveReportLayout, keyLines, sectionLabel, REPORT_MAX_SECTIONS, REPORT_TITLE_MAX, type ReportBlockKind, type ReportDraft } from "./report-draft";
+import { blocksOf, deriveReportLayout, holdsClips, keyLines, sectionLabel, REPORT_MAX_SECTIONS, REPORT_TITLE_MAX, type ReportBlockKind, type ReportDraft } from "./report-draft";
 import { isPlayerPhotoKey } from "./player-photos";
 import { cardContent, type StatsCardSpec } from "./stats-card";
 import { clipWatchEffects, type WatchDrawing, type WatchSlow } from "./watch-queue";
@@ -216,6 +216,32 @@ export function reportSectionTitle(kind: ReportSectionKind, title?: string): str
     case "custom":
       return title?.trim() || "Untitled section";
   }
+}
+
+/** A section a clip can be added to, as a menu lists it. */
+export interface ReportClipTarget {
+  /** The placement: a block's id (Keys, Their actions, a section of the coach's own) or a player section's. */
+  id: string;
+  label: string;
+  hidden: boolean;
+}
+
+/**
+ * The sections a clip can go to, in reading order: Keys, Their actions and
+ * the coach's own sections, and each player where the players sit. Hidden
+ * ones are listed (a coach may fill one before showing it). For "Add to
+ * report ▸ AIK ▸ …" outside the report (the game view's play menu).
+ */
+export function reportClipTargets(draft: ReportDraft): ReportClipTarget[] {
+  const out: ReportClipTarget[] = [];
+  for (const b of blocksOf(draft)) {
+    if (b.kind === "players") {
+      for (const s of draft.sections) out.push({ id: s.id, label: sectionLabel(s.player), hidden: b.hidden });
+    } else if (holdsClips(b.kind)) {
+      out.push({ id: b.id, label: reportSectionTitle(b.kind, b.title), hidden: b.hidden });
+    }
+  }
+  return out;
 }
 
 /**

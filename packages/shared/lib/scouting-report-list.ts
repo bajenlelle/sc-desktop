@@ -51,6 +51,19 @@ export interface ReportListItem {
   players: number;
   /** The later of the report's and the draft's last change: the list's order. */
   changedAt: string;
+  /**
+   * The report owns its clips (its playlist is `kind = 'report'`, never listed
+   * as a playlist); false for a report made on a playlist the coach keeps.
+   */
+  ownClips: boolean;
+}
+
+/** A playlist as the list reads it: its name, and for a report's own clips their kind and when they were made. */
+export interface ReportListPlaylist {
+  id: string;
+  name: string;
+  kind?: "report";
+  createdAt?: string | null;
 }
 
 export type ReportListFilter = "all" | "shared" | "drafts";
@@ -66,10 +79,11 @@ const time = (iso: string) => new Date(iso).getTime();
 export function mergeReportList(
   reports: ReportRow[],
   drafts: ReportDraftRow[],
-  playlists: { id: string; name: string }[],
+  playlists: ReportListPlaylist[],
   now: Date,
 ): ReportListItem[] {
   const names = new Map(playlists.map((p) => [p.id, p.name]));
+  const byId = new Map(playlists.map((p) => [p.id, p]));
 
   const latest = new Map<string, ReportRow>();
   for (const r of reports) {
@@ -80,11 +94,17 @@ export function mergeReportList(
   const draftFor = new Map(drafts.filter((d) => names.has(d.playlistId)).map((d) => [d.playlistId, d]));
 
   const items: ReportListItem[] = [];
-  for (const playlistId of new Set([...latest.keys(), ...draftFor.keys()])) {
+  // A report's own clips are a report from the start, before its first edit writes a draft.
+  const ownReports = playlists.filter((p) => p.kind === "report").map((p) => p.id);
+  for (const playlistId of new Set([...latest.keys(), ...draftFor.keys(), ...ownReports])) {
     const playlistName = names.get(playlistId)!;
     const r = latest.get(playlistId);
     const d = draftFor.get(playlistId);
-    const changedAt = [r?.updatedAt, d?.updatedAt].filter((t): t is string => !!t).sort((a, b) => time(b) - time(a))[0];
+    const ownClips = byId.get(playlistId)?.kind === "report";
+    const changedAt =
+      [r?.updatedAt, d?.updatedAt].filter((t): t is string => !!t).sort((a, b) => time(b) - time(a))[0] ??
+      byId.get(playlistId)?.createdAt ??
+      now.toISOString();
     if (r) {
       const status: ReportListStatus = r.revokedAt
         ? "stopped"
@@ -102,19 +122,21 @@ export function mergeReportList(
         opens: r.opens,
         players: d?.players ?? 0,
         changedAt,
+        ownClips,
       });
-    } else if (d) {
+    } else {
       items.push({
         playlistId,
         playlistName,
         reportId: null,
-        title: d.title ?? playlistName,
+        title: d?.title ?? playlistName,
         status: "draft",
         expiresAt: null,
         endedAt: null,
         opens: 0,
-        players: d.players,
+        players: d?.players ?? 0,
         changedAt,
+        ownClips,
       });
     }
   }

@@ -80,6 +80,47 @@ is the selected sidebar row. A link from before the page
 - Esc stops a clip, then the selection, then goes Back (not while the Add
   clips sheet is open: Esc is the sheet's).
 
+## The report's clips (`playlists.kind`, migration `20261127100000_report_clip_lists.sql`)
+
+A report owns its clips. They live where every clip in the app lives
+(`playlists` / `playlist_clips`: trim, notes, drawings, uploads, the
+free-report rule, club moves), in a row of `kind = 'report'` that the coach
+never sees as a playlist:
+
+- **Made as a report.** A team's New report, Reports' New report for a typed
+  name (`createTeamReport`, `createNamedReport`) and the playlist editor's
+  **New report** (`createReportFromPlaylist`: a copy of the playlist's clips
+  with their trim, notes and drawings, not their uploads) make a `report`
+  row. The editor's button reads **Report** for a playlist that already has
+  one (a draft or a live link) and opens it.
+- **Never listed as a playlist.** The desktop reads the kind with its own
+  reads (`listPlaylists` passes `withKind`; `listPlaylistNames` and
+  `listPlaylistIndex` select it): the Playlists list, the editor's Add to,
+  Getting started and ⌘K's playlist hits leave `report` rows out; Reports
+  lists them from the start, before a first edit writes a draft
+  (`mergeReportList`, `ReportListItem.ownClips`). The web's My highlights
+  reads `kind: "playlist"`. The reads players' apps share never ask for the
+  column, so they work on a database without it.
+- **Never shared as a playlist.** Players get the report itself (its link,
+  its delivery to phones). Triggers refuse a team or direct share of a
+  `report` row and a legacy `team_id` on one (`report_not_shareable`), and
+  the editor hides Share on one.
+- **Edited from the report.** Its clips are added from the report (below);
+  **Edit clips** shows only for a report made on a playlist the coach keeps.
+  A clip's "Edit clip" still opens the editor on the report's clips, with
+  Back to the report.
+- **Deleted with the report.** Delete report (Reports' row menu, the report
+  page's ⋯) asks first. A report that owns its clips deletes its row (the
+  delete trigger stops its link and takes its uploads down); one made on a
+  kept playlist stops its link and deletes its draft, and the playlist stays
+  (`deleteReport`, `lib/team-report.ts`).
+- **Reports from before.** A report made on a playlist before this stays on
+  that playlist (`kind = 'playlist'`): nothing tells the two apart, so only
+  reports whose draft names a team (made from a team, staging only) became
+  `report` rows in the migration.
+- **Rollout:** the migration before the web (My highlights reads the kind),
+  the web before the desktop.
+
 ## Adding clips (`report-view.tsx`, `lib/use-report-add-clips.ts`)
 
 The coach adds clips without leaving the report, as FastScout adds video to

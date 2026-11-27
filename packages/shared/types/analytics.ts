@@ -89,11 +89,12 @@ export type AnalyticsEvent =
   | "clip_drawing_set" // shapes, spotlights, arrows, texts, hold_seconds, drawings_on_clip, removed: the editor saved a drawing on a clip
   | "clip_slow_motion_set" // rate, length_seconds, sections_on_clip, removed: the editor saved a slow-motion section
   // Scouting report (lib/scouting-report.ts, lib/report-draft.ts). origin: "web" from the web.
-  | "scouting_report_started" // from (team_page | next_game | reports), opponent (league | typed), players, keys, game (bool)
+  | "scouting_report_started" // from (team_page | next_game | reports | playlist: the editor's New report, from its clips), opponent (league | typed | none), players, keys, game (bool)
   | "scouting_report_opened" // players, clips, has_draft, shared
   | "scouting_report_players_picked" // players (in the report after), added, removed, with_clips, from_leaders, sorted_by
   | "scouting_report_clip_moved" // to (player | team | out | in: put back), clips, via (drag | keys | menu | add_clips: the Add clips sheet), reorder (stayed in its section)
   | "scouting_report_add_clips_opened" // from (toolbar | player | team | section): the report's own Add clips sheet
+  | "scouting_report_deleted" // own_clips (the report owned its clips: they went with it), was_live
   | "scouting_report_clips_added" // clips, to (sorted | player | team | section): added from the report's Add clips sheet
   | "scouting_report_clip_played" // via (tile | panel), source (local | shared | none)
   | "scouting_report_section_removed" // had_note, clips, undone

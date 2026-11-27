@@ -49,6 +49,10 @@ Typing more is how one reaches the rest.
 | Game | its title and both teams' names | the day it was played; "Archived" first for an archived game |
 | Team | its name and its club's | its league |
 
+A report that owns its clips (`kind = 'report'`, docs/scouting-reports.md)
+is found as the report only, never among the playlists
+(`listPlaylistIndex` reads the kind; `buildSearchIndex` skips it), and
+nothing is shown beside its name for a playlist named as the report is.
 A report is its playlist's (one per playlist), so its id is the playlist's
 id; kind and id together name a thing. A team is this season's team in the
 catalogue the team picker reads (`teamCatalog` in `lib/my-team.tsx`, read once

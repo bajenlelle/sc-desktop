@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Plus, UserPlus } from "lucide-react";
+import { MoreHorizontal, Plus, UserPlus } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DeleteReportDialog } from "./delete-report-dialog";
 import { toast } from "sonner";
 import { ClipBrowserPanel, SORTED_BY_PLAYER, type ClipBrowserLabelHandlers, type ClipBrowserStart, type ClipBrowserTarget } from "@/components/editor/clip-browser-panel";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -63,7 +65,7 @@ import { buildScoutingReport, reportOutline } from "@scoutable/shared/lib/scouti
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
 import type { OrgPlanTier } from "@scoutable/shared/types/org";
-import { isClipItem, type PlayByPlayEvent, type Playlist, type PlaylistClipItem, type StoredMatch } from "@/types/match";
+import { isClipItem, isReportClips, type PlayByPlayEvent, type Playlist, type PlaylistClipItem, type StoredMatch } from "@/types/match";
 import { ReportDocument, clipDomSelector, sectionDomId, type SectionStatsContext, type ViewClip, type ViewSection } from "./report-document";
 import { ReportOutline, type MoveVia, type OutlineClipInfo, type OutlineSectionInfo } from "./report-outline";
 import { ReportPlayerPicker, type PickerConfirm } from "./report-player-picker";
@@ -123,6 +125,8 @@ export interface ReportViewProps {
    * Add clips from the report itself (its own page): the sheet adds through these and the report
    * places what it added. Without them (the playlist editor's view) the report has no Add clips.
    */
+  /** Delete report (the toolbar's ⋯, on the report's own page): resolves once it is gone; the page goes on to Reports. */
+  onDeleteReport?: () => Promise<void>;
   addClips?: {
     add: (clips: PlaylistClipItem[]) => Promise<AddedClips | null>;
     remove: (keys: readonly string[]) => Promise<boolean>;
@@ -792,6 +796,21 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     if (added) setTimeout(() => scrollTo(added!), 0);
   };
 
+  // Delete report: asked first, as it can't be undone (DeleteReportDialog).
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const confirmDelete = () => {
+    if (!props.onDeleteReport || deleting) return;
+    setDeleting(true);
+    props.onDeleteReport()
+      .catch(() => toast.error("Couldn’t delete the report. Try again."))
+      .finally(() => {
+        setDeleting(false);
+        setDeleteOpen(false);
+      });
+  };
+  const ownClips = isReportClips(playlist);
+
   const saveCaption =
     status === "saving" ? "Saving…" : status === "error" ? "Not saved" : status === "ready" && !isNew ? "Saved" : null;
   const shareLabel = liveReport ? (stale ? "Changed since sharing" : "Shared") : "Share";
@@ -808,7 +827,8 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       actions={
         <>
           {saveCaption && <span className={cn("text-caption text-muted-foreground", status === "error" && "text-destructive")}>{saveCaption}</span>}
-          {props.onEditClips && (
+          {/* A report made on a playlist the coach keeps: that playlist, in the editor. A report's own clips are edited here. */}
+          {props.onEditClips && !ownClips && (
             <Button variant="ghost" size="sm" onClick={props.onEditClips}>
               Edit clips
             </Button>
@@ -836,6 +856,20 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             {liveReport && <span aria-hidden className={cn("size-1.5 rounded-full", stale ? "bg-warning" : "bg-success")} />}
             {shareLabel}
           </Button>
+          {props.onDeleteReport && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="More">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleteOpen(true)}>
+                  Delete report…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </>
       }
     />
@@ -966,6 +1000,13 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
           </SheetContent>
         </Sheet>
       )}
+
+      <DeleteReportDialog
+        target={deleteOpen ? { title: effectiveTitleOf(draft, playlist.name), playlistName: playlist.name, ownClips, status: liveReport ? "live" : "draft" } : null}
+        deleting={deleting}
+        onCancel={() => setDeleteOpen(false)}
+        onConfirm={confirmDelete}
+      />
 
       <ReportPlayerPicker open={pickerOpen} onOpenChange={setPickerOpen} rows={leaderRowsAll} inReport={taken} noted={noted} initialTicked={initialTicked} loading={seasonsLoading} onConfirm={handlePicked} />
 

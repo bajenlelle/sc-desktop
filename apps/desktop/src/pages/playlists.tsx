@@ -60,6 +60,8 @@ import { ReportView } from "@/components/report/report-view";
 import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-report";
 import type { ReportSeasonSnapshot } from "@scoutable/shared/lib/scouting-report";
 import { reportPath, type ReportPageState } from "@/pages/report";
+import { getReportDraft } from "@/lib/report-drafts-db";
+import { createReportFromPlaylist } from "@/lib/team-report";
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
@@ -166,7 +168,7 @@ import { buildShipSegments, DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL, demoShipBlockRe
 import { onUploaded, shipScheduler } from "@/lib/background-ship";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
-import { isClipItem } from "@/types/match";
+import { isClipItem, isReportClips } from "@/types/match";
 import { toast } from "sonner";
 import { readRecentOpens, recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { lastOpenedPlaylist } from "@scoutable/shared/lib/recent-opens";
@@ -1629,16 +1631,20 @@ export function PlaylistsPage() {
     return map;
   }, [folders]);
 
+  // The playlists the coach sees: a report's own clips (kind "report") are in the list read, so the
+  // editor can open them from their report, but are listed with Reports, never here.
+  const listedPlaylists = useMemo(() => playlists.filter((p) => !isReportClips(p)), [playlists]);
+
   // Filter playlists by search (playlist name or any ancestor folder name)
   const filteredPlaylists = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return playlists;
-    return playlists.filter((pl) => {
+    if (!q) return listedPlaylists;
+    return listedPlaylists.filter((pl) => {
       if (pl.name.toLowerCase().includes(q)) return true;
       if (pl.folderId && folderSearchText.get(pl.folderId)?.includes(q)) return true;
       return false;
     });
-  }, [playlists, search, folderSearchText]);
+  }, [listedPlaylists, search, folderSearchText]);
 
   // While searching, render only folders that contain a match (or an ancestor
   // of one) — empty branches disappear instead of cluttering the results.
@@ -5384,6 +5390,26 @@ export function PlaylistsPage() {
   }, [selected?.id]);
   const clearShareOnOpen = useCallback(() => setShareOnOpen(null), []);
 
+  // Whether the open playlist has a report of its own (a report made on it before reports owned their
+  // clips): its Report opens that one. Without one, New report makes a report from a copy of its clips.
+  // Unknown (not read yet, or the read failed) opens it as before.
+  const [hasReport, setHasReport] = useState<{ id: string; has: boolean } | null>(null);
+  useEffect(() => {
+    const id = selected?.id;
+    if (!id || isUnsavedId(id) || (selected && isReportClips(selected))) return;
+    let cancelled = false;
+    getReportDraft(id)
+      .then((d) => !cancelled && setHasReport({ id, has: !!d }))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
+  // A live report means there is one, whatever the read says (liveReport is read below; the flag is set at render).
+  const newReportRef = useRef(false);
+  const makingReport = useRef(false);
+
   /** Opens the playlist's report on its own page; nothing keeps playing behind it, and Back comes back to this playlist. */
   function openReport() {
     const pl = selectedRef.current;
@@ -5391,7 +5417,21 @@ export function PlaylistsPage() {
     handleStop();
     videoRef.current?.pause();
     if (playerFs.active) void playerFs.exit();
-    navigate(reportPath(pl.id));
+    if (!newReportRef.current) {
+      navigate(reportPath(pl.id));
+      return;
+    }
+    if (makingReport.current) return;
+    makingReport.current = true;
+    createReportFromPlaylist(pl, { orgId: pl.orgId ?? activeOrgId ?? null })
+      .then((id) => navigate(reportPath(id)))
+      .catch((e) => {
+        console.error("[report] couldn't make the report:", e);
+        toast.error("Couldn’t create the report. Check your connection and try again.");
+      })
+      .finally(() => {
+        makingReport.current = false;
+      });
   }
 
   // A playlist, or its report, asked for while this page is already shown (the search, ⌘K, a Getting
@@ -5516,6 +5556,9 @@ export function PlaylistsPage() {
     refreshMyReport({ cached: true });
   }, [refreshMyReport]);
   const liveReport = isLiveReport(myReport) ? myReport : null;
+  // New report (from a copy of these clips) only when it is known that this playlist has no report.
+  const newReportHere = !!selected && !isReportClips(selected) && !liveReport && hasReport?.id === selected.id && !hasReport.has;
+  newReportRef.current = newReportHere;
 
   /** Why the report can't be shared (a demo game), else null. */
   const reportShareDisabledReason = selected ? demoShipBlockReason(selected, matchLookup) : null;
@@ -6453,7 +6496,7 @@ export function PlaylistsPage() {
         ) : null}
         addTo={
           <AddToPopover
-            playlists={playlists.filter((p) => !isUnsavedId(p.id))}
+            playlists={listedPlaylists.filter((p) => !isUnsavedId(p.id))}
             activePlaylistId={selected?.id ?? null}
             onAddToPlaylist={handleAddSelectedToPlaylist}
             onCreatePlaylist={handleCreatePlaylistAndAdd}
@@ -6472,7 +6515,7 @@ export function PlaylistsPage() {
 
   // No playlists and no games of the space's own (the sample game doesn't count): the right pane
   // says to import one first, where Home's "Next up" used to.
-  const importFirst = !loading && playlists.length === 0 && !matches.some((m) => !m.isDemo);
+  const importFirst = !loading && listedPlaylists.length === 0 && !matches.some((m) => !m.isDemo);
   const demoMatchId = matches.find((m) => m.isDemo)?.id ?? null;
   // A club player in their personal space: their coach's shares are in the club's space, one click away.
   const playerClub = activeOrgIsPersonal ? (myOrgs.find((o) => !o.isPersonal && o.role === "player") ?? null) : null;
@@ -6509,6 +6552,7 @@ export function PlaylistsPage() {
         addStatsCardDisabledReason={statsCardDisabledReason}
         onOpenReport={openReport}
         reportStatus={liveReport ? sharedStatusLabel(liveReport) : null}
+        reportLabel={newReportHere ? "New report" : "Report"}
         preRoll={preRoll}
         postRoll={postRoll}
         onPreRollChange={setPreRoll}
@@ -6534,7 +6578,8 @@ export function PlaylistsPage() {
         highlightExport={onboardingHighlight === "export"}
         onExport={openExportPicker}
         onExportMenuOpen={() => setOnboardingHighlight(null)}
-        shareVisible={userTeams.length > 0}
+        // A report's own clips reach players as the report, never as a playlist (report_not_shareable).
+        shareVisible={userTeams.length > 0 && !isReportClips(selected)}
         isShipping={isShipping}
         shipLabel={shipProgress ? `${shipProgress.done} of ${shipProgress.total}` : null}
         isShared={(selected.teamIds?.length ?? 0) > 0 || (selected.userIds?.length ?? 0) > 0}
@@ -6641,7 +6686,7 @@ export function PlaylistsPage() {
               <div key={i} className="h-7 animate-pulse rounded-md bg-fill-1" style={{ width: `${70 + ((i * 37) % 30)}%` }} />
             ))}
           </div>
-        ) : playlists.length === 0 && folders.length === 0 ? (
+        ) : listedPlaylists.length === 0 && folders.length === 0 ? (
           <EmptyState
             icon={<ListVideo />}
             title="No playlists yet"
@@ -6699,7 +6744,7 @@ export function PlaylistsPage() {
 
             {/* Shared by me */}
             {(() => {
-              const sharedPlaylists = playlists.filter((p) => (p.teamIds?.length ?? 0) > 0);
+              const sharedPlaylists = listedPlaylists.filter((p) => (p.teamIds?.length ?? 0) > 0);
               if (sharedPlaylists.length === 0) return null;
               return (
                 <div className="mt-1">

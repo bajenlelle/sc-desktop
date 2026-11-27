@@ -24,9 +24,11 @@ import type { League } from "@scoutable/shared/types/league";
 import { trackEvent } from "@/lib/analytics";
 import { loadFixtures, loadSeason } from "@/lib/league-data";
 import { announcePlaylistsChanged } from "@/lib/playlist-events";
-import { createPlaylist, deletePlaylist } from "@/lib/playlists-db";
+import { appendClips, createPlaylist, deletePlaylist } from "@/lib/playlists-db";
+import { isClipItem, type Playlist, type PlaylistClipItem } from "@/types/match";
 import { setCollectTarget } from "@/lib/prefs";
-import { saveReportDraft } from "@/lib/report-drafts-db";
+import { deleteReportDraft, saveReportDraft } from "@/lib/report-drafts-db";
+import { revokeScoutingReport } from "@/lib/scouting-reports-db";
 import { loadSeasonPlayers } from "@/lib/stats-card-data";
 import { createClient } from "@/lib/supabase/client";
 
@@ -130,7 +132,8 @@ export async function createTeamReport(
   });
   const draft = buildTeamReportDraft({ team, game, players, keys: keysText });
 
-  const playlist = await createPlaylist(teamReportName(team.name, game), undefined, ctx.orgId ?? undefined);
+  // The report's own clips: never a playlist the coach sees (docs/scouting-reports.md, "The report's clips").
+  const playlist = await createPlaylist(teamReportName(team.name, game), undefined, ctx.orgId ?? undefined, { kind: "report" });
   try {
     await saveReportDraft(playlist.id, draft);
   } catch (e) {
@@ -162,7 +165,7 @@ async function startingPlayers(competitionId: number, teamId: number, teamName: 
 /** A report about an opponent the Teams pages don't have: a playlist named after it, and a draft that knows only the name. */
 export async function createNamedReport(opponent: string, ctx: { orgId: string | null }): Promise<string> {
   const name = opponent.trim();
-  const playlist = await createPlaylist(name, undefined, ctx.orgId ?? undefined);
+  const playlist = await createPlaylist(name, undefined, ctx.orgId ?? undefined, { kind: "report" });
   try {
     await saveReportDraft(playlist.id, setOpponent(emptyDraft(), name));
   } catch (e) {
@@ -173,4 +176,47 @@ export async function createNamedReport(opponent: string, ctx: { orgId: string |
   trackEvent("scouting_report_started", { from: "reports", opponent: "typed", players: 0, keys: 0, game: false });
   announcePlaylistsChanged();
   return playlist.id;
+}
+
+/**
+ * A report made from a playlist's clips (the editor's New report): the report
+ * gets its own copy of them (trim, notes, drawings; not the uploaded files,
+ * which the report hosts again when it is shared), so the playlist stays the
+ * coach's and the report owns what it shows. Named after the playlist; its
+ * draft is written by its first edit, as any new report's. Resolves with the
+ * report's id. A failed copy takes the report back.
+ */
+export async function createReportFromPlaylist(source: Pick<Playlist, "name" | "items">, ctx: { orgId: string | null }): Promise<string> {
+  const report = await createPlaylist(source.name, undefined, ctx.orgId ?? undefined, { kind: "report" });
+  const clips = source.items.filter(isClipItem).map((c): PlaylistClipItem => {
+    const { r2Url: _shipped, groupId: _group, ...rest } = c;
+    return rest;
+  });
+  try {
+    if (clips.length > 0) await appendClips({ id: report.id, items: [] }, clips);
+  } catch (e) {
+    await deletePlaylist(report.id).catch(() => {});
+    throw e;
+  }
+  trackEvent("scouting_report_started", { from: "playlist", opponent: "none", players: 0, keys: 0, game: false });
+  announcePlaylistsChanged();
+  return report.id;
+}
+
+/**
+ * Deletes a report (Reports' and the report page's Delete report). A report
+ * that owns its clips goes with them: its playlist row is deleted, and the
+ * database stops its link and takes its uploaded clips down
+ * (trg_revoke_scouting_report_on_playlist_delete). A report made on a
+ * playlist the coach keeps loses its link and its draft; the playlist stays.
+ */
+export async function deleteReport(report: { playlistId: string; ownClips: boolean; liveReportId: string | null }): Promise<void> {
+  if (report.ownClips) {
+    await deletePlaylist(report.playlistId);
+  } else {
+    if (report.liveReportId) await revokeScoutingReport(report.liveReportId);
+    await deleteReportDraft(report.playlistId);
+  }
+  trackEvent("scouting_report_deleted", { own_clips: report.ownClips, was_live: !!report.liveReportId });
+  announcePlaylistsChanged();
 }

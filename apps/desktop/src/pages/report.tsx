@@ -11,6 +11,10 @@ import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { useBack, usePageTitle } from "@/lib/nav-history";
 import { useLeagues } from "@/lib/use-leagues";
 import { useReportWorkspace } from "@/lib/use-report-workspace";
+import { deleteReport } from "@/lib/team-report";
+import { isReportClips } from "@/types/match";
+import { isLiveReport } from "@scoutable/shared/lib/scouting-reports-db";
+import { toast } from "sonner";
 
 /** What a link to a report may carry. Back is the page before (lib/nav-history.ts), else the Reports list. */
 export interface ReportPageState {
@@ -57,6 +61,15 @@ export function ReportPage() {
   // Add clips from the report itself: the sheet adds to the report's playlist through the page.
   const { addClips: add, removeClips, ensureLabels, labelHandlers } = ws;
   const addClips = useMemo(() => ({ add, remove: removeClips, ensureLabels, labelHandlers }), [add, removeClips, ensureLabels, labelHandlers]);
+  // Delete report, from the toolbar's ⋯: then on to Reports, where it no longer is.
+  const myReport = ws.myReport;
+  const deleteThis = useCallback(async () => {
+    const pl = ws.playlist;
+    if (!pl) return;
+    await deleteReport({ playlistId: pl.id, ownClips: isReportClips(pl), liveReportId: isLiveReport(myReport) ? myReport!.id : null });
+    toast("Report deleted");
+    navigate("/reports", { replace: true });
+  }, [ws.playlist, myReport, navigate]);
   // Read once: a reload or Back to this page doesn't open the share sheet again.
   const clearShare = useCallback(() => navigate(location.pathname, { replace: true, state: { ...state, share: false } }), [navigate, location.pathname, state]);
 
@@ -120,6 +133,7 @@ export function ReportPage() {
         autoOpenShare={!!state.share}
         onAutoShared={clearShare}
         addClips={addClips}
+        onDeleteReport={deleteThis}
       />
     </Page>
   );

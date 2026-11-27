@@ -31,6 +31,8 @@ export interface SearchPlaylistRow {
   name: string;
   folderId: string | null;
   createdAt: string | null;
+  /** "report": a report's own clips, found as the report, not as a playlist. */
+  kind?: 'report';
 }
 
 /** As much of a game as the search reads. */
@@ -133,11 +135,13 @@ export function buildSearchIndex(source: {
 }): SearchIndex {
   const entries: Entry[] = [];
   for (const p of source.playlists) {
+    // A report's own clips are found as the report (below), never as a playlist.
+    if (p.kind === "report") continue;
     const folder = p.folderId ? folderPath(source.folders, p.folderId) : [];
     entries.push(entry({ kind: "playlist", id: p.id, title: p.name, folder }, folder, time(p.createdAt)));
   }
   for (const r of source.reports) {
-    entries.push(entry({ kind: "report", id: r.playlistId, title: r.title, report: r }, [r.playlistName], time(r.changedAt)));
+    entries.push(entry({ kind: "report", id: r.playlistId, title: r.title, report: r }, r.playlistName === r.title ? [] : [r.playlistName], time(r.changedAt)));
   }
   for (const g of source.games) {
     const archived = !!g.archivedAt;

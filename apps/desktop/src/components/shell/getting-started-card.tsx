@@ -10,6 +10,7 @@ import { ChecklistBody, useChecklist } from "@/components/getting-started";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import type { Playlist, StoredMatch } from "@/types/match";
+import { isReportClips } from "@/types/match";
 
 /** What changes a step's games or playlists, from anywhere in the app. */
 const RELOAD_ON = ["matches-changed", "demo-seeded", PLAYLISTS_CHANGED] as const;
@@ -52,7 +53,8 @@ export function GettingStartedCard() {
         ]);
         // A newer read has started (or the space changed): this answer is stale.
         if (disposed || ticket !== latest) return;
-        setData({ orgId, matches, playlists: own.playlists });
+        // A report's own clips aren't a playlist the coach made: they don't count, and the steps never open one.
+        setData({ orgId, matches, playlists: own.playlists.filter((p) => !isReportClips(p)) });
       } catch {
         // Keep what was read last; the next announcement reads again.
       }

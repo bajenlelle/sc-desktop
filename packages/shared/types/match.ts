@@ -300,6 +300,14 @@ export interface PlaylistFolder {
   orgId?: string;
 }
 
+/** What a row of `playlists` holds: a playlist, or a scouting report's own clips. */
+export type PlaylistKind = 'playlist' | 'report';
+
+/** Whether this is a scouting report's own clips, not a playlist the coach sees. */
+export function isReportClips(p: { kind?: string }): boolean {
+  return p.kind === 'report';
+}
+
 export interface Playlist {
   id: string;        // crypto.randomUUID()
   name: string;
@@ -307,6 +315,12 @@ export interface Playlist {
   folderId?: string; // references PlaylistFolder.id; undefined = Uncategorized
   /** Org (space) this playlist belongs to; undefined only for rows written by pre-org clients. */
   orgId?: string;
+  /**
+   * "report": a scouting report's own clips (docs/scouting-reports.md), never
+   * listed or shared as a playlist. Absent for a playlist, and wherever the
+   * read didn't ask for it.
+   */
+  kind?: 'report';
   teamId?: string;   // kept for backward compat; prefer teamIds
   teamIds?: string[]; // all teams this playlist is shared with (from playlist_shares)
   userIds?: string[]; // user IDs this playlist is directly shared with (coach view)

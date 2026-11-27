@@ -32,6 +32,8 @@ import { trackEvent } from "@/lib/analytics";
 import { relativeTime } from "@/lib/format-date";
 import { reportBaseUrl } from "@/lib/scouting-report";
 import { revokeScoutingReport } from "@/lib/scouting-reports-db";
+import { deleteReport } from "@/lib/team-report";
+import { DeleteReportDialog } from "@/components/report/delete-report-dialog";
 import { useReportList } from "@/lib/use-report-list";
 import { cn } from "@/lib/utils";
 import { APP_OPEN_HASH, openedLabel, scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
@@ -43,18 +45,23 @@ import {
   type ReportListItem,
 } from "@scoutable/shared/lib/scouting-report-list";
 
-type RowAction = "open" | "copy" | "browser" | "stop" | "share_again" | "show_clips";
+type RowAction = "open" | "copy" | "browser" | "stop" | "share_again" | "show_clips" | "delete";
 
-/** A row's menu, the same in the ⋯ button and on right-click: what can be done depends on where the report stands. */
+/**
+ * A row's menu, the same in the ⋯ button and on right-click: what can be done depends on where the report
+ * stands. A report that owns its clips has no playlist to show (its clips are in the report); one made on a
+ * playlist the coach keeps shows it.
+ */
 function rowActions(item: ReportListItem): (RowAction | "-")[] {
+  const clips: (RowAction | "-")[] = item.ownClips ? [] : ["-", "show_clips"];
   switch (item.status) {
     case "live":
-      return ["open", "copy", "browser", "-", "show_clips", "-", "stop"];
+      return ["open", "copy", "browser", ...clips, "-", "stop", "delete"];
     case "expired":
     case "stopped":
-      return ["open", "share_again", "-", "show_clips"];
+      return ["open", "share_again", ...clips, "-", "delete"];
     case "draft":
-      return ["open", "show_clips"];
+      return ["open", ...clips, "-", "delete"];
   }
 }
 
@@ -65,6 +72,7 @@ const ACTION_LABEL: Record<RowAction, string> = {
   stop: "Stop sharing…",
   share_again: "Share again…",
   show_clips: "Show clips",
+  delete: "Delete report…",
 };
 
 /**
@@ -81,6 +89,8 @@ export function ReportsPage() {
   const [search, setSearch] = useState("");
   const [stopTarget, setStopTarget] = useState<ReportListItem | null>(null);
   const [stopping, setStopping] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ReportListItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (profileLoading) return;
@@ -113,7 +123,7 @@ export function ReportsPage() {
   if (!profileLoading && !canAccess) return null;
 
   function act(item: ReportListItem, action: RowAction) {
-    if (action !== "stop") trackEvent("scouting_report_list_action", { action, status: item.status });
+    if (action !== "stop" && action !== "delete") trackEvent("scouting_report_list_action", { action, status: item.status });
     const url = item.reportId ? scoutingReportUrl(reportBaseUrl(), item.reportId) : null;
     switch (action) {
       case "open":
@@ -134,6 +144,29 @@ export function ReportsPage() {
       case "stop":
         setStopTarget(item);
         break;
+      case "delete":
+        setDeleteTarget(item);
+        break;
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteReport({
+        playlistId: deleteTarget.playlistId,
+        ownClips: deleteTarget.ownClips,
+        liveReportId: deleteTarget.status === "live" ? deleteTarget.reportId : null,
+      });
+      trackEvent("scouting_report_list_action", { action: "delete", status: deleteTarget.status });
+      toast("Report deleted");
+      setDeleteTarget(null);
+      reload();
+    } catch {
+      toast.error("Couldn’t delete the report. Try again.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -261,6 +294,8 @@ export function ReportsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DeleteReportDialog target={deleteTarget} deleting={deleting} onCancel={() => setDeleteTarget(null)} onConfirm={() => void confirmDelete()} />
     </Page>
   );
 }
@@ -330,7 +365,7 @@ function ReportRow({
                 a === "-" ? (
                   <DropdownMenuSeparator key={i} />
                 ) : (
-                  <DropdownMenuItem key={a} className={a === "stop" ? "text-destructive focus:text-destructive" : undefined} onSelect={() => onAction(a)}>
+                  <DropdownMenuItem key={a} className={a === "stop" || a === "delete" ? "text-destructive focus:text-destructive" : undefined} onSelect={() => onAction(a)}>
                     {ACTION_LABEL[a]}
                   </DropdownMenuItem>
                 ),
@@ -344,7 +379,7 @@ function ReportRow({
           a === "-" ? (
             <ContextMenuSeparator key={i} />
           ) : (
-            <ContextMenuItem key={a} className={a === "stop" ? "text-destructive focus:text-destructive" : undefined} onSelect={() => onAction(a)}>
+            <ContextMenuItem key={a} className={a === "stop" || a === "delete" ? "text-destructive focus:text-destructive" : undefined} onSelect={() => onAction(a)}>
               {ACTION_LABEL[a]}
             </ContextMenuItem>
           ),

@@ -162,6 +162,8 @@ export interface EditorToolbarProps {
   onOpenReport: () => void;
   /** "Shared · expires 19 Nov 2026" while the playlist has a live report. */
   reportStatus: string | null;
+  /** "Report" (opens it), or "New report" (one made from a copy of these clips). */
+  reportLabel?: string;
 
   shareVisible: boolean;
   isShipping: boolean;
@@ -267,17 +269,17 @@ export function EditorToolbar(p: EditorToolbarProps) {
       variant="static"
       leading={
         <>
-          <ToolbarAction label="Report">
+          <ToolbarAction label={p.reportLabel ?? "Report"}>
             {(compact) => (
               <Button
                 variant="ghost"
                 size={compact ? "icon-sm" : "sm"}
                 onClick={p.onOpenReport}
-                aria-label={compact ? "Report" : undefined}
-                title={p.reportStatus ?? "The playlist's scouting report"}
+                aria-label={compact ? (p.reportLabel ?? "Report") : undefined}
+                title={p.reportStatus ?? (p.reportLabel === "New report" ? "A scouting report with a copy of these clips" : "The playlist's scouting report")}
               >
                 <FileText />
-                {!compact && "Report"}
+                {!compact && (p.reportLabel ?? "Report")}
                 {p.reportStatus && <span aria-hidden className="size-1.5 rounded-full bg-success" />}
               </Button>
             )}

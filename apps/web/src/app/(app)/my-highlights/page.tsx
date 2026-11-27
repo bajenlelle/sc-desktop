@@ -141,7 +141,8 @@ function OwnPlaylists() {
 
   useEffect(() => {
     if (!personalOrgId) return;
-    listPlaylists(createClient(), personalOrgId, { includeUnscoped: true })
+    // A coach's scouting report keeps its clips as a playlist of kind "report": never a reel here.
+    listPlaylists(createClient(), personalOrgId, { includeUnscoped: true, kind: "playlist" })
       .then(setPlaylists)
       .finally(() => setLoading(false));
   }, [personalOrgId]);

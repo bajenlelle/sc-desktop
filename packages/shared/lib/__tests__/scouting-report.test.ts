@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildScoutingReport, clampReportTitle, clipKeyFromUrl, parseScoutingReport, reportContentKey, reportJumpItems, reportOutline, type BuildReportInput, type ReportClip } from "../scouting-report";
+import { buildScoutingReport, clampReportTitle, clipKeyFromUrl, parseScoutingReport, reportClipTargets, reportContentKey, reportJumpItems, reportOutline, type BuildReportInput, type ReportClip } from "../scouting-report";
 import type { DrawingShape } from "../clip-drawing";
 import {
   LEFT_OUT,
@@ -482,5 +482,18 @@ describe("a report of sections", () => {
   it("previews the shown sections in the share sheet by name", () => {
     const d = setBlockHidden(sectioned(), "games", true);
     expect(reportOutline(d, items, events).map((r) => r.label)).toEqual(["Keys", "Their actions", "#7 Alva Berg", "#7 Ola Nilsson", "How they play"]);
+  });
+});
+
+describe("reportClipTargets", () => {
+  it("lists the sections a clip can go to in reading order, the players where they sit, hidden ones marked", () => {
+    const withKeys = addBlock(addSections(emptyDraft(), [ALVA], ids()), "keys", { at: 0 });
+    const draft = setBlockHidden(addBlock(withKeys, "custom", { title: "Out of bounds", newId: () => "1" }), "c-1", true);
+    expect(reportClipTargets(draft)).toEqual([
+      { id: "keys", label: "Keys", hidden: false },
+      { id: "team", label: "Their actions", hidden: false },
+      { id: "s1", label: "#7 Alva Berg", hidden: false },
+      { id: "c-1", label: "Out of bounds", hidden: true },
+    ]);
   });
 });
