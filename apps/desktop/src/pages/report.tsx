@@ -35,7 +35,8 @@ export function reportPath(playlistId: string): string {
  * page"): the report is a document of its own, reached from a team, the
  * Reports list, the search and its playlist, and Back returns there. The page
  * reads its playlist, plays and labels itself (use-report-workspace.ts); the
- * playlist editor is one click away (Edit clips).
+ * report that owns its clips edits them here (Add clips, Edit clip); one made
+ * on a playlist the coach keeps has that playlist one click away (Edit clips).
  */
 export function ReportPage() {
   const { playlistId = "" } = useParams();
@@ -133,6 +134,7 @@ export function ReportPage() {
         autoOpenShare={!!state.share}
         onAutoShared={clearShare}
         addClips={addClips}
+        patchClip={isReportClips(ws.playlist) ? ws.patchClip : undefined}
         onDeleteReport={deleteThis}
       />
     </Page>

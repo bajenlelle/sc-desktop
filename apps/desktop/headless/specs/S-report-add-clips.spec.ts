@@ -10,6 +10,8 @@ import type { Locator, Page } from "@playwright/test";
 import { createPlaylist, deleteOwnedPlaylists, expect, filterButton, owned, readSheetRows, selectRows, selectionPill, sheetRow, shot, test, waitForPlays, withAppModule } from "../helpers";
 
 const NAME = owned("Report clips");
+// The sheet: a window too narrow for the plays to dock beside the report (S-report-plays-panel covers the docked panel).
+test.use({ viewport: { width: 1060, height: 900 } });
 
 test.afterEach(async ({ page }) => {
   await deleteOwnedPlaylists(page, [NAME]);

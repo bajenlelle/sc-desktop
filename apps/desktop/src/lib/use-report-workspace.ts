@@ -170,6 +170,16 @@ export function useReportWorkspace(playlistId: string) {
     return ok;
   }, []);
 
+  /**
+   * Shows a change to one of the playlist's clips (the report's Edit clip, which saves it itself,
+   * lib/use-clip-edit.ts), here and in what later writes start from.
+   */
+  const patchClip = useCallback((key: string, patch: Partial<PlaylistClipItem>) => {
+    const apply = (list: PlaylistItem[]) => list.map((i) => (isClipItem(i) && itemKey(i) === key ? { ...i, ...patch } : i));
+    setState((s) => (s.playlist ? { ...s, playlist: { ...s.playlist, items: apply(s.playlist.items) } } : s));
+    if (saved.current) saved.current = { id: saved.current.id, items: apply(saved.current.items) };
+  }, []);
+
   // Whether each game's video is on this computer: read once the games are in, and again when the window comes back (at most every 30 s).
   const [video, setVideo] = useState<Map<string, VideoFileStatus>>(new Map());
   const [probeTick, setProbeTick] = useState(0);
@@ -298,6 +308,7 @@ export function useReportWorkspace(playlistId: string) {
     run,
     addClips,
     removeClips,
+    patchClip,
     /** Reads the labels on more games' clips (the Add clips sheet's games). */
     ensureLabels: clipLabels.ensure,
     labelHandlers: clipLabels.handlers,

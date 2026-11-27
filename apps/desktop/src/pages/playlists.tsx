@@ -44,11 +44,13 @@ import { DrawBar } from "@/components/editor/draw-bar";
 import { SlowBar } from "@/components/editor/slow-bar";
 import { useDrawSession } from "@/components/editor/use-draw-session";
 import { useClipEffects, type EffectDrawing } from "@/lib/use-clip-effects";
-import { HOLD_DEFAULT, type ClipDrawing } from "@scoutable/shared/lib/clip-drawing";
+import { HOLD_DEFAULT, withDrawing, type ClipDrawing } from "@scoutable/shared/lib/clip-drawing";
 import {
-  SLOW_DEFAULT_LENGTH,
   SLOW_MAX_LENGTH,
-  SLOW_MIN_LENGTH,
+  clampSlowLength,
+  slowAtPlayhead,
+  slowRoom as slowRoomIn,
+  slowStartingAt,
   type SlowRate,
   type SlowSection,
   type SlowSpan,
@@ -918,7 +920,12 @@ export function PlaylistsPage() {
                 ));
         if (restoreId) {
           const pl = loadedPlaylists.find((p) => p.id === restoreId);
-          if (pl) {
+          if (pl && isReportClips(pl)) {
+            // A report's own clips are edited in the report, never here: asked for, it opens; remembered, nothing does.
+            pendingReportRef.current = null;
+            setShareOnOpen(null);
+            if (restore?.playlistId === pl.id) navigate(reportPath(pl.id), { replace: true });
+          } else if (pl) {
             restored = pl;
             setSelected(pl);
             if (pl.folderId) {
@@ -2110,12 +2117,6 @@ export function PlaylistsPage() {
     !!activeClipKey && !draw.session && !activeTextCard && !trim,
   );
 
-  /** The clip's drawings with `d` in place of any copy of it (dropped when it has no shapes), in time order. */
-  function withDrawing(list: ClipDrawing[] | undefined, d: ClipDrawing): ClipDrawing[] {
-    const rest = (list ?? []).filter((x) => x.id !== d.id);
-    return (d.shapes.length > 0 ? [...rest, d] : rest).sort((a, b) => a.t - b.t);
-  }
-
   function clipDrawingsOf(target: { playlistId: string; matchId: string; eventId: number }): ClipDrawing[] | undefined {
     const pl = playlistsRef.current.find((p) => p.id === target.playlistId) ?? selectedRef.current;
     return pl?.items.filter(isClipItem).find((c) => c.matchId === target.matchId && c.eventId === target.eventId)?.drawings;
@@ -2299,34 +2300,20 @@ export function PlaylistsPage() {
     finishDraw();
     setCropMode(false);
     if (trimActiveRef.current) abandonTrim();
-    const t0 = video.currentTime;
-    const sections = [...(activeClipCrop.slowMotion ?? [])].sort((a, b) => a.t - b.t);
-    const hit = sections.find((s) => t0 >= s.t - 0.5 && t0 < s.t + s.length);
-    if (hit) {
-      if (t0 < hit.t) video.currentTime = hit.t;
-      selectSlow(hit);
-      return;
-    }
-    const t = Math.round(clamp(t0, start, end - SLOW_MIN_LENGTH) * 1000) / 1000;
-    const next = sections.find((s) => s.t > t);
-    const room = Math.floor((Math.min(end, next?.t ?? Infinity) - t) * 10) / 10;
-    if (room < SLOW_MIN_LENGTH) {
-      if (next) selectSlow(next);
-      return;
-    }
-    const section: SlowSection = { id: crypto.randomUUID(), t, length: Math.min(SLOW_DEFAULT_LENGTH, room), rate: 0.5 };
-    selectSlow(section);
+    const sections = activeClipCrop.slowMotion ?? [];
+    const at = slowAtPlayhead(sections, video.currentTime, start, end, () => crypto.randomUUID());
+    if (!at) return;
+    if (at.seekTo !== null) video.currentTime = at.seekTo;
+    selectSlow(at.open);
+    if (!at.created) return;
     slowTargetRef.current = { playlistId: selected.id, matchId: activeClipKey.matchId, eventId: activeClipKey.eventId };
-    setActiveClipSlowMotion([...sections, section]);
+    setActiveClipSlowMotion([...sections, at.open]);
   }
 
   const slowSection = slowEdit ? (activeClipCrop.slowMotion?.find((s) => s.id === slowEdit.id) ?? null) : null;
   /** How long a section may be from its start: to the clip's end, or the next section. */
   function slowRoom(s: SlowSection): { min: number; max: number } {
-    const others = (activeClipCrop.slowMotion ?? []).filter((x) => x.id !== s.id);
-    const prevEnd = Math.max(activeClipCrop.start ?? 0, ...others.filter((x) => x.t < s.t).map((x) => x.t + x.length));
-    const nextStart = Math.min(activeClipCrop.end ?? Infinity, ...others.filter((x) => x.t > s.t).map((x) => x.t));
-    return { min: prevEnd, max: nextStart };
+    return slowRoomIn(activeClipCrop.slowMotion ?? [], s, activeClipCrop.start ?? 0, activeClipCrop.end ?? Infinity);
   }
   function updateSlow(id: string, patch: Partial<SlowSection>) {
     setActiveClipSlowMotion((activeClipCrop.slowMotion ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -5461,6 +5448,11 @@ export function PlaylistsPage() {
       setFolders((prev) => [...prev, ...lacking(prev)]);
       setPlaylists((prev) => (prev.some((p) => p.id === found.id) ? prev : [found, ...prev]));
     }
+    // A report's own clips are edited in the report (docs/scouting-reports.md, "The report's clips").
+    if (isReportClips(pl)) {
+      navigate(reportPath(pl.id));
+      return;
+    }
     const folderId = pl.folderId;
     if (folderId) setExpandedFolders((prev) => new Set([...prev, folderId, ...ancestorIds(allFolders, folderId)]));
     else setUncategorizedExpanded(true);
@@ -6051,15 +6043,14 @@ export function PlaylistsPage() {
                 onRate={(rate: SlowRate) => updateSlow(slowSection.id, { rate })}
                 onLength={(n) =>
                   updateSlow(slowSection.id, {
-                    length: Math.round(Math.max(SLOW_MIN_LENGTH, Math.min(n, SLOW_MAX_LENGTH, slowRoom(slowSection).max - slowSection.t)) * 1000) / 1000,
+                    length: clampSlowLength(activeClipCrop.slowMotion ?? [], slowSection, n, activeClipCrop.start ?? 0, activeClipCrop.end ?? Infinity),
                   })
                 }
                 onStartHere={() => {
                   const video = videoRef.current;
                   if (!video) return;
-                  const { min, max } = slowRoom(slowSection);
-                  const t = Math.round(clamp(video.currentTime, min, max - SLOW_MIN_LENGTH) * 1000) / 1000;
-                  updateSlow(slowSection.id, { t, length: Math.min(slowSection.length, Math.round((max - t) * 1000) / 1000) });
+                  const moved = slowStartingAt(activeClipCrop.slowMotion ?? [], slowSection, video.currentTime, activeClipCrop.start ?? 0, activeClipCrop.end ?? Infinity);
+                  updateSlow(slowSection.id, { t: moved.t, length: moved.length });
                 }}
                 onRemove={() => {
                   setActiveClipSlowMotion((activeClipCrop.slowMotion ?? []).filter((s) => s.id !== slowSection.id));

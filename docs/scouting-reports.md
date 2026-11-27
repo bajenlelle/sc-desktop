@@ -107,8 +107,22 @@ never sees as a playlist:
   the editor hides Share on one.
 - **Edited from the report.** Its clips are added from the report (below);
   **Edit clips** shows only for a report made on a playlist the coach keeps.
-  A clip's "Edit clip" still opens the editor on the report's clips, with
-  Back to the report.
+  A tile's or an outline row's **Edit clip** opens a sheet over the report
+  (`report-clip-editor.tsx`): the clip on its own stage and the editor's
+  tools for one clip, Draw (D), Slow motion, Trim… (T) with Reset trim, its
+  labels and its note, built from the editor's pieces (`PlayerStage`,
+  `ClipTrimmer`, `DrawOverlay`, `SlowBar`, `ClipNoteField`) and rules
+  (`slowAtPlayhead`, `slowRoom`, `clampSlowLength`, `slowStartingAt` in
+  `clip-timeline.ts`, `withDrawing` in `clip-drawing.ts`, `trim-math.ts`).
+  Every change shows at once and saves shortly after through the playlist's
+  write queue (`lib/use-clip-edit.ts`; a new length retires an upload cut at
+  the old one, which the next share replaces). ‹ › and ↑ ↓ step through the
+  report's clips in reading order; Esc ends a drawing or trim before it
+  closes the sheet. No Fix sync here: that is the game's, in the game view.
+  The editor never opens a report's own clips: a link or search that asks
+  for one goes to the report, and one remembered as opened last opens
+  nothing. A report made on a kept playlist still edits a clip in the
+  editor.
 - **Deleted with the report.** Delete report (Reports' row menu, the report
   page's ⋯) asks first. A report that owns its clips deletes its row (the
   delete trigger stops its link and takes its uploads down); one made on a
@@ -129,8 +143,26 @@ never sees as a playlist:
 ## Adding clips (`report-view.tsx`, `lib/use-report-add-clips.ts`)
 
 The coach adds clips without leaving the report, as FastScout adds video to
-a report tile: the playlist editor's **Add clips** sheet (`ClipBrowserPanel`)
-opens over the report, adding to one section.
+a report tile: the playlist editor's **Add clips** browser (`ClipBrowserPanel`)
+adds to one section of the report.
+
+- **Docked or a sheet.** From a window 1100 px wide the plays dock at the
+  report's right (`layout="panel"`, a resizable panel, at least 320 px,
+  remembered for the session): filters and the list on top, the preview
+  under them, the report beside it to read and drop on. Under 1400 px the
+  outline folds away while they are docked; under 1100 px (or when the
+  window narrows) they open as the sheet over the report instead. The
+  toolbar's Add clips shows and hides the docked plays.
+- **Docked keys.** The panel's keys (arrows, Space, A, G, ⌘F) are its own
+  only while the keyboard is in it; anywhere else the report keeps its own
+  (⌘Z, Esc). Esc in the panel lets go of a selection, then puts it away; in
+  the report it stops a playing clip, clears a selection, then puts the
+  docked plays away. The preview and the report's own player never play at
+  once.
+- **Dragged in.** A docked row drags onto any section that holds clips
+  (`PLAYS_DRAG_TYPE`; the selection when the row is in it), outlined while
+  it is over one, and lands there as an add does (its Undo, moving a play
+  from another section); the panel then adds to that section.
 
 - **Where it opens.** A quiet **+ Add clips** under every section that holds
   clips (Keys, each player, Their actions, a section of the coach's own) adds

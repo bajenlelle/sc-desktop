@@ -78,7 +78,7 @@ export type AnalyticsEvent =
   // Playlist production (desktop)
   | "playlist_created"
   | "clip_added_to_playlist" // playlist_id, match_id; from the game view also surface (game_view), via (row | now_bar | bulk | menu | selection), moment, to_target (it went to the "Adding to" playlist)
-  | "clip_trimmed" // desktop trim handles (props: playlist_id, in_changed, out_changed, length_seconds)
+  | "clip_trimmed" // desktop trim handles (props: playlist_id, in_changed, out_changed, length_seconds; via: report from the report's Edit clip)
   | "playlist_filtered"
   | "clips_grouped"
   | "clips_ungrouped"
@@ -93,7 +93,7 @@ export type AnalyticsEvent =
   | "scouting_report_opened" // players, clips, has_draft, shared
   | "scouting_report_players_picked" // players (in the report after), added, removed, with_clips, from_leaders, sorted_by
   | "scouting_report_clip_moved" // to (player | team | out | in: put back), clips, via (drag | keys | menu | add_clips: the Add clips sheet), reorder (stayed in its section)
-  | "scouting_report_add_clips_opened" // from (toolbar | player | team | section): the report's own Add clips sheet
+  | "scouting_report_add_clips_opened" // from (toolbar | player | team | section), docked (the plays beside the report, else the sheet): the report's own Add clips
   | "scouting_report_saved_as_playlist" // clips: the report page's Save as playlist (a copy, in reading order)
   | "scouting_report_deleted" // own_clips (the report owned its clips: they went with it), was_live
   | "scouting_report_clips_added" // clips, to (sorted | player | team | section): added from the report's Add clips sheet
