@@ -217,6 +217,9 @@ export interface ClipBrowserLabelHandlers {
   onSeedDefaults: () => Promise<void>;
 }
 
+/** The docked preview's widest: its 16:9 picture as tall as its part of the panel leaves after the controls (44), the Now bar (44) and the gaps. */
+const DOCKED_STAGE_MAX_WIDTH = "calc((100cqh - 44px - 44px - 32px) * 16 / 9)";
+
 /** What a dragged play carries (the docked panel's rows): its `matchId:eventId` keys, as JSON. */
 export const PLAYS_DRAG_TYPE = "application/x-scoutable-plays";
 
@@ -469,7 +472,12 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     }
     return out;
   }, [target, existingSet, slotOf]);
-  const targetLabel = target ? (target.options.find((o) => o.id === target.value)?.label ?? target.name) : "this playlist";
+  // What a + adds to: the section, or the report as a whole when its clips go where their players are.
+  const targetLabel = target
+    ? target.value === SORTED_BY_PLAYER
+      ? "report"
+      : (target.options.find((o) => o.id === target.value)?.label ?? target.name)
+    : "this playlist";
   const onRowRemove = useMemo(() => (target && target.value !== SORTED_BY_PLAYER ? (key: string) => target.onRemove(key) : undefined), [target]);
 
   const gameIdSet = useMemo(() => new Set(gameIds), [gameIds]);
@@ -1508,7 +1516,12 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     <div className={docked ? "flex flex-col gap-2 p-3" : "flex h-full flex-col gap-3 overflow-y-auto p-4"}>
       {localVideoUrl ? (
         <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
-        <div className={playerFs.active ? "relative min-h-0 flex-1" : "relative"}>
+        <div
+          className={playerFs.active ? "relative min-h-0 flex-1" : cn("relative", docked && "mx-auto w-full")}
+          // Docked: the picture as wide as the panel's height leaves room for, its controls and the Now bar in sight under it.
+          // Never narrower than its controls need: a short panel scrolls instead.
+          style={docked && !playerFs.active ? { maxWidth: DOCKED_STAGE_MAX_WIDTH, minWidth: "min(100%, 280px)" } : undefined}
+        >
         <PlayerStage
           video={video}
           src={localVideoUrl}
@@ -1671,10 +1684,17 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
 
       {/* Content: the plays and the preview, side by side in the sheet; the preview under the list in the panel. */}
       {docked ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1">{listPane}</div>
-          <div className="shrink-0 border-t border-separator">{playerPane}</div>
-        </div>
+        // The list over the preview, the line between them dragged to give either more room.
+        <ResizablePanelGroup direction="vertical" autoSaveId="report-plays-split" className="min-h-0 flex-1">
+          <ResizablePanel id="plays" defaultSize="45" minSize="25">
+            {listPane}
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel id="player" defaultSize="55" minSize="25">
+            {/* A size container: the docked stage is sized by its height (DOCKED_STAGE_MAX_WIDTH). */}
+            <div className="h-full overflow-y-auto [container-type:size]">{playerPane}</div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       ) : (
         <ResizablePanelGroup direction="horizontal" autoSaveId="add-clips" className="min-h-0 flex-1">
           <ResizablePanel id="plays" defaultSize="55" minSize="30">

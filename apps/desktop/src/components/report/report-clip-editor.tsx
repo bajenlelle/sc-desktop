@@ -313,7 +313,9 @@ export function ReportClipEditor(props: ReportClipEditorProps) {
           Done
         </Button>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
+        {/* One column: the stage, and under it the tools and the note at its width. */}
+        <div className="mx-auto flex w-full flex-col gap-3" style={{ maxWidth: STAGE_MAX_WIDTH }}>
         {src ? (
           <div className="relative">
             <PlayerStage
@@ -383,7 +385,7 @@ export function ReportClipEditor(props: ReportClipEditorProps) {
             </PlayerStage>
           </div>
         ) : (
-          <div className="flex aspect-video items-center justify-center rounded-span bg-fill-2 p-6 text-center ring-1 ring-separator">
+          <div className="flex aspect-video items-center justify-center rounded-window bg-fill-2 p-6 text-center ring-1 ring-separator">
             <p className="max-w-[34ch] text-callout text-muted-foreground [text-wrap:balance]">{why ?? "This clip can’t play here."}</p>
           </div>
         )}
@@ -513,7 +515,11 @@ export function ReportClipEditor(props: ReportClipEditorProps) {
             }}
           />
         )}
+        </div>
       </div>
     </div>
   );
 }
+
+/** The stage's widest: its 16:9 picture as tall as the window leaves after the sheet's header, the player's controls, the clip's tools and its note. */
+const STAGE_MAX_WIDTH = "calc((100dvh - 380px) * 16 / 9)";
