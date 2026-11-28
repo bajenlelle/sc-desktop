@@ -1,6 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { Check, Play, Plus, Tag } from "lucide-react";
+import { ArrowRightLeft, Check, Play, Plus, Tag } from "lucide-react";
 import { eventHue, eventLabel, formatGameClock, periodLabel, playClock, playerName, type EventHue } from "@scoutable/shared/lib/events";
 import { teamCode } from "@scoutable/shared/lib/play-row";
 import type { Label } from "@scoutable/shared/types/labels";
@@ -115,13 +115,14 @@ export const RowLabelButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes
   },
 );
 
-export type PlaylistSlotStatus = "none" | "in" | "added" | "empty";
+export type PlaylistSlotStatus = "none" | "in" | "added" | "elsewhere" | "empty";
 
 /**
  * Where a row says whether its play is in the target playlist: + to add it,
  * a ✓ that arrives in the accent and settles to grey after an add from this
  * view (a click takes it out again), a still ✓ for a play that was in before,
- * or nothing (the slot's room is kept, so nothing moves).
+ * ⇄ for a play in another part of the target (a report's other section: a
+ * click moves it here), or nothing (the slot's room is kept, so nothing moves).
  */
 export function RowPlaylistSlot({
   status,
@@ -129,12 +130,15 @@ export function RowPlaylistSlot({
   onAdd,
   onRemove,
   visible = false,
+  where,
 }: {
   status: PlaylistSlotStatus;
   targetName: string | null;
   onAdd?: (anchor: HTMLElement) => void;
   onRemove?: () => void;
   visible?: boolean;
+  /** "elsewhere": the part of the target the play sits in now ("Keys"); a click moves it to `targetName`. */
+  where?: string;
 }) {
   const target = targetName ?? "the playlist";
   if (status === "none") {
@@ -154,6 +158,16 @@ export function RowPlaylistSlot({
           <motion.span initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={springs.snappy} className="flex">
             <Check className="stroke-[2.5]" />
           </motion.span>
+        </button>
+      </RowTip>
+    );
+  }
+  if (status === "elsewhere") {
+    const label = `In ${where ?? "another section"}. Move to ${target}`;
+    return (
+      <RowTip label={label} keyHint="A">
+        <button type="button" aria-label={label} className={iconButton} onClick={(e) => onAdd?.(e.currentTarget)}>
+          <ArrowRightLeft />
         </button>
       </RowTip>
     );

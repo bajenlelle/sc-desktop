@@ -41,7 +41,7 @@ describe("listPlaylistIndex", () => {
       { id: "p2", name: "Loose", folderId: null, createdAt: "2026-10-02T10:00:00Z" },
     ]);
     expect(from).toHaveBeenCalledWith("playlists");
-    expect(selects(calls)).toEqual(["id, name, folder_id, created_at"]);
+    expect(selects(calls)).toEqual(["id, name, folder_id, created_at, kind"]);
     expect(calls).toContainEqual({ method: "eq", args: ["user_id", "me"] });
     expect(calls).toContainEqual({ method: "eq", args: ["org_id", "org1"] });
   });

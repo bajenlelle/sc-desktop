@@ -149,7 +149,7 @@ test("a report's sections can be shown, added and taken out, and players see onl
     ]);
 });
 
-test("a report opened from Reports goes back there, and Edit clips opens its playlist", { tag: "@alone:team-report" }, async ({ page }) => {
+test("a report opened from Reports goes back there, and owns its clips: no playlist, no Edit clips", { tag: "@alone:team-report" }, async ({ page }) => {
   await openAlfa(page);
   await page.getByRole("button", { name: "New report" }).click();
   await expect(page.getByRole("textbox", { name: "Opponent" })).toHaveValue(ALFA, { timeout: 30_000 });
@@ -160,8 +160,15 @@ test("a report opened from Reports goes back there, and Edit clips opens its pla
   await page.getByRole("button", { name: "Reports", exact: true }).filter({ has: page.locator("svg.lucide-chevron-left") }).click();
   await expect(page).toHaveURL(/\/reports$/);
   await page.getByRole("main").getByText(ALFA, { exact: true }).first().click();
-  await page.getByRole("button", { name: "Edit clips" }).click();
-  await expect(page).toHaveURL(/\/playlists$/, { timeout: 30_000 });
+  // The report's clips are its own: added here, never a playlist in Playlists (docs/scouting-reports.md, "The report's clips").
+  await expect(page.getByRole("button", { name: "Add clips", exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Edit clips" })).toHaveCount(0);
+  const [made] = await selectRows<{ kind: string }>(page, "playlists", "kind", { name: ALFA });
+  expect(made?.kind).toBe("report");
+  await page.goto("/playlists");
+  // The list has loaded (the test account has playlists of its own).
+  await expect(page.locator("[data-playlist-id]").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("[data-playlist-id]").filter({ hasText: ALFA })).toHaveCount(0);
 });
 
 test("a report from before sections has the same section controls, and takes on sections with the first change", { tag: "@alone:team-report" }, async ({ page }) => {

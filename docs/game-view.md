@@ -737,6 +737,20 @@ game; a team's Plays view (`docs/teams.md`, "Plays") passes the team's games.
   one named after the game. The target doesn't change. The menu is one
   `ContextMenu` around the list (`game-play-menu.tsx`), not one per row, so
   adding doesn't redraw every row; markers and headers have none.
+- **Into a report** (docs/scouting-reports.md, "The report's clips"): a
+  report's own clips (`kind = 'report'`) are a group of their own in the
+  target picker ("Playlists", then "Reports") and in the selection's Add to.
+  A report as the target adds as any target does, each clip going to its
+  player's section (else Their actions), and "Open report" opens it on its
+  page. The row menu's **Add to report ▸ AIK · Sat 28 Nov ▸ Keys** puts the
+  plays in one section: "Sorted by player" first, then the sections in
+  reading order (`reportClipTargets`, read from the draft when that submenu
+  opens; hidden ones say so). The clips go in as any add, then
+  `patchDraft` (`components/report/use-report-draft.ts`) places them, after
+  any save running for that report and on the copy this session holds, so it
+  never writes over an edit the report hasn't saved. A play the report has in
+  another section moves there. The toast names the section, and its Undo
+  takes the clips out of the report again.
 - **A playlist players already have**: the add is the same write, and the
   clips go out by themselves, with no Send to remember. Each add to a shared
   playlist schedules its send (`packages/shared/lib/ship-scheduler.ts`, one

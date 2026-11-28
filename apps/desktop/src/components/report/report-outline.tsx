@@ -39,7 +39,7 @@ export interface OutlineClipInfo {
   labels: readonly string[];
 }
 
-export type MoveVia = "drag" | "keys" | "menu";
+export type MoveVia = "drag" | "keys" | "menu" | "add_clips";
 
 export interface ReportOutlineProps {
   layout: ReportLayout;

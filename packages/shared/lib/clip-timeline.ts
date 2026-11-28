@@ -185,3 +185,48 @@ export function segmentTimeline<D extends { id: string; t: number; hold: number 
   }
   return { pieces, windows, duration: out };
 }
+
+/** How far a section may reach from its start: from the end of the one before (or the clip's start) to the start of the next (or the clip's end). */
+export function slowRoom(sections: readonly SlowSection[], s: SlowSection, clipStart: number, clipEnd: number): { min: number; max: number } {
+  const others = sections.filter((x) => x.id !== s.id);
+  const min = Math.max(clipStart, ...others.filter((x) => x.t < s.t).map((x) => x.t + x.length));
+  const max = Math.min(clipEnd, ...others.filter((x) => x.t > s.t).map((x) => x.t));
+  return { min, max };
+}
+
+/**
+ * "Slow motion" at the playhead `t0`, on a clip from `clipStart` to `clipEnd`:
+ * the section under it (or starting just after, within half a second) opens,
+ * seeking to its start when the playhead is before it; else a new half-speed
+ * section starts here, as long as the room before the next section allows; with
+ * too little room, the next section opens instead; null when there is none.
+ */
+export function slowAtPlayhead(
+  sections: readonly SlowSection[],
+  t0: number,
+  clipStart: number,
+  clipEnd: number,
+  newId: () => string,
+): { open: SlowSection; seekTo: number | null; created: boolean } | null {
+  const sorted = [...sections].sort((a, b) => a.t - b.t);
+  const hit = sorted.find((s) => t0 >= s.t - 0.5 && t0 < s.t + s.length);
+  if (hit) return { open: hit, seekTo: t0 < hit.t ? hit.t : null, created: false };
+  const t = Math.round(Math.min(Math.max(t0, clipStart), clipEnd - SLOW_MIN_LENGTH) * 1000) / 1000;
+  const next = sorted.find((s) => s.t > t);
+  const room = Math.floor((Math.min(clipEnd, next?.t ?? Infinity) - t) * 10) / 10;
+  if (room < SLOW_MIN_LENGTH) return next ? { open: next, seekTo: null, created: false } : null;
+  return { open: { id: newId(), t, length: Math.min(SLOW_DEFAULT_LENGTH, room), rate: 0.5 }, seekTo: null, created: true };
+}
+
+/** A section's new length, kept between the shortest and longest a section may be and short of the next one. */
+export function clampSlowLength(sections: readonly SlowSection[], s: SlowSection, length: number, clipStart: number, clipEnd: number): number {
+  const { max } = slowRoom(sections, s, clipStart, clipEnd);
+  return Math.round(Math.max(SLOW_MIN_LENGTH, Math.min(length, SLOW_MAX_LENGTH, max - s.t)) * 1000) / 1000;
+}
+
+/** "Start here": the section moved to the playhead, as long as it stays between its neighbours, and shortened to fit. */
+export function slowStartingAt(sections: readonly SlowSection[], s: SlowSection, at: number, clipStart: number, clipEnd: number): SlowSection {
+  const { min, max } = slowRoom(sections, s, clipStart, clipEnd);
+  const t = Math.round(Math.min(Math.max(at, min), max - SLOW_MIN_LENGTH) * 1000) / 1000;
+  return { ...s, t, length: Math.min(s.length, Math.round((max - t) * 1000) / 1000) };
+}

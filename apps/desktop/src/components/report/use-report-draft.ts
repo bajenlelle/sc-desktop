@@ -60,6 +60,51 @@ function writeDraft(id: string, items: readonly PlaylistItem[]): Promise<SaveOut
 }
 
 /**
+ * Changes a report's draft from outside its page (the game view's "Add to
+ * report ▸ AIK ▸ Keys"), after any write already running for it, so it never
+ * writes over an edit the report hasn't saved yet: the copy this session
+ * holds is changed and saved with what it has; without one, the stored draft
+ * is read, changed and saved (an empty one when the report was never edited).
+ * Resolves with whether the change was saved.
+ */
+export function patchDraft(id: string, change: (draft: ReportDraft) => ReportDraft): Promise<boolean> {
+  const before = writing.get(id) ?? Promise.resolve<SaveOutcome>("skipped");
+  const run = before.then(async (): Promise<SaveOutcome> => {
+    try {
+      const held = drafts.get(id);
+      if (held) {
+        const next = change(held.draft);
+        if (next === held.draft) return "skipped";
+        drafts.set(id, { ...held, draft: next });
+        dirty.delete(id);
+        try {
+          await saveReportDraft(id, next);
+        } catch (error) {
+          dirty.add(id);
+          return { error };
+        }
+        const now = drafts.get(id);
+        if (now?.isNew) drafts.set(id, { ...now, isNew: false });
+        return "saved";
+      }
+      const stored = await getReportDraft(id);
+      const base = stored?.draft ?? emptyDraft();
+      const next = change(base);
+      if (next === base) return "skipped";
+      await saveReportDraft(id, next);
+      return "saved";
+    } catch (error) {
+      return { error };
+    }
+  });
+  writing.set(id, run);
+  void run.then(() => {
+    if (writing.get(id) === run) writing.delete(id);
+  });
+  return run.then((outcome) => outcome === "saved" || outcome === "skipped");
+}
+
+/**
  * A playlist's report draft while the report view is open: shown from memory
  * when this session has it (and read again behind it, in case the database
  * changed, say a game merged into a club), edited optimistically, saved after

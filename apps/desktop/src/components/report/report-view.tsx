@@ -1,6 +1,20 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { UserPlus } from "lucide-react";
+import { MoreHorizontal, Plus, UserPlus } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useNavigate } from "react-router-dom";
+import { saveReportAsPlaylist } from "@/lib/team-report";
+import { DeleteReportDialog } from "./delete-report-dialog";
+import { toast } from "sonner";
+import { ClipBrowserPanel, PLAYS_DRAG_TYPE, SORTED_BY_PLAYER, type ClipBrowserHandle, type ClipBrowserLabelHandlers, type ClipBrowserStart, type ClipBrowserTarget } from "@/components/editor/clip-browser-panel";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useReportAddClips } from "@/lib/use-report-add-clips";
+import { useClipEdit } from "@/lib/use-clip-edit";
+import { ReportClipEditor } from "./report-clip-editor";
+import { useAuth } from "@/lib/auth-context";
+import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import type { AddedClips } from "@/lib/use-report-workspace";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/shell/toolbar";
 import type { BackFallback } from "@/lib/nav-history";
@@ -32,8 +46,11 @@ import {
   setBlockTitle,
   defaultOpponent,
   deriveReportLayout,
+  clearPlacement,
   includeClips,
   moveClips,
+  placeClips,
+  reportAsPlaylistClips,
   moveSection,
   nudgeClips,
   removeSection,
@@ -54,7 +71,7 @@ import { buildScoutingReport, reportOutline } from "@scoutable/shared/lib/scouti
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
 import type { OrgPlanTier } from "@scoutable/shared/types/org";
-import { isClipItem, type PlayByPlayEvent, type Playlist, type StoredMatch } from "@/types/match";
+import { isClipItem, isReportClips, type PlayByPlayEvent, type Playlist, type PlaylistClipItem, type StoredMatch } from "@/types/match";
 import { ReportDocument, clipDomSelector, sectionDomId, type SectionStatsContext, type ViewClip, type ViewSection } from "./report-document";
 import { ReportOutline, type MoveVia, type OutlineClipInfo, type OutlineSectionInfo } from "./report-outline";
 import { ReportPlayerPicker, type PickerConfirm } from "./report-player-picker";
@@ -110,7 +127,27 @@ export interface ReportViewProps {
   /** Share again from the Reports page: open the share sheet once the draft is read, then call onAutoShared. */
   autoOpenShare?: boolean;
   onAutoShared?: () => void;
+  /**
+   * Add clips from the report itself (its own page): the sheet adds through these and the report
+   * places what it added. Without them (the playlist editor's view) the report has no Add clips.
+   */
+  /**
+   * Edit clip inside the report (a report that owns its clips): the sheet shows each change at once
+   * through this and saves it itself. Without it, Edit clip goes to the playlist editor (onOpenClip).
+   */
+  patchClip?: (key: string, patch: Partial<PlaylistClipItem>) => void;
+  /** Delete report (the toolbar's ⋯, on the report's own page): resolves once it is gone; the page goes on to Reports. */
+  onDeleteReport?: () => Promise<void>;
+  addClips?: {
+    add: (clips: PlaylistClipItem[]) => Promise<AddedClips | null>;
+    remove: (keys: readonly string[]) => Promise<boolean>;
+    ensureLabels: (matchIds: string[]) => Promise<void>;
+    labelHandlers: ClipBrowserLabelHandlers;
+  };
 }
+
+/** One toast for the report's adds: a new one replaces the last. */
+const ADD_TOAST = "report-add-clips";
 
 const STATS_CONCURRENCY = 3;
 
@@ -121,6 +158,11 @@ const collapsedByPlaylist = new Map<string, ReadonlySet<Placement>>();
 const FLASH_MS = 1200;
 
 const NO_TEAM_ROWS: TeamPlayerRow[] = [];
+
+/** The report's name: the coach's title, else the playlist's. */
+function effectiveTitleOf(draft: ReportDraft | null, playlistName: string): string {
+  return draft?.title ?? playlistName;
+}
 
 function toPerson(p: PlayerChoice): StatsPerson {
   return { playerId: p.playerId, name: p.name, number: p.number, teamName: p.teamName, matchId: p.matchId };
@@ -547,12 +589,176 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       return;
     }
     setPlaying({ key, at: found.at, via });
+    setPanelPause((n) => n + 1);
     trackEvent("scouting_report_clip_played", { via, source: sourceOf(found.clip).kind });
   }
 
   function removeWithUndo(id: string) {
     const clips = sections.find((s) => s.id === id)?.clips.length ?? 0;
     removeSectionWithUndo(id, clips);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Add clips (docs/scouting-reports.md, "Adding clips")
+  // ---------------------------------------------------------------------------
+
+  // The section the sheet adds to while it is open (SORTED_BY_PLAYER: none, each clip goes to its player); null: closed.
+  const [addTo, setAddTo] = useState<string | null>(null);
+  const addToRef = useRef(addTo);
+  addToRef.current = addTo;
+  // Where the plays are shown: docked beside the report on a wide window, else the sheet over it.
+  const [addMode, setAddMode] = useState<"panel" | "sheet">("sheet");
+  const docked = addTo !== null && addMode === "panel";
+  const windowWidth = useWindowWidth();
+  // The panel narrower than the window allows: the sheet takes over, with the same target.
+  useEffect(() => {
+    if (docked && windowWidth < DOCK_MIN_WIDTH) setAddMode("sheet");
+  }, [docked, windowWidth]);
+  const browserRef = useRef<ClipBrowserHandle | null>(null);
+  // The panel's preview and the report's own player never play at once.
+  const [panelPause, setPanelPause] = useState(0);
+  const stopReportClip = useCallback(() => setPlaying(null), []);
+  const addSource = useReportAddClips(addTo !== null, playlist, draft?.team ?? null);
+  const { activeOrgId } = useAuth();
+  // What the sheet starts on, fixed when it opens: the opponent's games, and the section's player.
+  const [addStart, setAddStart] = useState<ClipBrowserStart | undefined>(undefined);
+  const sectionName = useCallback(
+    (id: string) => {
+      if (id === SORTED_BY_PLAYER) return "Sorted by player";
+      const info = sectionInfo.get(id);
+      if (!info) return "Section";
+      return info.number ? `#${info.number} ${info.label}` : info.label;
+    },
+    [sectionInfo],
+  );
+  const openAddClips = useCallback(
+    (sectionId: string | null) => {
+      if (!props.addClips) return;
+      const to = sectionId ?? SORTED_BY_PLAYER;
+      const player = draft?.sections.find((s) => s.id === to)?.player;
+      // The Player filter holds playerKey()s: a league person id, or a Profixio key as it is.
+      const playerKey = player ? (player.id.startsWith("px:") ? player.id : `id:${player.id}`) : null;
+      setAddStart({ games: addSource.opponentGames, teams: playerKey ? [] : addSource.opponentNames, players: playerKey ? [playerKey] : [] });
+      setPlaying(null);
+      // Wide enough: the plays dock beside the report (already docked, only the target follows); else the sheet.
+      const docked = addToRef.current !== null && addMode === "panel";
+      if (!docked) setAddMode(window.innerWidth >= DOCK_MIN_WIDTH ? "panel" : "sheet");
+      setAddTo(to);
+      if (!docked) trackEvent("scouting_report_add_clips_opened", { from: sectionId === null ? "toolbar" : to === TEAM_SECTION ? "team" : player ? "player" : "section", docked: window.innerWidth >= DOCK_MIN_WIDTH });
+    },
+    [props.addClips, draft?.sections, addSource.opponentGames, addSource.opponentNames, addMode],
+  );
+
+  const addOptions = useMemo(
+    () => [
+      { id: SORTED_BY_PLAYER, label: "Sorted by player" },
+      ...(layout?.sections ?? []).filter((s) => s.accepts).map((s) => ({ id: s.id, label: sectionName(s.id), hidden: s.hidden })),
+    ],
+    [layout, sectionName],
+  );
+  const addPlacement = useMemo(() => {
+    const m = new Map<string, { id: string; label: string }>();
+    for (const [key, at] of placeOf) m.set(key, { id: at, label: at === LEFT_OUT ? "Not in report" : sectionName(at) });
+    return m;
+  }, [placeOf, sectionName]);
+
+  const handleAddClips = useCallback(
+    async (clips: PlaylistClipItem[]) => {
+      const add = props.addClips;
+      const to = addToRef.current;
+      if (!add || to === null) return;
+      const outcome = await add.add(clips);
+      if (!outcome) {
+        toast.error("Couldn’t add the clips", { id: ADD_TOAST, description: "Check your connection and try again." });
+        return;
+      }
+      if (outcome.clips.length === 0) return;
+      const keys = outcome.clips.map(itemKey);
+      const section = to === SORTED_BY_PLAYER ? null : to;
+      apply((d) => placeClips(d, keys, section, outcome.events));
+      const noun = keys.length === 1 ? "1 clip" : `${keys.length} clips`;
+      toast(section ? `${noun} added to ${sectionName(section)}` : `${noun} added`, {
+        id: ADD_TOAST,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void add.remove(keys).then((ok) => {
+              if (!ok) {
+                toast.error("Couldn’t take the clips out", { id: ADD_TOAST, description: "Check your connection and try again." });
+                return;
+              }
+              apply((d) => keys.reduce(clearPlacement, d));
+            });
+          },
+        },
+      });
+      trackEvent("scouting_report_clips_added", { clips: keys.length, to: section === null ? "sorted" : section === TEAM_SECTION ? "team" : draft?.sections.some((s) => s.id === section) ? "player" : "section" });
+    },
+    [props.addClips, apply, sectionName, draft?.sections],
+  );
+
+  const addLookup = useMemo(() => new Map((addSource.games ?? []).map((m) => [m.id, m])), [addSource.games]);
+
+  const addTarget = useMemo((): ClipBrowserTarget | undefined => {
+    if (addTo === null) return undefined;
+    return {
+      name: effectiveTitleOf(draft, playlist.name),
+      options: addOptions,
+      value: addTo,
+      onChange: setAddTo,
+      placement: addPlacement,
+      // The target as it is when the move lands: a drop on a section sets it first.
+      onMove: (keys) => moveClipsTo(keys, addToRef.current ?? addTo, null, "add_clips"),
+      onRemove: (key) => moveClipsTo([key], LEFT_OUT, null, "add_clips"),
+    };
+  }, [addTo, draft, playlist.name, addOptions, addPlacement, moveClipsTo]);
+
+  // Plays dragged from the docked panel onto a section of the document land there (and the panel adds there next).
+  const accepting = useMemo(() => new Set((layout?.sections ?? []).filter((x) => x.accepts).map((x) => x.id)), [layout]);
+  const [dropAt, setDropAt] = useState<{ id: string; top: number; height: number } | null>(null);
+  /** The section under a drag, if plays can go there, with its box in the scroll area's coordinates. */
+  const sectionUnder = (e: React.DragEvent): { id: string; top: number; height: number } | null => {
+    if (!docked || !e.dataTransfer.types.includes(PLAYS_DRAG_TYPE)) return null;
+    const el = (e.target as Element | null)?.closest<HTMLElement>("[data-section-id]");
+    const scroller = scrollRef.current;
+    const id = el?.dataset.sectionId;
+    if (!el || !scroller || !id || !accepting.has(id)) return null;
+    const box = el.getBoundingClientRect();
+    const frame = scroller.getBoundingClientRect();
+    return { id, top: box.top - frame.top + scroller.scrollTop - 8, height: box.height + 16 };
+  };
+  function onPlaysDragOver(e: React.DragEvent) {
+    const at = sectionUnder(e);
+    if (!at) {
+      if (dropAt) setDropAt(null);
+      return;
+    }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    if (dropAt?.id !== at.id || dropAt.top !== at.top || dropAt.height !== at.height) setDropAt(at);
+  }
+  function onPlaysDragLeave(e: React.DragEvent) {
+    // Leaving for a child is not leaving.
+    if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+    setDropAt(null);
+  }
+  function onPlaysDrop(e: React.DragEvent) {
+    const at = sectionUnder(e);
+    setDropAt(null);
+    if (!at) return;
+    e.preventDefault();
+    let keys: string[] = [];
+    try {
+      const raw: unknown = JSON.parse(e.dataTransfer.getData(PLAYS_DRAG_TYPE));
+      if (Array.isArray(raw)) keys = raw.filter((k): k is string => typeof k === "string");
+    } catch {
+      return;
+    }
+    if (keys.length === 0) return;
+    // The panel adds to the section dropped on, now and from here on.
+    addToRef.current = at.id;
+    setAddTo(at.id);
+    browserRef.current?.addKeys(keys);
   }
 
   // ---------------------------------------------------------------------------
@@ -603,6 +809,35 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const run = useCallback((a: ScoutingReportRun) => (draft ? props.runReport(draft, a, season) : Promise.reject(new Error("No report"))), [draft, props, season]);
 
   // ---------------------------------------------------------------------------
+  // Edit clip (docs/scouting-reports.md, "The report's clips")
+  // ---------------------------------------------------------------------------
+
+  // The clip the Edit clip sheet is on; null: closed.
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const noPatch = useCallback(() => {}, []);
+  const clipEdit = useClipEdit(playlist.id, props.patchClip ?? noPatch);
+  const openClip = useCallback(
+    (key: string) => {
+      if (!props.patchClip) return onOpenClip(key);
+      // One player at a time: the tile's and the docked plays' preview stop for the sheet's.
+      setPlaying(null);
+      setPanelPause((n) => n + 1);
+      setEditKey(key);
+    },
+    [props.patchClip, onOpenClip],
+  );
+  // ‹ and › go through the report's clips as it reads, hidden sections too.
+  const readingOrder = useMemo(() => sections.flatMap((s) => s.clips.map((c) => c.key)), [sections]);
+  const editIndex = editKey ? readingOrder.indexOf(editKey) : -1;
+  const editClip = useMemo(() => (editKey ? items.find((i): i is PlaylistClipItem => isClipItem(i) && itemKey(i) === editKey) ?? null : null), [items, editKey]);
+  // The clip went (an Undo elsewhere, another window): the sheet closes.
+  useEffect(() => {
+    if (editKey && !editClip) setEditKey(null);
+  }, [editKey, editClip]);
+  const editAt = editKey ? placeOf.get(editKey) : undefined;
+
+  // ---------------------------------------------------------------------------
   // Keys
   // ---------------------------------------------------------------------------
 
@@ -625,11 +860,12 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       if (done) e.preventDefault();
       return;
     }
-    if (e.key === "Escape" && !pickerOpen && !shareOpen) {
+    if (e.key === "Escape" && !pickerOpen && !shareOpen && (addTo === null || docked) && editKey === null) {
       e.preventDefault();
-      // The playing clip stops first, then the selection goes, then the view.
+      // The playing clip stops first, then the selection goes, then the docked plays, then the view.
       if (livePlaying) setPlaying(null);
       else if (selected.size > 0) selectClips(new Set(), null);
+      else if (docked) setAddTo(null);
       else onBack();
     }
   });
@@ -666,6 +902,44 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     if (added) setTimeout(() => scrollTo(added!), 0);
   };
 
+  // Delete report: asked first, as it can't be undone (DeleteReportDialog).
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const confirmDelete = () => {
+    if (!props.onDeleteReport || deleting) return;
+    setDeleting(true);
+    props.onDeleteReport()
+      .catch(() => toast.error("Couldn’t delete the report. Try again."))
+      .finally(() => {
+        setDeleting(false);
+        setDeleteOpen(false);
+      });
+  };
+  const ownClips = isReportClips(playlist);
+
+  // Save as playlist: a playlist the coach sees, with a copy of what the report shows, in its order.
+  const navigate = useNavigate();
+  const savingAsPlaylist = useRef(false);
+  const saveAsPlaylist = () => {
+    if (!draft || savingAsPlaylist.current) return;
+    const clips = reportAsPlaylistClips(draft, items, eventByKey);
+    if (clips.length === 0) {
+      toast("This report has no clips to save yet");
+      return;
+    }
+    savingAsPlaylist.current = true;
+    saveReportAsPlaylist(effectiveTitleOf(draft, playlist.name), clips, { orgId: playlist.orgId ?? activeOrgId ?? null })
+      .then((id) =>
+        toast(`Saved as a playlist with ${clips.length === 1 ? "1 clip" : `${clips.length} clips`}`, {
+          action: { label: "Open", onClick: () => navigate("/playlists", { state: { restore: { playlistId: id } } }) },
+        }),
+      )
+      .catch(() => toast.error("Couldn’t save the playlist. Check your connection and try again."))
+      .finally(() => {
+        savingAsPlaylist.current = false;
+      });
+  };
+
   const saveCaption =
     status === "saving" ? "Saving…" : status === "error" ? "Not saved" : status === "ready" && !isNew ? "Saved" : null;
   const shareLabel = liveReport ? (stale ? "Changed since sharing" : "Shared") : "Share";
@@ -682,9 +956,24 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       actions={
         <>
           {saveCaption && <span className={cn("text-caption text-muted-foreground", status === "error" && "text-destructive")}>{saveCaption}</span>}
-          {props.onEditClips && (
+          {/* A report made on a playlist the coach keeps: that playlist, in the editor. A report's own clips are edited here. */}
+          {props.onEditClips && !ownClips && (
             <Button variant="ghost" size="sm" onClick={props.onEditClips}>
               Edit clips
+            </Button>
+          )}
+          {props.addClips && (
+            <Button
+              variant="outline"
+              size="sm"
+              // Docked, the button shows and hides the plays beside the report, as an inspector's does.
+              aria-pressed={docked}
+              className={cn(docked && "bg-fill-2")}
+              onClick={() => (docked ? setAddTo(null) : openAddClips(null))}
+              disabled={!draft}
+            >
+              <Plus />
+              Add clips
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={openPicker} disabled={!draft}>
@@ -704,6 +993,24 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             {liveReport && <span aria-hidden className={cn("size-1.5 rounded-full", stale ? "bg-warning" : "bg-success")} />}
             {shareLabel}
           </Button>
+          {props.onDeleteReport && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="More">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onSelect={saveAsPlaylist} disabled={!draft}>
+                  Save as playlist
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleteOpen(true)}>
+                  Delete report…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </>
       }
     />
@@ -713,7 +1020,8 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     <div className="flex h-full min-h-0 flex-col">
       {props.toolbarSlot ? createPortal(toolbar, props.toolbarSlot) : props.back ? toolbar : null}
       <div className="flex min-h-0 flex-1">
-        {layout ? (
+        {/* Docked plays on a window too narrow for three columns: the outline folds away until the panel goes. */}
+        {docked && windowWidth < OUTLINE_MIN_WIDTH ? null : layout ? (
           <ReportOutline
             layout={layout}
             sectionInfo={sectionInfo}
@@ -733,7 +1041,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             onMoveClips={moveClipsTo}
             onNudgeClips={nudge}
             onIncludeClips={include}
-            onOpenClip={onOpenClip}
+            onOpenClip={openClip}
             onAddPlayers={openPicker}
             onBlockHidden={blockHidden}
             onMoveBlock={moveBlockBy}
@@ -742,7 +1050,18 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
         ) : (
           <div className="w-[288px] shrink-0 border-r border-separator" />
         )}
-        <div ref={scrollRef} data-report-scroll className="min-w-0 flex-1 overflow-y-auto overscroll-y-contain">
+        <ResizablePanelGroup direction="horizontal" autoSaveId="report-plays" className="min-w-0 flex-1">
+        <ResizablePanel id="report" minSize="40">
+        <div
+          ref={scrollRef}
+          data-report-scroll
+          className="relative h-full min-w-0 overflow-y-auto overscroll-y-contain"
+          onDragOver={onPlaysDragOver}
+          onDragLeave={onPlaysDragLeave}
+          onDrop={onPlaysDrop}
+        >
+          {/* Where dragged plays would land: the section under the pointer, outlined. */}
+          {dropAt && <div aria-hidden className="pointer-events-none absolute inset-x-4 z-10 rounded-window ring-2 ring-selection" style={{ top: dropAt.top, height: dropAt.height }} />}
           {draft ? (
             <>
               <ReportDocument
@@ -778,7 +1097,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 onPlayClip={(key) => playClip(key, "tile")}
                 onStopClip={() => setPlaying(null)}
                 onMoveClips={(keys, to) => moveClipsTo(keys, to, null, "menu")}
-                onOpenClip={onOpenClip}
+                onOpenClip={openClip}
                 onRemoveSection={removeWithUndo}
                 season={season}
                 hasTeam={!!draft.team}
@@ -788,6 +1107,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 onMoveBlock={moveBlockBy}
                 onRemoveBlock={removeBlockWithUndo}
                 onAddBlock={addBlockOf}
+                onAddClips={props.addClips ? openAddClips : undefined}
               />
             </>
           ) : status === "error" ? (
@@ -801,7 +1121,115 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             <p className="px-8 py-10 text-callout text-muted-foreground">Opening the report…</p>
           )}
         </div>
+        </ResizablePanel>
+        {docked && props.addClips && (
+          <>
+            <ResizableHandle />
+            <ResizablePanel id="plays" defaultSize="38" minSize="320px" maxSize="55">
+              <div role="complementary" aria-label="Plays" className="h-full bg-background">
+                {addSource.games ? (
+                  <ClipBrowserPanel
+                    layout="panel"
+                    handleRef={browserRef}
+                    onClose={() => setAddTo(null)}
+                    onPlay={stopReportClip}
+                    pauseSignal={panelPause}
+                    matches={addSource.games}
+                    matchLookup={addLookup}
+                    playlist={playlist}
+                    onAddClips={handleAddClips}
+                    activeOrgId={activeOrgId}
+                    labels={props.labels}
+                    labelAssignments={props.clipAssignments as Map<string, Set<string>>}
+                    labelHandlers={props.addClips.labelHandlers}
+                    onNeedLabels={props.addClips.ensureLabels}
+                    videoStatusByMatch={addSource.videoStatus}
+                    target={addTarget}
+                    start={addStart}
+                  />
+                ) : (
+                  <AddClipsLoading docked failed={addSource.failed} onClose={() => setAddTo(null)} />
+                )}
+              </div>
+            </ResizablePanel>
+          </>
+        )}
+        </ResizablePanelGroup>
       </div>
+
+      {props.addClips && (
+        <Sheet open={addTo !== null && addMode === "sheet"} onOpenChange={(open) => !open && setAddTo(null)}>
+          {/* As in the editor: only a press on the dim scrim closes it, never an Undo on a toast. */}
+          <SheetContent
+            onInteractOutside={(e) => {
+              const t = e.detail.originalEvent.target;
+              if (!(t instanceof Element && t.closest('[data-slot="sheet-overlay"]'))) e.preventDefault();
+            }}
+          >
+            {addSource.games ? (
+              <ClipBrowserPanel
+                matches={addSource.games}
+                matchLookup={addLookup}
+                playlist={playlist}
+                onAddClips={handleAddClips}
+                activeOrgId={activeOrgId}
+                labels={props.labels}
+                labelAssignments={props.clipAssignments as Map<string, Set<string>>}
+                labelHandlers={props.addClips.labelHandlers}
+                onNeedLabels={props.addClips.ensureLabels}
+                videoStatusByMatch={addSource.videoStatus}
+                target={addTarget}
+                start={addStart}
+              />
+            ) : (
+              <AddClipsLoading failed={addSource.failed} onClose={() => setAddTo(null)} />
+            )}
+          </SheetContent>
+        </Sheet>
+      )}
+
+      {props.patchClip && props.addClips && (
+        <Sheet open={editKey !== null} onOpenChange={(open) => !open && setEditKey(null)}>
+          <SheetContent
+            className="max-w-[960px]"
+            // Draw and Trim take Esc first, as in the editor.
+            onEscapeKeyDown={(e) => editBusy && e.preventDefault()}
+            onInteractOutside={(e) => {
+              const t = e.detail.originalEvent.target;
+              if (editBusy || !(t instanceof Element && t.closest('[data-slot="sheet-overlay"]'))) e.preventDefault();
+            }}
+          >
+            {editClip && (
+              <ReportClipEditor
+                playlistId={playlist.id}
+                clip={editClip}
+                event={eventByKey.get(itemKey(editClip))}
+                match={matchLookup.get(editClip.matchId)}
+                videoPath={localVideoPath(editClip.matchId)}
+                sectionLabel={editAt === undefined ? null : editAt === LEFT_OUT ? "Not in report" : sectionName(editAt)}
+                position={editIndex >= 0 ? { index: editIndex, total: readingOrder.length } : null}
+                onPrev={editIndex > 0 ? () => setEditKey(readingOrder[editIndex - 1]) : null}
+                onNext={editIndex >= 0 && editIndex < readingOrder.length - 1 ? () => setEditKey(readingOrder[editIndex + 1]) : null}
+                preRoll={preRoll}
+                postRoll={postRoll}
+                labels={props.labels}
+                assigned={props.clipAssignments.get(itemKey(editClip)) ?? NO_LABELS}
+                labelHandlers={props.addClips.labelHandlers}
+                edit={clipEdit}
+                onDone={() => setEditKey(null)}
+                onBusyChange={setEditBusy}
+              />
+            )}
+          </SheetContent>
+        </Sheet>
+      )}
+
+      <DeleteReportDialog
+        target={deleteOpen ? { title: effectiveTitleOf(draft, playlist.name), playlistName: playlist.name, ownClips, status: liveReport ? "live" : "draft" } : null}
+        deleting={deleting}
+        onCancel={() => setDeleteOpen(false)}
+        onConfirm={confirmDelete}
+      />
 
       <ReportPlayerPicker open={pickerOpen} onOpenChange={setPickerOpen} rows={leaderRowsAll} inReport={taken} noted={noted} initialTicked={initialTicked} loading={seasonsLoading} onConfirm={handlePicked} />
 
@@ -823,3 +1251,48 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     </div>
   );
 });
+
+const NO_LABELS: ReadonlySet<string> = new Set();
+
+/** From this window width the plays dock beside the report; narrower, they open as a sheet over it. */
+const DOCK_MIN_WIDTH = 1100;
+/** Below this width, with the plays docked, the outline folds away. */
+const OUTLINE_MIN_WIDTH = 1400;
+
+/** The window's width, as it changes. */
+function useWindowWidth(): number {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const on = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return width;
+}
+
+/** The Add clips sheet before the library is in, or when it couldn't be read. */
+function AddClipsLoading({ failed, onClose, docked = false }: { failed: boolean; onClose: () => void; docked?: boolean }) {
+  const message = failed ? "Couldn’t read your games." : "Reading your games…";
+  return (
+    <div className="flex h-full flex-col">
+      {docked ? (
+        <div className="px-4 pt-3 pb-3">
+          <h2 className="text-headline text-foreground">Plays</h2>
+          <p className="text-callout text-muted-foreground">{message}</p>
+        </div>
+      ) : (
+        <div className="px-5 pt-4 pb-3">
+          <SheetTitle>Add clips</SheetTitle>
+          <SheetDescription>{message}</SheetDescription>
+        </div>
+      )}
+      {failed && (
+        <div className="px-5">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

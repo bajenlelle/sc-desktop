@@ -10,7 +10,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { reportDbError } from "./report";
 import { currentUserId } from "./current-user";
-import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "../types/match";
+import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistKind, PlaylistTextCard } from "../types/match";
+import type { ReportListPlaylist } from "./scouting-report-list";
 import type { CropKeyframe } from "./crop-path";
 import type { ClipDrawing } from './clip-drawing';
 import type { SlowSection } from './clip-timeline';
@@ -61,6 +62,8 @@ export interface PlaylistRow {
   folder_id: string | null;
   team_id: string | null;
   org_id: string | null;
+  /** Read only by the coach's own reads that ask for it (withKind): older databases lack the column. */
+  kind?: PlaylistKind | null;
   created_at: string;
   updated_at: string;
   playlist_clips: PlaylistClipRow[];
@@ -130,6 +133,7 @@ export function rowToPlaylist(row: PlaylistRow): Playlist {
     folderId: row.folder_id ?? undefined,
     orgId: row.org_id ?? undefined,
     teamId: row.team_id ?? undefined,
+    ...(row.kind === 'report' ? { kind: 'report' as const } : {}),
     teamIds,
     userIds,
     createdBy: row.user_id,
@@ -170,6 +174,9 @@ const PLAYLIST_SELECT = `
   playlist_shares (team_id, shared_at),
   playlist_user_shares (user_id, shared_at, shared_by)
 `;
+
+/** The coach's own reads that tell a report's clips from a playlist (the desktop's). */
+const PLAYLIST_SELECT_WITH_KIND = `${PLAYLIST_SELECT}, kind`;
 
 // ---------------------------------------------------------------------------
 // List playlists assigned to the current user's teams (player view)
@@ -243,6 +250,17 @@ export interface OrgScopeOpts {
   includeUnscoped?: boolean;
 }
 
+/**
+ * The coach's own reads: `kind` keeps one kind (a scouting report's clips are
+ * `report`, docs/scouting-reports.md), `withKind` reads each row's kind. Both
+ * need the column (migration 20261127100000), so the reads players' apps
+ * share leave them off.
+ */
+export interface OwnReadOpts extends OrgScopeOpts {
+  kind?: PlaylistKind;
+  withKind?: boolean;
+}
+
 export function applyOrgScope<T extends { eq(col: string, val: string): T; or(f: string): T }>(
   query: T,
   orgId?: string,
@@ -257,7 +275,7 @@ export function applyOrgScope<T extends { eq(col: string, val: string): T; or(f:
 export async function listPlaylists(
   supabase: SupabaseClient,
   orgId?: string,
-  opts?: OrgScopeOpts,
+  opts?: OwnReadOpts,
 ): Promise<Playlist[]> {
   const rows = await ownPlaylistRows(supabase, orgId, opts, "listPlaylists");
   // Own playlists only (ownPlaylistRows reads user_id = uid).
@@ -272,7 +290,7 @@ export async function listPlaylists(
 export async function getPlaylist(supabase: SupabaseClient, id: string): Promise<Playlist | null> {
   const uid = await currentUserId(supabase);
   if (!uid) return null;
-  const { data, error } = await supabase.from("playlists").select(PLAYLIST_SELECT).eq("user_id", uid).eq("id", id).maybeSingle();
+  const { data, error } = await supabase.from("playlists").select(PLAYLIST_SELECT_WITH_KIND).eq("user_id", uid).eq("id", id).maybeSingle();
   if (error) {
     reportDbError("getPlaylist", error);
     throw new Error(`Failed to load the playlist: ${error.message}`);
@@ -287,17 +305,25 @@ export async function getPlaylist(supabase: SupabaseClient, id: string): Promise
 export async function listPlaylistNames(
   supabase: SupabaseClient,
   orgId?: string,
-  opts?: OrgScopeOpts,
-): Promise<{ id: string; name: string }[]> {
+  opts?: OwnReadOpts,
+): Promise<ReportListPlaylist[]> {
   const uid = await currentUserId(supabase);
   if (!uid) return [];
-  const query = supabase.from("playlists").select("id, name").eq("user_id", uid);
+  // The desktop's only (Reports, a team's report): it knows the column. A report's own clips say so.
+  let query = supabase.from("playlists").select("id, name, kind, created_at").eq("user_id", uid);
+  if (opts?.kind) query = query.eq("kind", opts.kind);
   const { data, error } = await applyOrgScope(query, orgId, opts);
   if (error) {
     reportDbError("listPlaylistNames", error);
     throw new Error(`Failed to load playlists: ${error.message}`);
   }
-  return (data ?? []) as { id: string; name: string }[];
+  type Row = { id: string; name: string; kind?: string | null; created_at?: string | null };
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    ...(r.kind === "report" ? { kind: "report" as const } : {}),
+    ...(r.created_at ? { createdAt: r.created_at } : {}),
+  }));
 }
 
 /**
@@ -312,14 +338,21 @@ export async function listPlaylistIndex(
 ): Promise<SearchPlaylistRow[]> {
   const uid = await currentUserId(supabase);
   if (!uid) return [];
-  const query = supabase.from("playlists").select("id, name, folder_id, created_at").eq("user_id", uid);
+  // The desktop's search only (it knows the column): a report's clips are found as the report, never as a playlist.
+  const query = supabase.from("playlists").select("id, name, folder_id, created_at, kind").eq("user_id", uid);
   const { data, error } = await applyOrgScope(query, orgId, opts);
   if (error) {
     reportDbError("listPlaylistIndex", error);
     throw new Error(`Failed to load playlists: ${error.message}`);
   }
-  type Row = { id: string; name: string; folder_id: string | null; created_at: string | null };
-  return ((data ?? []) as Row[]).map((r) => ({ id: r.id, name: r.name, folderId: r.folder_id ?? null, createdAt: r.created_at ?? null }));
+  type Row = { id: string; name: string; folder_id: string | null; created_at: string | null; kind?: string | null };
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    folderId: r.folder_id ?? null,
+    createdAt: r.created_at ?? null,
+    ...(r.kind === "report" ? { kind: "report" as const } : {}),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +363,8 @@ export async function createPlaylist(
   supabase: SupabaseClient,
   name: string,
   folderId?: string,
-  orgId?: string
+  orgId?: string,
+  opts?: { kind?: PlaylistKind },
 ): Promise<Playlist> {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error("Not authenticated");
@@ -342,11 +376,20 @@ export async function createPlaylist(
       name,
       folder_id: folderId ?? null,
       org_id: orgId ?? null,
+      // Only a report's clips name their kind: a playlist is the column's default (and needs no column at all).
+      ...(opts?.kind === "report" ? { kind: "report" } : {}),
     })
     .select()
     .single();
   if (error || !data) throw new Error(`Failed to create playlist: ${error?.message}`);
-  return { id: data.id, name: data.name, items: [], folderId: data.folder_id ?? undefined, orgId: data.org_id ?? undefined };
+  return {
+    id: data.id,
+    name: data.name,
+    items: [],
+    folderId: data.folder_id ?? undefined,
+    orgId: data.org_id ?? undefined,
+    ...(opts?.kind === "report" ? { kind: "report" as const } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -992,7 +1035,7 @@ export async function getMySharedPlaylists(
 export async function listOwnPlaylistsAndShared(
   supabase: SupabaseClient,
   orgId?: string,
-  opts?: OrgScopeOpts,
+  opts?: OwnReadOpts,
 ): Promise<{ playlists: Playlist[]; shared: SharedPlaylist[] }> {
   const rows = await ownPlaylistRows(supabase, orgId, opts, "listOwnPlaylistsAndShared");
   return { playlists: rows.map((r) => rowToPlaylist(r)), shared: sharedFromRows(rows) };
@@ -1019,19 +1062,21 @@ export async function hasSharedAnyPlaylist(supabase: SupabaseClient): Promise<bo
 async function ownPlaylistRows(
   supabase: SupabaseClient,
   orgId: string | undefined,
-  opts: OrgScopeOpts | undefined,
+  opts: OwnReadOpts | undefined,
   label: string,
 ): Promise<PlaylistRow[]> {
   const uid = await currentUserId(supabase);
   if (!uid) return [];
-  const query = supabase
+  let query = supabase
     .from("playlists")
-    .select(PLAYLIST_SELECT)
+    .select(opts?.withKind || opts?.kind ? PLAYLIST_SELECT_WITH_KIND : PLAYLIST_SELECT)
     .eq("user_id", uid);
+  if (opts?.kind) query = query.eq("kind", opts.kind);
   const { data, error } = await applyOrgScope(query, orgId, opts)
     .order("created_at", { ascending: false });
   if (error) { reportDbError(label, error); return []; }
-  return (data ?? []) as PlaylistRow[];
+  // The select is built from two strings, past what supabase-js's types can parse.
+  return (data ?? []) as unknown as PlaylistRow[];
 }
 
 function sharedFromRows(rows: PlaylistRow[]): SharedPlaylist[] {

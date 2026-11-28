@@ -45,6 +45,7 @@ describe("mergeReportList", () => {
       opens: 14,
       players: 0,
       changedAt: "2026-11-01T10:00:00Z",
+      ownClips: false,
     });
   });
 
@@ -181,6 +182,15 @@ describe("filterReportList", () => {
   });
 });
 
+describe("a report's own clips", () => {
+  it("lists a report that owns its clips from the start, before any draft, and says it owns them", () => {
+    const own = [...playlists, { id: "pl-own", name: "Djurgården · Sat 28 Nov", kind: "report" as const, createdAt: "2026-11-20T09:00:00Z" }];
+    const items = mergeReportList([], [], own, NOW);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ playlistId: "pl-own", title: "Djurgården · Sat 28 Nov", status: "draft", changedAt: "2026-11-20T09:00:00Z", ownClips: true });
+  });
+});
+
 describe("reportStatusLabel", () => {
   const base: ReportListItem = {
     playlistId: "p",
@@ -193,6 +203,7 @@ describe("reportStatusLabel", () => {
     opens: 0,
     players: 0,
     changedAt: "2026-11-01T10:00:00Z",
+    ownClips: false,
   };
 
   it("says when a shared report expires, or that a kept one never does", () => {

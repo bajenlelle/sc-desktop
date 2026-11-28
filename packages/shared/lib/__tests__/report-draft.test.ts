@@ -27,7 +27,9 @@ import {
   moveSection,
   nudgeClips,
   parseReportDraft,
+  placeClips,
   placementOf,
+  reportAsPlaylistClips,
   pruneDraft,
   recordReportEdit,
   removeSection,
@@ -296,6 +298,38 @@ describe("placements", () => {
   });
 });
 
+describe("placeClips", () => {
+  it("pins a clip only when its section isn't where it would land by itself", () => {
+    // Alva's play (s1) and a play about no one, added to Ola's section.
+    const draft = placeClips(two(), ["m1:1", "m1:4"], "s2", events);
+    expect(draft.placements).toEqual({ "m1:1": "s2", "m1:4": "s2" });
+    // Alva's play added to Alva: it follows her, no placement.
+    expect(placeClips(two(), ["m1:1"], "s1", events).placements).toEqual({});
+    // A play about no one added to Their actions: no placement.
+    expect(placeClips(two(), ["m1:4"], TEAM_SECTION, events).placements).toEqual({});
+  });
+
+  it("brings a left-out or moved clip back to the target, or lets it follow its player when sorted by player", () => {
+    const draft = { ...two(), placements: { "m1:1": LEFT_OUT, "m1:3": TEAM_SECTION } };
+    // Ola's play (m1:3) back in Ola's section follows her again.
+    expect(placeClips(draft, ["m1:1", "m1:3"], "s2", events).placements).toEqual({ "m1:1": "s2" });
+    expect(placeClips(draft, ["m1:1", "m1:3"], null, events).placements).toEqual({});
+  });
+
+  it("reaches the keys and custom sections, and changes nothing for a target that is gone", () => {
+    const withKeys = addBlock(two(), "keys");
+    expect(placeClips(withKeys, ["m1:1"], "keys", events).placements).toEqual({ "m1:1": "keys" });
+    const draft = two();
+    expect(placeClips(draft, ["m1:1"], "zzz", events)).toBe(draft);
+  });
+
+  it("reads a new clip last in its section", () => {
+    const draft = placeClips({ ...two(), order: ["m1:2", "m1:1"] }, ["m1:3"], "s1", events);
+    const layout = deriveReportLayout(draft, [clip("m1", 3), clip("m1", 1), clip("m1", 2)], events);
+    expect(layout.sections.find((s) => s.id === "s1")!.clips.map((c) => c.eventId)).toEqual([2, 1, 3]);
+  });
+});
+
 describe("deriveReportLayout", () => {
   const items: PlaylistItem[] = [clip("m1", 3), text("t1"), clip("m1", 1), clip("m1", 4), clip("m1", 2), clip("m2", 1), clip("m1", 99)];
 
@@ -537,19 +571,23 @@ describe("the report's sections (blocks)", () => {
     expect(blocksOf(d).map((b) => b.id)).toEqual(["keys", "team", "players", "c-x1", "profile"]);
     expect(layoutIds(d)).toEqual(["keys", "team", "s1", "s2", "c-x1", "profile"]);
     const layout = deriveReportLayout(d, items, events, { keepTeam: true });
-    expect(layout.sections.find((s) => s.id === "profile")).toMatchObject({ accepts: false, clips: [] });
+    expect(layout.sections.find((s) => s.id === "profile")).toMatchObject({ accepts: true, clips: [] });
     expect(layout.sections.find((s) => s.id === "c-x1")).toMatchObject({ accepts: true, block: { title: "Out of bounds" } });
   });
 
-  it("moves clips into keys and your own sections, never into the season's", () => {
-    let d = addBlock(addBlock(two(), "keys", { at: 0 }), "games");
+  it("moves clips into keys, How they play and your own sections, never into Their games", () => {
+    let d = addBlock(addBlock(addBlock(two(), "keys", { at: 0 }), "games"), "profile");
     let layout = deriveReportLayout(d, items, events, { keepTeam: true });
     d = moveClips(d, layout, ["m1:4"], "keys", null);
     layout = deriveReportLayout(d, items, events, { keepTeam: true });
     expect(layout.sections.find((s) => s.id === "keys")!.clips.map(itemKey)).toEqual(["m1:4"]);
     expect(moveClips(d, layout, ["m1:1"], "games", null)).toBe(d);
-    // ⌥↓ from the last clip in the report skips the season's sections.
-    expect(nudgeClips(layout, ["m1:3"], 1)).toBeNull();
+    const shown = moveClips(d, layout, ["m1:1"], "profile", null);
+    expect(deriveReportLayout(shown, items, events, { keepTeam: true }).sections.find((s) => s.id === "profile")!.clips.map(itemKey)).toEqual(["m1:1"]);
+    // How they play takes clips, not words: its numbers are the season's.
+    expect(setBlockText(shown, "profile", "Fast")).toBe(shown);
+    // ⌥↓ from the last player's clip skips Their games and lands in How they play.
+    expect(nudgeClips(layout, ["m1:3"], 1)).toEqual({ to: "profile", before: null });
   });
 
   it("hides a section from players and shows it again; hiding the players hides every player", () => {
@@ -612,5 +650,21 @@ describe("the report's sections (blocks)", () => {
   it("reads keys a line each, without the bullets", () => {
     expect(keyLines("• Box out\n- No threes\n\n2) Run")).toEqual(["Box out", "No threes", "Run"]);
     expect(keyLines(undefined)).toEqual([]);
+  });
+});
+
+describe("reportAsPlaylistClips", () => {
+  it("copies the clips in reading order, without hidden sections, left-out clips, uploads or groups", () => {
+    const base = setBlockHidden(addBlock(two(), "keys", { at: 0 }), "keys", false);
+    const draft = { ...placeClips(base, ["m1:4"], "keys", events), placements: { ...placeClips(base, ["m1:4"], "keys", events).placements, "m1:3": LEFT_OUT } };
+    const items: PlaylistItem[] = [clip("m1", 1, { r2Url: "https://r2/x.mp4", note: "watch", groupId: "g" }), clip("m1", 3), clip("m1", 4), clip("m1", 2)];
+    // Keys (m1:4), Their actions (none), then Alva's clips (m1:1, m1:2); Ola's m1:3 is left out.
+    expect(reportAsPlaylistClips(draft, items, events)).toEqual([
+      { type: "clip", matchId: "m1", eventId: 4 },
+      { type: "clip", matchId: "m1", eventId: 1, note: "watch" },
+      { type: "clip", matchId: "m1", eventId: 2 },
+    ]);
+    // Hiding Keys leaves its clip out.
+    expect(reportAsPlaylistClips(setBlockHidden(draft, "keys", true), items, events).map((c) => c.eventId)).toEqual([1, 2]);
   });
 });

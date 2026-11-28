@@ -10,7 +10,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sentry } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
-import type { Playlist } from "@/types/match";
+import { isReportClips, type Playlist } from "@/types/match";
 import type { Collect } from "./use-collect";
 
 /**
@@ -39,6 +39,10 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
   const trimmed = search.trim();
   const q = trimmed.toLowerCase();
   const options = candidates.filter((pl) => !q || pl.name.toLowerCase().includes(q));
+  // A report's own clips are a group of their own, after the playlists (docs/game-view.md, "Collecting into a report").
+  const playlistOptions = options.filter((pl) => !isReportClips(pl));
+  const reportOptions = options.filter(isReportClips);
+  const targetIsReport = !!target && isReportClips(target);
   const exists = (name: string) => candidates.some((pl) => pl.name.toLowerCase() === name.toLowerCase());
   // Only a typed name makes a new playlist, as in the editor's "Search or create…": a row offering
   // a ready-made name read as the one way to create. (The play menu still offers one named after the game.)
@@ -127,7 +131,7 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
         >
           <div className="px-3 pt-3 pb-1">
             <p className="text-headline">Add plays to</p>
-            <p className="text-subheadline text-muted-foreground">Every play you add goes into this playlist.</p>
+            <p className="text-subheadline text-muted-foreground">Every play you add goes into this playlist or report.</p>
           </div>
           <div className="p-2">
             <SearchField
@@ -150,7 +154,12 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
             </p>
           ) : options.length > 0 ? (
             <div className="max-h-64 overflow-y-auto px-1 pb-1">
-              {options.map((pl) => (
+              {reportOptions.length > 0 && playlistOptions.length > 0 && <GroupLabel>Playlists</GroupLabel>}
+              {playlistOptions.map((pl) => (
+                <PlaylistOption key={pl.id} playlist={pl} selected={pl.id === target?.id} onChoose={() => collect.chooseTarget(pl, "existing")} />
+              ))}
+              {reportOptions.length > 0 && <GroupLabel>Reports</GroupLabel>}
+              {reportOptions.map((pl) => (
                 <PlaylistOption key={pl.id} playlist={pl} selected={pl.id === target?.id} onChoose={() => collect.chooseTarget(pl, "existing")} />
               ))}
             </div>
@@ -173,10 +182,10 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
         </PopoverContent>
       </Popover>
       {target && (
-        <ToolbarAction label="Open playlist">
+        <ToolbarAction label={targetIsReport ? "Open report" : "Open playlist"}>
           {(compact) => (
-            <Button size={compact ? "icon-sm" : "sm"} variant="outline" onClick={collect.openTarget} aria-label={compact ? "Open playlist" : undefined}>
-              {compact ? <SquareArrowOutUpRight /> : "Open playlist"}
+            <Button size={compact ? "icon-sm" : "sm"} variant="outline" onClick={collect.openTarget} aria-label={compact ? (targetIsReport ? "Open report" : "Open playlist") : undefined}>
+              {compact ? <SquareArrowOutUpRight /> : targetIsReport ? "Open report" : "Open playlist"}
             </Button>
           )}
         </ToolbarAction>
@@ -251,6 +260,11 @@ function SendRing({ done, total }: { done: number; total: number }) {
       />
     </svg>
   );
+}
+
+/** A group's name in the list ("Playlists", "Reports"), shown only when both are there. */
+function GroupLabel({ children }: { children: React.ReactNode }) {
+  return <p className="px-2 pt-2 pb-1 text-caption font-medium text-muted-foreground">{children}</p>;
 }
 
 function PlaylistOption({ playlist, selected, onChoose }: { playlist: Playlist; selected: boolean; onChoose: () => void }) {

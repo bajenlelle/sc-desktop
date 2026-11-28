@@ -67,6 +67,7 @@ export function GameNowBar({
   game,
   labels,
   collect,
+  inLabel,
   targetName,
   labelButton,
   lastLabel,
@@ -91,6 +92,8 @@ export function GameNowBar({
   labels: readonly Label[];
   collect: CollectStatus;
   targetName: string | null;
+  /** What the button says for a play the target has: "In playlist" unless told ("In report"). */
+  inLabel?: string;
   /** Wraps the Label button in the label picker. */
   labelButton: (trigger: ReactElement) => ReactNode;
   /** The label used last: one press puts it on this play, without the picker. Null until a label has been used. */
@@ -199,7 +202,7 @@ export function GameNowBar({
         ) : (
           <Button size="sm" variant="secondary" disabled aria-label={`In ${targetName ?? "the playlist"}`}>
             <Check />
-            {collect === "added" ? "Added" : "In playlist"}
+            {collect === "added" ? "Added" : (inLabel ?? "In playlist")}
           </Button>
         )}
       </span>

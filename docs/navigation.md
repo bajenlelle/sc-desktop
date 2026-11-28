@@ -14,6 +14,12 @@ Back returns to the page before, as it was left.
   detail page goes up to its place instead: a game to Games, a team to Teams, a report to Reports
   (`Toolbar`'s `back` prop). A page the sidebar or the Go menu's numbered pages opened is a fresh start and shows
   no button; the keys still go back.
+- **A page names only its own entry.** A navigation renders as a transition (React Router 7): the page being left
+  stays on screen, and can render again, after the history has stepped to the next page. `useNavEntryId` reads
+  the entry by the page's own location key (`idOfKey` in `lib/nav-history.ts`), never the entry now current, so a
+  page left never names the next one after itself ("‹ Frysen good plays" on a report reopened from Reports) or
+  keeps its memory (`lib/page-memory.ts`) there. `F-back-names-page` guards it; the race shows in the real app
+  more than in a headless run.
 - **Keys and buttons.** Go → Back ⌘[ and Forward ⌘] (on while there is a page that way); ⌘← and ⌘→ outside text
   fields (for layouts where [ takes ⌥, Swedish among them); Alt+← and Alt+→ on Windows; the mouse's side buttons.
 - **A page's own views don't count.** Season | Plays (Watch included), Game | Stats | Details and a switch between

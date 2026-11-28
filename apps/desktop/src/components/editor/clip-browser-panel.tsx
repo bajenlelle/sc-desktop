@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
 import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels";
@@ -14,7 +14,7 @@ import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing"
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
-import { orderForAdd, playerTeam, startGames } from "@scoutable/shared/lib/add-clips-games";
+import { MAX_BROWSER_GAMES, orderForAdd, playerTeam, startGames, type StartSource } from "@scoutable/shared/lib/add-clips-games";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import {
   keepKnownChoices,
@@ -46,6 +46,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { PopUpButton } from "@/components/ui/pop-up-button";
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PlaysFilterBar } from "@/components/plays/plays-filter-bar";
@@ -102,7 +103,9 @@ const BrowserRow = memo(function BrowserRow({
   matchTitle,
   showGame,
   isSelected,
-  alreadyIn,
+  slot,
+  slotWhere,
+  targetName,
   isActive,
   assignedLabels,
   canLabel,
@@ -110,6 +113,8 @@ const BrowserRow = memo(function BrowserRow({
   onAdd,
   onPress,
   onLabel,
+  onRemove,
+  onDrag,
 }: {
   /** `matchId:eventId`: event ids repeat across games. */
   rowKey: string;
@@ -120,7 +125,12 @@ const BrowserRow = memo(function BrowserRow({
   matchTitle: string;
   showGame: boolean;
   isSelected: boolean;
-  alreadyIn: boolean;
+  /** Whether the target has the play (rowSlot): +, ✓, ⇄ (in another part of it) or a still ✓. */
+  slot: "none" | "in" | "added" | "elsewhere";
+  /** "elsewhere": where the play sits now ("Keys"). */
+  slotWhere?: string;
+  /** What the row's + adds to ("this playlist", "#11 Nilsson"). */
+  targetName: string;
   isActive: boolean;
   assignedLabels: Label[];
   /** Whether rows can be labelled at all (a space is active). */
@@ -133,11 +143,17 @@ const BrowserRow = memo(function BrowserRow({
   onPress: (event: PlayByPlayEvent, matchId: string, mods: { shift: boolean; toggle: boolean }) => void;
   /** The Tag button: opens the label picker on this row. */
   onLabel: (rowKey: string) => void;
+  /** ✓ on a play the target has: takes it out (a report's section); undefined keeps the ✓ still. */
+  onRemove?: (rowKey: string) => void;
+  /** Docked beside a report: the row drags out onto it (PLAYS_DRAG_TYPE). */
+  onDrag?: (rowKey: string, e: React.DragEvent) => void;
 }) {
   return (
     <div
       role="row"
       data-row-key={rowKey}
+      draggable={!!onDrag}
+      onDragStart={onDrag ? (e) => onDrag(rowKey, e) : undefined}
       aria-rowindex={index + 1}
       aria-selected={isSelected}
       aria-current={isActive ? "true" : undefined}
@@ -167,10 +183,12 @@ const BrowserRow = memo(function BrowserRow({
             {canLabel &&
               (labelPicker ?? <RowLabelButton title="Labels" aria-label="Labels" onClick={() => onLabel(rowKey)} />)}
             <RowPlaylistSlot
-              status={alreadyIn ? "in" : "none"}
-              targetName="this playlist"
+              status={slot}
+              targetName={targetName}
+              where={slotWhere}
               visible={isActive}
               onAdd={(anchor) => onAdd(rowKey, anchor)}
+              onRemove={onRemove ? () => onRemove(rowKey) : undefined}
             />
           </>
         }
@@ -197,6 +215,51 @@ export interface ClipBrowserLabelHandlers {
   /** Gives a label its key (1–9), or takes it away (null). */
   onSetKey: (id: string, slot: number | null) => Promise<void>;
   onSeedDefaults: () => Promise<void>;
+}
+
+/** The docked preview's widest: its 16:9 picture as tall as its part of the panel leaves after the controls (44), the Now bar (44) and the gaps. */
+const DOCKED_STAGE_MAX_WIDTH = "calc((100cqh - 44px - 44px - 32px) * 16 / 9)";
+
+/** What a dragged play carries (the docked panel's rows): its `matchId:eventId` keys, as JSON. */
+export const PLAYS_DRAG_TYPE = "application/x-scoutable-plays";
+
+/** What a page asks of the docked panel: adds plays dropped on it (the target's value at the time). */
+export interface ClipBrowserHandle {
+  addKeys: (keys: string[]) => boolean;
+}
+
+/** A report's "Sorted by player": no section, each clip goes where its player is (report-draft.ts). */
+export const SORTED_BY_PLAYER = "auto";
+
+/**
+ * Add clips to a part of what is open, not the whole of it: a scouting
+ * report's sections. The header names the section (a menu changes it), a row
+ * says where its play sits, ✓ in this section takes it out, ⇄ in another
+ * moves it here (+ / A on it, or ticked with the rest).
+ */
+export interface ClipBrowserTarget {
+  /** What the clips go into ("AIK · Sat 28 Nov"): "Add clips to {name}". */
+  name: string;
+  /** The parts to add to, in reading order; SORTED_BY_PLAYER first when it is offered. */
+  options: readonly { id: string; label: string; hidden?: boolean }[];
+  value: string;
+  onChange: (id: string) => void;
+  /** Where each play the report has sits, by `matchId:eventId` (id and label; "Not in report" for a left-out one). */
+  placement: ReadonlyMap<string, { id: string; label: string }>;
+  /** Plays the report has, elsewhere: moved to `value`. */
+  onMove: (keys: string[]) => void;
+  /** A play in `value`: taken out of the report. */
+  onRemove: (key: string) => void;
+}
+
+/** What the sheet starts on when the page knows better than the last round (a report's opponent and player). */
+export interface ClipBrowserStart {
+  /** The games, when nothing was browsed for this target yet (latest first; the first MAX_BROWSER_GAMES). */
+  games: readonly string[];
+  /** Team names to filter to, kept only where the plays name them so. */
+  teams: readonly string[];
+  /** Player filter (playerKey()s), kept only where the plays have them. */
+  players: readonly string[];
 }
 
 /**
@@ -230,6 +293,13 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   onNeedLabels,
   videoStatusByMatch,
   preferredMatchId = null,
+  target,
+  start: given,
+  layout = "sheet",
+  onClose,
+  handleRef,
+  onPlay,
+  pauseSignal = 0,
 }: {
   /** The games to offer: read for their ids, titles, dates, teams and video, never their plays (the sheet reads those). */
   matches: StoredMatch[];
@@ -247,12 +317,33 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   onNeedLabels: (matchIds: string[]) => Promise<void>;
   /** Per-match video-file health from the page's probe (machine switches). */
   videoStatusByMatch: Map<string, VideoFileStatus>;
+  /** Adding to a part of the playlist (a report's section); undefined adds to the playlist. */
+  target?: ClipBrowserTarget;
+  /** Where to start when nothing was browsed for this playlist yet, and the filters to start with. */
+  start?: ClipBrowserStart;
+  /**
+   * "sheet": over the page, the list beside the preview, owning the keys while open. "panel": docked
+   * beside a report, the preview under the list, rows dragged out onto the page; its keys are its
+   * own only while the keyboard is inside it, and Esc there closes it (onClose).
+   */
+  layout?: "sheet" | "panel";
+  onClose?: () => void;
+  handleRef?: React.Ref<ClipBrowserHandle>;
+  /** Its preview started playing (the page stops its own). */
+  onPlay?: () => void;
+  /** Goes up when the page plays something of its own: the preview pauses. */
+  pauseSignal?: number;
 }) {
+  const docked = layout === "panel";
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [start] = useState(() => {
     const scope = getAddClipsScope(playlist.id);
     const s = startGames(matches, playlist.items, scope?.gameIds ?? [], preferredMatchId);
-    return { ...s, teams: s.source === "remembered" ? (scope?.teams ?? []) : [] };
+    const givenGames = (given?.games ?? []).filter((id) => matches.some((m) => m.id === id)).slice(0, MAX_BROWSER_GAMES);
+    const picked: { ids: string[]; source: StartSource | "given" } =
+      s.source !== "remembered" && s.source !== "preferred" && givenGames.length > 0 ? { ids: givenGames, source: "given" } : s;
+    const teams = s.source === "remembered" && picked === s ? (scope?.teams ?? []) : [...(given?.teams ?? [])];
+    return { ...picked, teams };
   });
   const [gameIds, setGameIds] = useState<string[]>(start.ids);
   // Once per opening: where it started, and that start is now the playlist's last games.
@@ -261,7 +352,10 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     if (start.ids.length > 0 && start.source !== "remembered") setAddClipsScope(playlist.id, { gameIds: start.ids, teams: [] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [filters, setFilters] = useState<PlayFilters>(EMPTY_PLAY_FILTERS);
+  // A given player is the filter from the start; pruned like any other once the games' plays are in.
+  const [filters, setFilters] = useState<PlayFilters>(() =>
+    given && given.players.length > 0 ? { ...EMPTY_PLAY_FILTERS, players: new Set(given.players) } : EMPTY_PLAY_FILTERS,
+  );
   const [filterOpen, setFilterOpen] = useState(false);
   const filterSearchRef = useRef<HTMLInputElement | null>(null);
 
@@ -354,6 +448,37 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     () => new Set(playlist.items.filter(isClipItem).map((c) => `${c.matchId}:${c.eventId}`)),
     [playlist.items],
   );
+  /**
+   * What a row's slot says: + (not there), ✓ just added here or in this section (a click takes it
+   * out), ⇄ in another section (moves here), a still ✓ (there, nothing to do).
+   */
+  const slotOf = useCallback(
+    (key: string): { status: "none" | "in" | "added" | "elsewhere"; where?: string } => {
+      if (!target) return { status: existingSet.has(key) ? "in" : "none" };
+      const at = target.placement.get(key);
+      if (!at) return { status: existingSet.has(key) ? "in" : "none" };
+      if (target.value === SORTED_BY_PLAYER) return { status: "in" };
+      return at.id === target.value ? { status: "added" } : { status: "elsewhere", where: at.label };
+    },
+    [target, existingSet],
+  );
+  // Plays nothing can be done with here: never ticked, never added.
+  const blockedSet = useMemo(() => {
+    if (!target) return existingSet;
+    const out = new Set<string>();
+    for (const key of existingSet) {
+      const s = slotOf(key).status;
+      if (s === "in" || s === "added") out.add(key);
+    }
+    return out;
+  }, [target, existingSet, slotOf]);
+  // What a + adds to: the section, or the report as a whole when its clips go where their players are.
+  const targetLabel = target
+    ? target.value === SORTED_BY_PLAYER
+      ? "report"
+      : (target.options.find((o) => o.id === target.value)?.label ?? target.name)
+    : "this playlist";
+  const onRowRemove = useMemo(() => (target && target.value !== SORTED_BY_PLAYER ? (key: string) => target.onRemove(key) : undefined), [target]);
 
   const gameIdSet = useMemo(() => new Set(gameIds), [gameIds]);
   // The chosen games in the page's order, each with the plays the sheet holds for it.
@@ -700,6 +825,16 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     else el.addEventListener("loadedmetadata", doSeek, { once: true });
   }, [localVideoUrl, videoMatchId, seekToEvent]);
 
+  // The page is told when the preview plays (it stops its own), and pauses the preview when it plays.
+  useEffect(() => {
+    if (!onPlay) return;
+    video.addEventListener("play", onPlay);
+    return () => video.removeEventListener("play", onPlay);
+  }, [video, onPlay]);
+  useEffect(() => {
+    if (pauseSignal > 0) video.pause();
+  }, [pauseSignal, video]);
+
   // Stop playback when the sheet closes; the element outlives the stage.
   useEffect(() => () => { video.pause(); }, [video]);
 
@@ -775,10 +910,22 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   // at the document (Radix), so this listens before it, on the window; a menu or popover open over the sheet
   // takes its own Esc.
   const selectionSizeRef = useRef(0);
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+  /** A docked row dragged out: the selection when the row is in it (Finder's rule), else that play. */
+  const onRowDrag = useCallback((key: string, e: React.DragEvent) => {
+    const keys = selectedIdsRef.current.has(key) ? [...selectedIdsRef.current] : [key];
+    e.dataTransfer.setData(PLAYS_DRAG_TYPE, JSON.stringify(keys));
+    e.dataTransfer.effectAllowed = "copy";
+  }, []);
+  const dockedRef = useRef(docked);
+  dockedRef.current = docked;
   selectionSizeRef.current = selectedIds.size;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || selectionSizeRef.current === 0) return;
+      // Docked, an Esc from elsewhere on the page is the page's.
+      if (dockedRef.current && !panelRef.current?.contains(document.activeElement)) return;
       if (document.querySelector('[data-slot="popover-content"], [role="menu"], [role="listbox"]')) return;
       e.preventDefault();
       e.stopPropagation();
@@ -826,11 +973,11 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   }
   const orderOf = () => filteredRef.current.map(({ event, matchId }) => `${matchId}:${event.eventId}`);
   function withoutExisting(keys: Set<string>) {
-    for (const key of existingSet) keys.delete(key);
+    for (const key of blockedSet) keys.delete(key);
     return keys;
   }
   function applyClick(key: string, shift: boolean, toggle: boolean) {
-    if (!shift && existingSet.has(key)) {
+    if (!shift && blockedSet.has(key)) {
       setAnchor(key);
       return;
     }
@@ -912,11 +1059,20 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     // Every game the sheet holds, not only the chosen ones: a selection stays across a change of games.
     const held = playsRef.current;
     const games = matches.filter((m) => held.has(m.id)).map((m) => ({ ...m, events: held.get(m.id)! }));
-    const toAdd = orderForAdd([...keys].filter((k) => !existingSet.has(k)), games);
-    if (toAdd.length === 0) return false;
-    onAddClips(toAdd);
+    const wanted = [...keys].filter((k) => !blockedSet.has(k));
+    const toAdd = orderForAdd(wanted.filter((k) => !existingSet.has(k)), games);
+    // A report's play in another section moves here; the page says so with its own Undo.
+    const toMove = target ? wanted.filter((k) => existingSet.has(k)) : [];
+    if (toAdd.length === 0 && toMove.length === 0) return false;
+    if (toAdd.length > 0) onAddClips(toAdd);
+    if (toMove.length > 0) target!.onMove(toMove);
     return true;
   }
+  // Plays dropped on the page (the docked panel's rows): added as the + adds them, to the target as it is then.
+  const addKeysRef = useRef(addKeys);
+  addKeysRef.current = addKeys;
+  useImperativeHandle(handleRef, () => ({ addKeys: (keys) => addKeysRef.current(keys) }), []);
+
   /** The selection's Add (⌘↩): the selected plays go in, and the sheet stays open for the next round. */
   function handleAdd() {
     if (addKeys(selectedIds)) setSelectedIds(new Set());
@@ -936,7 +1092,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     else if (activeEventKeyRef.current) addKeys([activeEventKeyRef.current]);
   }
 
-  const newCount = Array.from(selectedIds).filter((k) => !existingSet.has(k)).length;
+  const newCount = Array.from(selectedIds).filter((k) => !blockedSet.has(k)).length;
   const isMultiMatch = gameIds.length > 1;
 
   /**
@@ -973,8 +1129,29 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   // J/K/L shuttle, Space plays, R replays, F is full screen. Return selects the
   // playing clip, ⌘A selects every shown clip, ⌘↩ adds the selection, A adds
   // (the selection, else the clip on screen), G labels the clip on screen.
-  useKeyScope("clip-browser", true, panelRef);
+  // Docked, the keys are the panel's only while the keyboard is in it; the report keeps its own otherwise.
+  const [focusInside, setFocusInside] = useState(false);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!docked || !el) return;
+    const sync = () => setFocusInside(el.contains(document.activeElement));
+    // Focus moving within the panel leaves it for a moment: read where it landed.
+    const later = () => window.setTimeout(sync, 0);
+    el.addEventListener("focusin", sync);
+    el.addEventListener("focusout", later);
+    return () => {
+      el.removeEventListener("focusin", sync);
+      el.removeEventListener("focusout", later);
+    };
+  }, [docked]);
+  useKeyScope("clip-browser", !docked || focusInside, panelRef);
   useHotkeys("clip-browser", (e) => {
+    // Docked: Esc puts the panel away (a selection went first, in the capture listener above).
+    if (docked && e.key === "Escape") {
+      e.preventDefault();
+      onClose?.();
+      return;
+    }
     // ⌘F: the Filter popover with its search, as in the game view and Teams' Plays.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyF") {
       e.preventDefault();
@@ -1008,7 +1185,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
         return;
       }
       const key = activeEventKeyRef.current;
-      if (key && !existingSet.has(key)) toggleOne(key);
+      if (key && !blockedSet.has(key)) toggleOne(key);
       if (key) setAnchor(key);
       return;
     }
@@ -1137,38 +1314,313 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     videoStatusByMatch.get(videoMatchId) !== undefined &&
     videoStatusByMatch.get(videoMatchId) !== "ok";
 
+  // The sheet's header, or the docked panel's: "Plays", the section it adds to, and its close button.
+  const header = docked ? (
+    <div className="flex shrink-0 items-start gap-2 px-4 pt-3 pb-2">
+      <div className="min-w-0 flex-1">
+        <h2 className="text-headline text-foreground">Plays</h2>
+        {target && (
+          <div className="-ml-1.5 flex min-w-0 items-center gap-0.5 text-callout text-muted-foreground">
+            <span className="shrink-0 pl-1.5">Adding to</span>
+            <PopUpButton
+              size="sm"
+              aria-label="Section to add to"
+              value={target.value}
+              onValueChange={target.onChange}
+              options={target.options.map((o) => ({ value: o.id, label: o.label, description: o.hidden ? "Hidden from players" : undefined }))}
+            />
+          </div>
+        )}
+      </div>
+      <Button variant="ghost" size="icon-sm" aria-label="Close Plays" onClick={onClose}>
+        <X />
+      </Button>
+    </div>
+  ) : (
+    <div className="flex shrink-0 items-start gap-3 px-5 pt-4 pb-3">
+      <div className="min-w-0 flex-1">
+        <SheetTitle>{target ? `Add clips to ${target.name}` : "Add clips"}</SheetTitle>
+        {target ? (
+          // The section the clips go to, changed without closing the sheet.
+          <SheetDescription asChild>
+            <div className="-ml-1.5 flex min-w-0 items-center gap-0.5">
+              <span className="pl-1.5">Adding to</span>
+              <PopUpButton
+                size="sm"
+                aria-label="Section to add to"
+                value={target.value}
+                onValueChange={target.onChange}
+                options={target.options.map((o) => ({
+                  value: o.id,
+                  label: o.label,
+                  description: o.hidden ? "Hidden from players" : undefined,
+                }))}
+              />
+            </div>
+          </SheetDescription>
+        ) : (
+          <SheetDescription className="truncate">
+            to <span className="font-medium text-foreground">{playlist.name}</span>
+          </SheetDescription>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button asChild size="sm" variant="ghost">
+          <Link to="/upload">
+            <Plus />
+            Import game
+          </Link>
+        </Button>
+        <SheetClose
+          aria-label="Close"
+          className="ml-1 flex size-7 items-center justify-center rounded-full bg-fill-2 text-muted-foreground outline-none transition-[background-color,transform] duration-150 hover:bg-fill-3 hover:text-foreground active:scale-95 active:bg-fill-4 focus-visible:ring-2 focus-visible:ring-selection"
+        >
+          <X className="size-3.5" />
+        </SheetClose>
+      </div>
+    </div>
+  );
+  // The list, and the selection's pill floating over its foot.
+  const listPane = (
+    <div className="relative flex h-full flex-col">
+    {failedChosen.length > 0 && (
+      <div className="flex shrink-0 items-center gap-3 border-b border-separator py-2 pr-3 pl-4">
+        <div className="min-w-0 flex-1 text-callout text-muted-foreground">
+          {failedChosen.map((m) => (
+            <p key={m.id}>Couldn&apos;t load plays for {m.title}.</p>
+          ))}
+        </div>
+        <Button size="sm" variant="outline" onClick={() => retryFailed(gameIds)}>
+          Try again
+        </Button>
+      </div>
+    )}
+    {/* The count line every list of plays has (PlaysCountLine). */}
+    <PlaysCountLine
+      className="border-b border-separator px-4"
+      count={filtered.length}
+      total={allEvents.length}
+      filtered={anyFilter}
+      onClear={() => setFilters(EMPTY_PLAY_FILTERS)}
+    />
+    <div ref={listScrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", selectedIds.size > 0 && "pb-16")}>
+      {filtered.length === 0 ? (
+        eventsLoading ? (
+          // This game's play-by-play is still arriving — without this
+          // branch the filter-advice copy below would be plainly wrong.
+          <div className="py-12 text-center text-sm text-muted-foreground">Loading plays…</div>
+        ) : failedChosen.length > 0 ? null : (
+          <div className="flex flex-col items-center gap-3 py-12 text-center">
+            <p className="text-sm text-muted-foreground">
+              {matches.length === 0
+                ? "No games imported yet. Import a game to get started."
+                : "No plays match these filters."}
+            </p>
+            {matches.length > 0 && anyFilter && (
+              <Button size="sm" variant="outline" onClick={() => setFilters(EMPTY_PLAY_FILTERS)}>
+                Clear filters
+              </Button>
+            )}
+            {matches.length === 0 && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/upload">
+                  <Plus />
+                  Import game
+                </Link>
+              </Button>
+            )}
+          </div>
+        )
+      ) : (
+        <div
+          role="grid"
+          aria-label="Events"
+          className={LIST_GROUP}
+          {...listSelecting(selectedIds.size > 0)}
+          aria-rowcount={filtered.length}
+          // The rows not drawn, above and below: the list scrolls as if they were there.
+          style={{ paddingTop: listRange.padTop, paddingBottom: listRange.padBottom }}
+        >
+          {filtered.slice(listRange.start, listRange.end).map(({ event, matchId, matchTitle }, i) => {
+            const index = listRange.start + i;
+            const key = `${matchId}:${event.eventId}`;
+            return (
+              <BrowserRow
+                key={key}
+                rowKey={key}
+                index={index}
+                event={event}
+                matchId={matchId}
+                matchTitle={matchTitle}
+                showGame={isMultiMatch}
+                isSelected={selectedIds.has(key)}
+                slot={slotOf(key).status}
+                slotWhere={slotOf(key).where}
+                targetName={targetLabel}
+                onRemove={onRowRemove}
+                isActive={activeEventKey === key}
+                assignedLabels={canLabel ? (labelsByKey.get(key) ?? NO_LABELS) : NO_LABELS}
+                canLabel={canLabel}
+                labelPicker={canLabel && labelPickerFor === key ? rowLabelPicker(key, matchId, event.eventId) : null}
+                onAdd={onRowAdd}
+                onPress={onRowPress}
+                onLabel={onRowLabel}
+                onDrag={docked ? onRowDrag : undefined}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+    {/* The pill's own container (SelectionBar sizes its labels by it): on the list's parent, a container query
+        makes WebKit throw a windowed list's scroll back when its rows are redrawn. */}
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 @container">
+    <SelectionBar
+      count={selectedIds.size}
+      onClear={() => setSelectedIds(new Set())}
+      clearTitle="Deselect all (Esc)"
+      group={null}
+      labelPicker={
+        activeOrgId ? (
+          <LabelPickerPopover
+            trigger={
+              <PillButton title="Label the selected plays">
+                <Tag />
+                <span className={PILL_LABEL}>Label</span>
+              </PillButton>
+            }
+            labels={labels}
+            assignedAllIds={bulkAssignedAll}
+            assignedSomeIds={bulkAssignedSome}
+            onToggle={(labelId, state) => labelHandlers.onBulkToggle(selectedClipKeyPairs, labelId, state)}
+            onCreate={labelHandlers.onCreate}
+            onRename={labelHandlers.onRename}
+            onRecolor={labelHandlers.onRecolor}
+            onDelete={labelHandlers.onDelete}
+            onSetKey={labelHandlers.onSetKey}
+            onSeedDefaults={labelHandlers.onSeedDefaults}
+          />
+        ) : undefined
+      }
+      addTo={
+        <PillButton title={`Add ${selectedIds.size} ${selectedIds.size === 1 ? "play" : "plays"} to ${targetLabel} (⌘↩)`} onClick={handleAdd}>
+          <Plus />
+          <span className={PILL_LABEL}>{target ? (target.value === SORTED_BY_PLAYER ? "Add to report" : "Add to section") : "Add to playlist"}</span>
+        </PillButton>
+      }
+    />
+    </div>
+    </div>
+  );
+  const playerPane = (
+    <div className={docked ? "flex flex-col gap-2 p-3" : "flex h-full flex-col gap-3 overflow-y-auto p-4"}>
+      {localVideoUrl ? (
+        <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
+        <div
+          className={playerFs.active ? "relative min-h-0 flex-1" : cn("relative", docked && "mx-auto w-full")}
+          // Docked: the picture as wide as the panel's height leaves room for, its controls and the Now bar in sight under it.
+          // Never narrower than its controls need: a short panel scrolls instead.
+          style={docked && !playerFs.active ? { maxWidth: DOCKED_STAGE_MAX_WIDTH, minWidth: "min(100%, 280px)" } : undefined}
+        >
+        <PlayerStage
+          video={video}
+          src={localVideoUrl}
+          fileMissing={videoMissing}
+          fullscreen={playerFs.active}
+          onToggleFullscreen={toggleFullscreen}
+          onExitFullscreen={() => void playerFs.exit()}
+          title={activeEntry ? `${eventLabel(activeEntry.event)} · ${playerName(activeEntry.event)}` : undefined}
+          clipWindow={clipWindow}
+          position={activeIdx >= 0 ? { index: activeIdx, total: filtered.length } : null}
+          onSeek={(t) => { video.currentTime = t; }}
+          transport={{
+            isQueueActive,
+            canPrev,
+            canNext,
+            onPrev: handlePrev,
+            onNext: handleNext,
+            onReplay: handleReplay,
+            onStop: handleStop,
+            onPlayAll: handlePlayAll,
+          }}
+          speed={speed}
+          onSpeedChange={setSpeed}
+        >
+          {videoMissing && (
+            <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/85 px-6 text-center">
+              <VideoOff className="size-6 text-amber-400" />
+              <p className="text-sm font-medium text-white">This game's video file can't be found</p>
+              <p className="max-w-xs text-xs text-white/70">
+                It may have been moved or renamed, or it's on another computer.
+                Open the game and use Locate file to point at it.
+              </p>
+            </div>
+          )}
+        </PlayerStage>
+        </div>
+        </div>
+      ) : (
+        <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-fill-1 px-6 text-center text-sm text-muted-foreground">
+          Select a game with video to preview clips
+        </div>
+      )}
+      {/* Under the player, the game view's Now bar: the play in words, its labels, Label (G) and Add (A). */}
+      {activeEntry ? (
+        <GameNowBar
+          play={{ key: activeKeyOf(activeEntry), event: activeEntry.event, time: 0, start: 0, reach: "in" }}
+          footage
+          moment={null}
+          score={null}
+          breakScore={null}
+          details={isMultiMatch ? [activeEntry.matchTitle] : []}
+          labels={labelsByKey.get(activeKeyOf(activeEntry)) ?? NO_LABELS}
+          collect={blockedSet.has(activeKeyOf(activeEntry)) ? "in" : "none"}
+          targetName={targetLabel}
+          inLabel={target ? `In ${slotOf(activeKeyOf(activeEntry)).status === "added" ? targetLabel : "report"}` : undefined}
+          labelButton={(trigger) =>
+            activeOrgId ? (
+              <LabelPickerPopover
+                open={nowLabelOpen}
+                onOpenChange={setNowLabelOpen}
+                trigger={trigger}
+                side="top"
+                align="end"
+                labels={labels}
+                assignedAllIds={labelAssignments.get(activeKeyOf(activeEntry)) ?? new Set()}
+                onToggle={(labelId, state) => labelHandlers.onToggleClip(activeEntry.matchId, activeEntry.event.eventId, labelId, state)}
+                onCreate={labelHandlers.onCreate}
+                onRename={labelHandlers.onRename}
+                onRecolor={labelHandlers.onRecolor}
+                onDelete={labelHandlers.onDelete}
+                onSetKey={labelHandlers.onSetKey}
+                onSeedDefaults={labelHandlers.onSeedDefaults}
+              />
+            ) : null
+          }
+          lastLabel={null}
+          onLabelAgain={() => {}}
+          addRef={nowAddRef}
+          onAdd={() => addKeys([activeKeyOf(activeEntry)])}
+          onSkip={null}
+        />
+      ) : (
+        <p className="flex h-11 shrink-0 items-center px-1 text-callout text-muted-foreground">
+          Choose a play to watch it. Plays run on to the next.
+        </p>
+      )}
+    </div>
+  );
+
   return (
     // Focusable, so a press on a row (which takes no focus itself) leaves the keyboard inside the panel, where its
     // keys are listened for, not on the sheet around it.
     <div ref={panelRef} tabIndex={-1} className="flex h-full flex-col overflow-hidden outline-none">
-      {/* Header */}
-      <div className="flex shrink-0 items-start gap-3 px-5 pt-4 pb-3">
-        <div className="min-w-0 flex-1">
-          <SheetTitle>Add clips</SheetTitle>
-          <SheetDescription className="truncate">
-            to <span className="font-medium text-foreground">{playlist.name}</span>
-          </SheetDescription>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button asChild size="sm" variant="ghost">
-            <Link to="/upload">
-              <Plus />
-              Import game
-            </Link>
-          </Button>
-          <SheetClose
-            aria-label="Close"
-            className="ml-1 flex size-7 items-center justify-center rounded-full bg-fill-2 text-muted-foreground outline-none transition-[background-color,transform] duration-150 hover:bg-fill-3 hover:text-foreground active:scale-95 active:bg-fill-4 focus-visible:ring-2 focus-visible:ring-selection"
-          >
-            <X className="size-3.5" />
-          </SheetClose>
-        </div>
-      </div>
+      {header}
 
       {/* Filters: the bar every list of plays has (PlaysFilterBar), its scope the games and the Leaders. */}
       <PlaysFilterBar
-        className="border-b border-separator px-5 pb-3"
-        modal
+        className={cn("border-b border-separator pb-3", docked ? "px-4" : "px-5")}
+        modal={!docked}
         filters={filters}
         onChange={(next) => (next.teams !== filters.teams ? handleTeamChange(new Set(next.teams), next) : setFilters(next))}
         scope={
@@ -1181,7 +1633,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
           <>
             {activeOrgId && (
               <FilterPresetsMenu
-                modal
+                modal={!docked}
                 presets={presets.presets}
                 current={filters}
                 onApply={applyPreset}
@@ -1230,232 +1682,30 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
         searchRef={filterSearchRef}
       />
 
-      {/* Content: events | preview */}
-      <ResizablePanelGroup direction="horizontal" autoSaveId="add-clips" className="min-h-0 flex-1">
-        <ResizablePanel id="plays" defaultSize="55" minSize="30">
-          {/* The list, and the selection's pill floating over its foot. */}
-          <div className="relative flex h-full flex-col">
-          {failedChosen.length > 0 && (
-            <div className="flex shrink-0 items-center gap-3 border-b border-separator py-2 pr-3 pl-4">
-              <div className="min-w-0 flex-1 text-callout text-muted-foreground">
-                {failedChosen.map((m) => (
-                  <p key={m.id}>Couldn&apos;t load plays for {m.title}.</p>
-                ))}
-              </div>
-              <Button size="sm" variant="outline" onClick={() => retryFailed(gameIds)}>
-                Try again
-              </Button>
-            </div>
-          )}
-          {/* The count line every list of plays has (PlaysCountLine). */}
-          <PlaysCountLine
-            className="border-b border-separator px-4"
-            count={filtered.length}
-            total={allEvents.length}
-            filtered={anyFilter}
-            onClear={() => setFilters(EMPTY_PLAY_FILTERS)}
-          />
-          <div ref={listScrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", selectedIds.size > 0 && "pb-16")}>
-            {filtered.length === 0 ? (
-              eventsLoading ? (
-                // This game's play-by-play is still arriving — without this
-                // branch the filter-advice copy below would be plainly wrong.
-                <div className="py-12 text-center text-sm text-muted-foreground">Loading plays…</div>
-              ) : failedChosen.length > 0 ? null : (
-                <div className="flex flex-col items-center gap-3 py-12 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    {matches.length === 0
-                      ? "No games imported yet. Import a game to get started."
-                      : "No plays match these filters."}
-                  </p>
-                  {matches.length > 0 && anyFilter && (
-                    <Button size="sm" variant="outline" onClick={() => setFilters(EMPTY_PLAY_FILTERS)}>
-                      Clear filters
-                    </Button>
-                  )}
-                  {matches.length === 0 && (
-                    <Button asChild size="sm" variant="outline">
-                      <Link to="/upload">
-                        <Plus />
-                        Import game
-                      </Link>
-                    </Button>
-                  )}
-                </div>
-              )
-            ) : (
-              <div
-                role="grid"
-                aria-label="Events"
-                className={LIST_GROUP}
-                {...listSelecting(selectedIds.size > 0)}
-                aria-rowcount={filtered.length}
-                // The rows not drawn, above and below: the list scrolls as if they were there.
-                style={{ paddingTop: listRange.padTop, paddingBottom: listRange.padBottom }}
-              >
-                {filtered.slice(listRange.start, listRange.end).map(({ event, matchId, matchTitle }, i) => {
-                  const index = listRange.start + i;
-                  const key = `${matchId}:${event.eventId}`;
-                  return (
-                    <BrowserRow
-                      key={key}
-                      rowKey={key}
-                      index={index}
-                      event={event}
-                      matchId={matchId}
-                      matchTitle={matchTitle}
-                      showGame={isMultiMatch}
-                      isSelected={selectedIds.has(key)}
-                      alreadyIn={existingSet.has(key)}
-                      isActive={activeEventKey === key}
-                      assignedLabels={canLabel ? (labelsByKey.get(key) ?? NO_LABELS) : NO_LABELS}
-                      canLabel={canLabel}
-                      labelPicker={canLabel && labelPickerFor === key ? rowLabelPicker(key, matchId, event.eventId) : null}
-                      onAdd={onRowAdd}
-                      onPress={onRowPress}
-                      onLabel={onRowLabel}
-                    />
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          {/* The pill's own container (SelectionBar sizes its labels by it): on the list's parent, a container query
-              makes WebKit throw a windowed list's scroll back when its rows are redrawn. */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 @container">
-          <SelectionBar
-            count={selectedIds.size}
-            onClear={() => setSelectedIds(new Set())}
-            clearTitle="Deselect all (Esc)"
-            group={null}
-            labelPicker={
-              activeOrgId ? (
-                <LabelPickerPopover
-                  trigger={
-                    <PillButton title="Label the selected plays">
-                      <Tag />
-                      <span className={PILL_LABEL}>Label</span>
-                    </PillButton>
-                  }
-                  labels={labels}
-                  assignedAllIds={bulkAssignedAll}
-                  assignedSomeIds={bulkAssignedSome}
-                  onToggle={(labelId, state) => labelHandlers.onBulkToggle(selectedClipKeyPairs, labelId, state)}
-                  onCreate={labelHandlers.onCreate}
-                  onRename={labelHandlers.onRename}
-                  onRecolor={labelHandlers.onRecolor}
-                  onDelete={labelHandlers.onDelete}
-                  onSetKey={labelHandlers.onSetKey}
-                  onSeedDefaults={labelHandlers.onSeedDefaults}
-                />
-              ) : undefined
-            }
-            addTo={
-              <PillButton title={`Add ${selectedIds.size} ${selectedIds.size === 1 ? "play" : "plays"} to this playlist (⌘↩)`} onClick={handleAdd}>
-                <Plus />
-                <span className={PILL_LABEL}>Add to playlist</span>
-              </PillButton>
-            }
-          />
-          </div>
-          </div>
-        </ResizablePanel>
-
-        <ResizableHandle />
-
-        <ResizablePanel id="player" defaultSize="45" minSize="25">
-          <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
-            {localVideoUrl ? (
-              <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
-              <div className={playerFs.active ? "relative min-h-0 flex-1" : "relative"}>
-              <PlayerStage
-                video={video}
-                src={localVideoUrl}
-                fileMissing={videoMissing}
-                fullscreen={playerFs.active}
-                onToggleFullscreen={toggleFullscreen}
-                onExitFullscreen={() => void playerFs.exit()}
-                title={activeEntry ? `${eventLabel(activeEntry.event)} · ${playerName(activeEntry.event)}` : undefined}
-                clipWindow={clipWindow}
-                position={activeIdx >= 0 ? { index: activeIdx, total: filtered.length } : null}
-                onSeek={(t) => { video.currentTime = t; }}
-                transport={{
-                  isQueueActive,
-                  canPrev,
-                  canNext,
-                  onPrev: handlePrev,
-                  onNext: handleNext,
-                  onReplay: handleReplay,
-                  onStop: handleStop,
-                  onPlayAll: handlePlayAll,
-                }}
-                speed={speed}
-                onSpeedChange={setSpeed}
-              >
-                {videoMissing && (
-                  <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/85 px-6 text-center">
-                    <VideoOff className="size-6 text-amber-400" />
-                    <p className="text-sm font-medium text-white">This game's video file can't be found</p>
-                    <p className="max-w-xs text-xs text-white/70">
-                      It may have been moved or renamed, or it's on another computer.
-                      Open the game and use Locate file to point at it.
-                    </p>
-                  </div>
-                )}
-              </PlayerStage>
-              </div>
-              </div>
-            ) : (
-              <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-fill-1 px-6 text-center text-sm text-muted-foreground">
-                Select a game with video to preview clips
-              </div>
-            )}
-            {/* Under the player, the game view's Now bar: the play in words, its labels, Label (G) and Add (A). */}
-            {activeEntry ? (
-              <GameNowBar
-                play={{ key: activeKeyOf(activeEntry), event: activeEntry.event, time: 0, start: 0, reach: "in" }}
-                footage
-                moment={null}
-                score={null}
-                breakScore={null}
-                details={isMultiMatch ? [activeEntry.matchTitle] : []}
-                labels={labelsByKey.get(activeKeyOf(activeEntry)) ?? NO_LABELS}
-                collect={existingSet.has(activeKeyOf(activeEntry)) ? "in" : "none"}
-                targetName="this playlist"
-                labelButton={(trigger) =>
-                  activeOrgId ? (
-                    <LabelPickerPopover
-                      open={nowLabelOpen}
-                      onOpenChange={setNowLabelOpen}
-                      trigger={trigger}
-                      side="top"
-                      align="end"
-                      labels={labels}
-                      assignedAllIds={labelAssignments.get(activeKeyOf(activeEntry)) ?? new Set()}
-                      onToggle={(labelId, state) => labelHandlers.onToggleClip(activeEntry.matchId, activeEntry.event.eventId, labelId, state)}
-                      onCreate={labelHandlers.onCreate}
-                      onRename={labelHandlers.onRename}
-                      onRecolor={labelHandlers.onRecolor}
-                      onDelete={labelHandlers.onDelete}
-                      onSetKey={labelHandlers.onSetKey}
-                      onSeedDefaults={labelHandlers.onSeedDefaults}
-                    />
-                  ) : null
-                }
-                lastLabel={null}
-                onLabelAgain={() => {}}
-                addRef={nowAddRef}
-                onAdd={() => addKeys([activeKeyOf(activeEntry)])}
-                onSkip={null}
-              />
-            ) : (
-              <p className="flex h-11 shrink-0 items-center px-1 text-callout text-muted-foreground">
-                Choose a play to watch it. Plays run on to the next.
-              </p>
-            )}
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+      {/* Content: the plays and the preview, side by side in the sheet; the preview under the list in the panel. */}
+      {docked ? (
+        // The list over the preview, the line between them dragged to give either more room.
+        <ResizablePanelGroup direction="vertical" autoSaveId="report-plays-split" className="min-h-0 flex-1">
+          <ResizablePanel id="plays" defaultSize="45" minSize="25">
+            {listPane}
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel id="player" defaultSize="55" minSize="25">
+            {/* A size container: the docked stage is sized by its height (DOCKED_STAGE_MAX_WIDTH). */}
+            <div className="h-full overflow-y-auto [container-type:size]">{playerPane}</div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      ) : (
+        <ResizablePanelGroup direction="horizontal" autoSaveId="add-clips" className="min-h-0 flex-1">
+          <ResizablePanel id="plays" defaultSize="55" minSize="30">
+            {listPane}
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel id="player" defaultSize="45" minSize="25">
+            {playerPane}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      )}
     </div>
   );
 });

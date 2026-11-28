@@ -401,8 +401,13 @@ export function blocksOf(draft: ReportDraft): ReportBlock[] {
   return missing.length === 0 ? blocks : [...blocks, ...missing];
 }
 
-/** Sections a clip can be placed in, besides a player's. */
+/** Sections a clip can be placed in, besides a player's. How they play shows its clips under its numbers. */
 export function holdsClips(kind: ReportBlockKind): boolean {
+  return kind === "keys" || kind === "actions" || kind === "profile" || kind === "custom";
+}
+
+/** Sections with words the coach writes (How they play's are the season's numbers). */
+export function holdsText(kind: ReportBlockKind): boolean {
   return kind === "keys" || kind === "actions" || kind === "custom";
 }
 
@@ -463,7 +468,7 @@ export function moveBlock(draft: ReportDraft, id: string, toIndex: number): Repo
 
 export function setBlockText(draft: ReportDraft, id: string, text: string): ReportDraft {
   const held = text.slice(0, REPORT_BLOCK_TEXT_LIMIT);
-  return updateBlock(draft, id, (b) => (!holdsClips(b.kind) || (b.text ?? "") === held ? b : { ...b, text: held }));
+  return updateBlock(draft, id, (b) => (!holdsText(b.kind) || (b.text ?? "") === held ? b : { ...b, text: held }));
 }
 
 export function setBlockTitle(draft: ReportDraft, id: string, title: string): ReportDraft {
@@ -507,6 +512,36 @@ function isTarget(draft: ReportDraft, to: Placement): boolean {
 export function moveClip(draft: ReportDraft, key: string, to: Placement): ReportDraft {
   if (!isTarget(draft, to) || draft.placements[key] === to) return draft;
   return { ...draft, placements: { ...draft.placements, [key]: to } };
+}
+
+/** Where a clip goes when nothing placed it: its player's section, else the team. */
+function naturalPlacement(draft: ReportDraft, event: PlayByPlayEvent | undefined): Placement {
+  const playerId = event ? personKey(event) : null;
+  const own = playerId === null ? undefined : sectionOf(draft, playerId);
+  return own ? own.id : TEAM_SECTION;
+}
+
+/**
+ * Clips just added to the report from a section's Add clips: each goes to
+ * `to`. A clip that would land there by itself (its player's section, or
+ * Their actions for a play about no one) gets no placement, so it keeps
+ * following its player; any other gets one. `to` null ("Sorted by player")
+ * lets every clip follow its player. Unchanged for a target that doesn't
+ * exist. New clips read last in their section (the order doesn't name them).
+ */
+export function placeClips(
+  draft: ReportDraft,
+  keys: readonly string[],
+  to: Placement | null,
+  eventByKey: ReadonlyMap<string, PlayByPlayEvent>,
+): ReportDraft {
+  if (to !== null && !isTarget(draft, to)) return draft;
+  let next = draft;
+  for (const key of keys) {
+    if (to === null || naturalPlacement(next, eventByKey.get(key)) === to) next = clearPlacement(next, key);
+    else next = moveClip(next, key, to);
+  }
+  return next;
 }
 
 /** Lets the clip follow its player again. */
@@ -570,6 +605,26 @@ export interface ReportLayout {
   leftOut: PlaylistClipItem[];
   /** Clips whose play the game data no longer has: placed nowhere. */
   missing: { key: string; matchId: string; eventId: number }[];
+}
+
+/**
+ * The report's clips as a playlist of their own (Save as playlist): in
+ * reading order, section by section, without the hidden sections or the clips
+ * left out, each with its trim, note and drawings but not its uploaded file
+ * (a new playlist sends its own) or a group of the report's playlist.
+ */
+export function reportAsPlaylistClips(
+  draft: ReportDraft,
+  items: readonly PlaylistItem[],
+  eventByKey: ReadonlyMap<string, PlayByPlayEvent>,
+): PlaylistClipItem[] {
+  return deriveReportLayout(draft, items, eventByKey)
+    .sections.filter((s) => !s.hidden)
+    .flatMap((s) => s.clips)
+    .map((c) => {
+      const { r2Url: _shipped, groupId: _group, ...rest } = c;
+      return rest;
+    });
 }
 
 /** The ranked clips by rank, then the rest as they came (playlist order). */

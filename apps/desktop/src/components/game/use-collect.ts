@@ -1,13 +1,17 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { reportPath } from "@/pages/report";
+import { patchDraft } from "@/components/report/use-report-draft";
+import { placeClips } from "@scoutable/shared/lib/report-draft";
 import { toast } from "sonner";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
 import { heldForPlayers, playlistIsShared, type HeldPlaylist } from "@scoutable/shared/lib/playlist-sharing";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
-import { isClipItem, type Playlist, type PlaylistClipItem, type PlaylistItem, type StoredMatch } from "@/types/match";
+import { isClipItem, isReportClips, type Playlist, type PlaylistClipItem, type PlaylistItem, type StoredMatch } from "@/types/match";
 import { trackEvent } from "@/lib/analytics";
 import { announcePlaylistsChanged } from "@/lib/playlist-events";
+import { allPlaylistWritesSettled, enqueuePlaylistWrite, forgetPlaylistWrites, playlistWritesSettled } from "@/lib/playlist-write-queue";
 import { listEventsForMatches, listMatchesByIds } from "@/lib/matches-db";
 import { appendClips, createPlaylist, listPlaylists, writePlaylistItems } from "@/lib/playlists-db";
 import { getCollectTarget, setAddClipsScope, setCollectTarget } from "@/lib/prefs";
@@ -34,17 +38,10 @@ const COLLECT_TOAST = "game-collect";
 /** This session's last playlists read, by `${orgId}|${includeUnscoped}`: the next visit shows them at once and reads again behind. */
 let lastList: { key: string; list: Playlist[] } | null = null;
 
-/**
- * Each playlist's writes in flight, by playlist id, for the whole app: a game
- * a tab switch just left may still be writing, and the next game's read and
- * writes wait for it.
- */
-const chains = new Map<string, Promise<void>>();
-
 /** Forgets the last read, so another user signing in never sees this one's playlists. */
 export function forgetPlaylistsRead(): void {
   lastList = null;
-  chains.clear();
+  forgetPlaylistWrites();
 }
 
 /**
@@ -145,7 +142,7 @@ export function useCollect({
     setReadLanded(false);
     setPlaylists(cached);
     // After the writes still in flight (from the game just left, too): never a base about to change.
-    const read = Promise.all([...chains.values()].map((c) => c.catch(() => {})))
+    const read = allPlaylistWritesSettled()
       .then(() => listPlaylists(orgId ?? undefined, { includeUnscoped }))
       .then((list) => {
         // Set even when the page has gone, so writes made before it left still land. Merged: a playlist made
@@ -227,14 +224,9 @@ export function useCollect({
     [edit],
   );
 
+  // A playlist's writes wait for each other app-wide (lib/playlist-write-queue.ts), and for this page's read: never from the earlier list.
   const enqueue = useCallback((playlistId: string, job: () => Promise<void>) => {
-    // A playlist's first write here waits for this page's read: never from the earlier list.
-    const before = chains.get(playlistId);
-    const next = (before ? Promise.all([before, loadedRef.current]) : loadedRef.current).then(job).catch(() => {});
-    chains.set(playlistId, next);
-    void next.then(() => {
-      if (chains.get(playlistId) === next) chains.delete(playlistId);
-    });
+    void enqueuePlaylistWrite(playlistId, job, loadedRef.current);
   }, []);
 
   const undo = useCallback(
@@ -282,7 +274,7 @@ export function useCollect({
     (playlist: Playlist): ShipJob =>
       async ({ trigger, report }) => {
         try {
-          await (chains.get(playlist.id) ?? Promise.resolve());
+          await playlistWritesSettled(playlist.id);
           // What the server holds, so a clip whose add is still out is never cut without its row.
           const items = saved.current.get(playlist.id) ?? playlist.items;
           const count = items.filter((i) => isClipItem(i) && !i.r2Url).length;
@@ -348,7 +340,8 @@ export function useCollect({
    * `toTarget` says which, from the caller: the add that sets the target runs before `targetId` has caught up.
    */
   const addToPlaylist = useCallback(
-    (playlist: Playlist, plays: readonly TimedPlay[], via: CollectVia, moment: string | null, toTarget = false) => {
+    (playlist: Playlist, plays: readonly TimedPlay[], via: CollectVia, moment: string | null, toTarget = false, toName?: string) => {
+      const name = toName ?? playlist.name;
       const present = new Set(playlist.items.filter(isClipItem).map(itemKey));
       const fresh: PlaylistClipItem[] = [];
       for (const p of plays) {
@@ -357,7 +350,7 @@ export function useCollect({
         fresh.push({ type: "clip", matchId: matchOfKey(p.key), eventId: p.event.eventId });
       }
       if (fresh.length === 0) {
-        toast(plays.length === 1 ? `Already in ${playlist.name}` : `All ${plays.length} are already in ${playlist.name}`, {
+        toast(plays.length === 1 ? `Already in ${name}` : `All ${plays.length} are already in ${name}`, {
           id: COLLECT_TOAST,
           duration: 2000,
         });
@@ -412,7 +405,7 @@ export function useCollect({
       // Players already have this playlist: say once when they get the new clips.
       const sayHeld = playlistIsShared(playlist) && !saidHeld.current;
       if (sayHeld) saidHeld.current = true;
-      toast(fresh.length === 1 ? `Added to ${playlist.name}` : `${fresh.length} clips added to ${playlist.name}`, {
+      toast(fresh.length === 1 ? `Added to ${name}` : `${fresh.length} clips added to ${name}`, {
         id: COLLECT_TOAST,
         // Sonner's own description grey is unreadable on the dark themes.
         description: sayHeld
@@ -422,6 +415,29 @@ export function useCollect({
       });
     },
     [mutate, enqueue, undo, scheduleShip],
+  );
+
+  /**
+   * Adds plays to a report, into one of its sections (the play menu's "Add to
+   * report ▸ AIK ▸ Keys"; docs/game-view.md): the clips go into the report's
+   * own clips as any add does, then the draft places them there
+   * (`placeClips`, through `patchDraft`, which never writes over an edit the
+   * report hasn't saved). A play the report has in another section moves.
+   * `section` null lets each clip go to its player, as the target's add does.
+   */
+  const addToReport = useCallback(
+    (report: Playlist, plays: readonly TimedPlay[], section: { id: string; label: string } | null, moment: string | null) => {
+      if (plays.length === 0) return;
+      addToPlaylist(report, plays, "menu", moment, false, section ? `${report.name} · ${section.label}` : report.name);
+      if (!section) return;
+      const keys = plays.map((p) => p.key);
+      const events = new Map(plays.map((p) => [p.key, p.event] as const));
+      void patchDraft(report.id, (d) => placeClips(d, keys, section.id, events)).then((ok) => {
+        if (!ok) toast.error(`Couldn't put the clips in ${section.label}`, { description: "They're in the report. Move them there from the report." });
+      });
+      trackEvent("scouting_report_clips_added", { clips: plays.length, to: "section", from: "game_menu" });
+    },
+    [addToPlaylist],
   );
 
   /**
@@ -557,9 +573,12 @@ export function useCollect({
   /** Where each playlist's send stands (waiting, sending, failed), for the control. */
   const shipStatuses = useShipStatuses(held.map((h) => h.playlist.id));
 
+  // A report's own clips open as the report (its page), never in the editor.
   const openTarget = useCallback(() => {
-    if (target) openPlaylist(target.id);
-  }, [target, openPlaylist]);
+    if (!target) return;
+    if (isReportClips(target)) navigate(reportPath(target.id));
+    else openPlaylist(target.id);
+  }, [target, openPlaylist, navigate]);
 
   /** The playlists to choose from: those that already hold this game's clips first. */
   const candidates = useMemo(() => {
@@ -577,6 +596,7 @@ export function useCollect({
     statusOf,
     add,
     addToPlaylist,
+    addToReport,
     createAndAddTo,
     removeAdded,
     chooseTarget,

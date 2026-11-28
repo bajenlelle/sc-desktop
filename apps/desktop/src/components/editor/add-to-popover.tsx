@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
-import type { Playlist } from "@/types/match";
+import { isReportClips, type Playlist } from "@/types/match";
 import { Sentry } from "@/lib/sentry";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchField } from "@/components/ui/search-field";
@@ -33,7 +33,11 @@ export function AddToPopover({
   const trimmed = search.trim();
   const q = trimmed.toLowerCase();
   const candidates = playlists.filter((pl) => !(activePlaylistId && pl.id === activePlaylistId));
-  const options = candidates.filter((pl) => !q || pl.name.toLowerCase().includes(q));
+  // Playlists first, then reports (a report's own clips: added there, each goes to its player).
+  const matching = candidates.filter((pl) => !q || pl.name.toLowerCase().includes(q));
+  const options = [...matching.filter((pl) => !isReportClips(pl)), ...matching.filter(isReportClips)];
+  const firstReport = options.findIndex(isReportClips);
+  const grouped = firstReport > 0;
   const exactMatch = candidates.some((pl) => pl.name.toLowerCase() === q);
   const showCreateRow = trimmed.length > 0 && !exactMatch;
 
@@ -102,9 +106,11 @@ export function AddToPopover({
         </div>
         {options.length > 0 ? (
           <div className="max-h-60 overflow-y-auto px-1 pb-1">
-            {options.map((pl) => (
+            {options.map((pl, i) => (
+              <React.Fragment key={pl.id}>
+              {grouped && i === 0 && <p className="px-2 pt-2 pb-1 text-caption font-medium text-muted-foreground">Playlists</p>}
+              {i === firstReport && <p className="px-2 pt-2 pb-1 text-caption font-medium text-muted-foreground">Reports</p>}
               <button
-                key={pl.id}
                 type="button"
                 className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 disabled:opacity-50 focus-visible:bg-fill-1"
                 onClick={() => void handleAdd(pl)}
@@ -114,6 +120,7 @@ export function AddToPopover({
                 <span className="min-w-0 flex-1 truncate">{pl.name}</span>
                 <span className="text-xs nums text-muted-foreground">{pl.items.length}</span>
               </button>
+              </React.Fragment>
             ))}
           </div>
         ) : (

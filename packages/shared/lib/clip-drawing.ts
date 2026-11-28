@@ -364,3 +364,9 @@ export function hitTest(
   }
   return null;
 }
+
+/** A clip's drawings with `d` in place of any copy of it (dropped when it has no shapes), in time order. */
+export function withDrawing(list: readonly ClipDrawing[] | undefined, d: ClipDrawing): ClipDrawing[] {
+  const rest = (list ?? []).filter((x) => x.id !== d.id);
+  return (d.shapes.length > 0 ? [...rest, d] : rest).sort((a, b) => a.t - b.t);
+}

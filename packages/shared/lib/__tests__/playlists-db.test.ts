@@ -71,6 +71,12 @@ describe("rowToPlaylist", () => {
     expect(p.items.map((i) => (i.type === "clip" ? i.eventId : -1))).toEqual([1, 2, 3]);
   });
 
+  it("names a report's own clips, and leaves a playlist (or a read without the column) without a kind", () => {
+    expect(rowToPlaylist(plRow({ kind: "report" })).kind).toBe("report");
+    expect("kind" in rowToPlaylist(plRow({ kind: "playlist" }))).toBe(false);
+    expect("kind" in rowToPlaylist(plRow({}))).toBe(false);
+  });
+
   it("omits clip keys for zero offsets and null optionals", () => {
     const [item] = rowToPlaylist(plRow({ playlist_clips: [clipRow({})] })).items;
     expect(item).toEqual({ type: "clip", matchId: "m1", eventId: 1 });
@@ -480,10 +486,16 @@ describe("listPlaylists org scoping", () => {
 });
 
 describe("listPlaylistNames", () => {
-  it("reads only the id and name of the caller's playlists in the space", async () => {
-    const { client, calls } = mockOwnClient([{ id: "p1", name: "AIK" }]);
-    expect(await listPlaylistNames(client, "orgA")).toEqual([{ id: "p1", name: "AIK" }]);
-    expect(calls.select).toBe("id, name");
+  it("reads the id, name and kind of the caller's playlists in the space, a report's own clips named so", async () => {
+    const { client, calls } = mockOwnClient([
+      { id: "p1", name: "AIK", kind: "playlist", created_at: "2026-11-01T10:00:00Z" },
+      { id: "p2", name: "AIK · Sat", kind: "report", created_at: "2026-11-02T10:00:00Z" },
+    ]);
+    expect(await listPlaylistNames(client, "orgA")).toEqual([
+      { id: "p1", name: "AIK", createdAt: "2026-11-01T10:00:00Z" },
+      { id: "p2", name: "AIK · Sat", kind: "report", createdAt: "2026-11-02T10:00:00Z" },
+    ]);
+    expect(calls.select).toBe("id, name, kind, created_at");
     expect(calls.eq).toEqual([["user_id", "owner"], ["org_id", "orgA"]]);
   });
 

@@ -45,7 +45,7 @@ const gameTabs = (page: Page) => page.getByRole("navigation", { name: "Open game
 
 /** The select of each read only the search makes: its index of playlists, games and report drafts. */
 const INDEX_SELECTS = [
-  "id,name,folder_id,created_at",
+  "id,name,folder_id,created_at,kind",
   "id,title,game_date,home_team,away_team,created_at,archived_at",
   "playlist_id,updated_at,title:content->>title",
 ];

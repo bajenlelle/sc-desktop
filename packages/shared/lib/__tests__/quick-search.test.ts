@@ -46,6 +46,7 @@ const report = (playlistId: string, title: string, more: Partial<ReportListItem>
   opens: 0,
   players: 0,
   changedAt: "2026-10-05T10:00:00Z",
+  ownClips: false,
   ...more,
 });
 
@@ -133,6 +134,16 @@ describe("searchIndex", () => {
     // "Press break" starts with it; "Full court press" and "Zone press breaks" have a word that
     // does (equals otherwise, so by name); "Compress the floor" only holds it.
     expect(ids(group(searchIndex(idx, "press", none), "playlist")!.items)).toEqual(["b", "c", "a", "d"]);
+  });
+
+  it("never lists a report's own clips as a playlist", () => {
+    const idx = buildSearchIndex({
+      playlists: [playlist("a", "AIK press"), { ...playlist("b", "AIK · Sat 28 Nov"), kind: "report" as const }],
+      folders: [],
+      reports: [],
+      games: [],
+    });
+    expect(ids(group(searchIndex(idx, "aik", none), "playlist")!.items)).toEqual(["a"]);
   });
 
   it("puts a match in the name before a match only in the folder or the teams", () => {

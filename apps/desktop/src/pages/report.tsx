@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { FileText } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -11,6 +11,10 @@ import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { useBack, usePageTitle } from "@/lib/nav-history";
 import { useLeagues } from "@/lib/use-leagues";
 import { useReportWorkspace } from "@/lib/use-report-workspace";
+import { deleteReport } from "@/lib/team-report";
+import { isReportClips } from "@/types/match";
+import { isLiveReport } from "@scoutable/shared/lib/scouting-reports-db";
+import { toast } from "sonner";
 
 /** What a link to a report may carry. Back is the page before (lib/nav-history.ts), else the Reports list. */
 export interface ReportPageState {
@@ -31,7 +35,8 @@ export function reportPath(playlistId: string): string {
  * page"): the report is a document of its own, reached from a team, the
  * Reports list, the search and its playlist, and Back returns there. The page
  * reads its playlist, plays and labels itself (use-report-workspace.ts); the
- * playlist editor is one click away (Edit clips).
+ * report that owns its clips edits them here (Add clips, Edit clip); one made
+ * on a playlist the coach keeps has that playlist one click away (Edit clips).
  */
 export function ReportPage() {
   const { playlistId = "" } = useParams();
@@ -54,6 +59,18 @@ export function ReportPage() {
     (reveal?: string) => navigate("/playlists", { state: { restore: { playlistId }, ...(reveal ? { reveal } : {}) } }),
     [navigate, playlistId],
   );
+  // Add clips from the report itself: the sheet adds to the report's playlist through the page.
+  const { addClips: add, removeClips, ensureLabels, labelHandlers } = ws;
+  const addClips = useMemo(() => ({ add, remove: removeClips, ensureLabels, labelHandlers }), [add, removeClips, ensureLabels, labelHandlers]);
+  // Delete report, from the toolbar's ⋯: then on to Reports, where it no longer is.
+  const myReport = ws.myReport;
+  const deleteThis = useCallback(async () => {
+    const pl = ws.playlist;
+    if (!pl) return;
+    await deleteReport({ playlistId: pl.id, ownClips: isReportClips(pl), liveReportId: isLiveReport(myReport) ? myReport!.id : null });
+    toast("Report deleted");
+    navigate("/reports", { replace: true });
+  }, [ws.playlist, myReport, navigate]);
   // Read once: a reload or Back to this page doesn't open the share sheet again.
   const clearShare = useCallback(() => navigate(location.pathname, { replace: true, state: { ...state, share: false } }), [navigate, location.pathname, state]);
 
@@ -116,6 +133,9 @@ export function ReportPage() {
         localVideoPath={ws.localVideoPath}
         autoOpenShare={!!state.share}
         onAutoShared={clearShare}
+        addClips={addClips}
+        patchClip={isReportClips(ws.playlist) ? ws.patchClip : undefined}
+        onDeleteReport={deleteThis}
       />
     </Page>
   );

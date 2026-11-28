@@ -77,7 +77,128 @@ is the selected sidebar row. A link from before the page
   Back button (`leading`) and **Edit clips** (`onEditClips`), which opens the
   playlist in the editor; a clip's "Edit clip" opens it there with that clip
   selected (`reveal`).
-- Esc stops a clip, then the selection, then goes Back.
+- Esc stops a clip, then the selection, then goes Back (not while the Add
+  clips sheet is open: Esc is the sheet's).
+
+## The report's clips (`playlists.kind`, migration `20261127100000_report_clip_lists.sql`)
+
+A report owns its clips. They live where every clip in the app lives
+(`playlists` / `playlist_clips`: trim, notes, drawings, uploads, the
+free-report rule, club moves), in a row of `kind = 'report'` that the coach
+never sees as a playlist:
+
+- **Made as a report.** A team's New report, Reports' New report for a typed
+  name (`createTeamReport`, `createNamedReport`) and the playlist editor's
+  **New report** (`createReportFromPlaylist`: a copy of the playlist's clips
+  with their trim, notes and drawings, not their uploads) make a `report`
+  row. The editor's button reads **Report** for a playlist that already has
+  one (a draft or a live link) and opens it.
+- **Never listed as a playlist.** The desktop reads the kind with its own
+  reads (`listPlaylists` passes `withKind`; `listPlaylistNames` and
+  `listPlaylistIndex` select it): the Playlists list, the editor's Add to,
+  Getting started and ⌘K's playlist hits leave `report` rows out; Reports
+  lists them from the start, before a first edit writes a draft
+  (`mergeReportList`, `ReportListItem.ownClips`). The web's My highlights
+  reads `kind: "playlist"`. The reads players' apps share never ask for the
+  column, so they work on a database without it.
+- **Never shared as a playlist.** Players get the report itself (its link,
+  its delivery to phones). Triggers refuse a team or direct share of a
+  `report` row and a legacy `team_id` on one (`report_not_shareable`), and
+  the editor hides Share on one.
+- **Edited from the report.** Its clips are added from the report (below);
+  **Edit clips** shows only for a report made on a playlist the coach keeps.
+  A tile's or an outline row's **Edit clip** opens a sheet over the report
+  (`report-clip-editor.tsx`): the clip on its own stage and the editor's
+  tools for one clip, Draw (D), Slow motion, Trim… (T) with Reset trim, its
+  labels and its note, built from the editor's pieces (`PlayerStage`,
+  `ClipTrimmer`, `DrawOverlay`, `SlowBar`, `ClipNoteField`) and rules
+  (`slowAtPlayhead`, `slowRoom`, `clampSlowLength`, `slowStartingAt` in
+  `clip-timeline.ts`, `withDrawing` in `clip-drawing.ts`, `trim-math.ts`).
+  Every change shows at once and saves shortly after through the playlist's
+  write queue (`lib/use-clip-edit.ts`; a new length retires an upload cut at
+  the old one, which the next share replaces). ‹ › and ↑ ↓ step through the
+  report's clips in reading order; Esc ends a drawing or trim before it
+  closes the sheet. No Fix sync here: that is the game's, in the game view.
+  The editor never opens a report's own clips: a link or search that asks
+  for one goes to the report, and one remembered as opened last opens
+  nothing. A report made on a kept playlist still edits a clip in the
+  editor.
+- **Deleted with the report.** Delete report (Reports' row menu, the report
+  page's ⋯) asks first. A report that owns its clips deletes its row (the
+  delete trigger stops its link and takes its uploads down); one made on a
+  kept playlist stops its link and deletes its draft, and the playlist stays
+  (`deleteReport`, `lib/team-report.ts`).
+- **Save as playlist** (the report page's ⋯) makes a playlist the coach
+  sees, named after the report, with a copy of the clips the report shows,
+  in reading order, without hidden sections or left-out clips
+  (`reportAsPlaylistClips`, `saveReportAsPlaylist`): for exporting a video or
+  showing it at practice. The report keeps its own clips.
+- **Reports from before.** A report made on a playlist before this stays on
+  that playlist (`kind = 'playlist'`): nothing tells the two apart, so only
+  reports whose draft names a team (made from a team, staging only) became
+  `report` rows in the migration.
+- **Rollout:** the migration before the web (My highlights reads the kind),
+  the web before the desktop.
+
+## Adding clips (`report-view.tsx`, `lib/use-report-add-clips.ts`)
+
+The coach adds clips without leaving the report, as FastScout adds video to
+a report tile: the playlist editor's **Add clips** browser (`ClipBrowserPanel`)
+adds to one section of the report.
+
+- **Docked or a sheet.** From a window 1100 px wide the plays dock at the
+  report's right (`layout="panel"`, a resizable panel, at least 320 px,
+  remembered for the session): filters and the list on top, the preview
+  under them, the report beside it to read and drop on. Under 1400 px the
+  outline folds away while they are docked; under 1100 px (or when the
+  window narrows) they open as the sheet over the report instead. The
+  toolbar's Add clips shows and hides the docked plays.
+- **Docked keys.** The panel's keys (arrows, Space, A, G, ⌘F) are its own
+  only while the keyboard is in it; anywhere else the report keeps its own
+  (⌘Z, Esc). Esc in the panel lets go of a selection, then puts it away; in
+  the report it stops a playing clip, clears a selection, then puts the
+  docked plays away. The preview and the report's own player never play at
+  once.
+- **Dragged in.** A docked row drags onto any section that holds clips
+  (`PLAYS_DRAG_TYPE`; the selection when the row is in it), outlined while
+  it is over one, and lands there as an add does (its Undo, moving a play
+  from another section); the panel then adds to that section.
+
+- **Where it opens.** A quiet **+ Add clips** under every section that holds
+  clips (Keys, each player, Their actions, a section of the coach's own) adds
+  to that section; the toolbar's **Add clips** adds "Sorted by player" (no
+  placement: each clip goes where its player is, else Their actions). The
+  sheet's header names the report ("Add clips to AIK · Sat 28 Nov") and the
+  section ("Adding to #11 Nilsson ▾", a menu of every section, hidden ones
+  marked), which the coach changes without closing it.
+- **Where it starts** (`ClipBrowserStart`): the games last browsed for this
+  report, else the opponent's played games in the library
+  (`teamLibraryGames`, from the draft's `team`), else the editor's default.
+  From a player's section the Player filter starts on that player
+  (`id:<personId>`, or the `px:` key); from any other with the opponent's
+  name as the Team filter. Both are pruned, as any filter, to what the games'
+  plays have.
+- **What a row says** (`ClipBrowserTarget.placement`): + for a play not in
+  the report; ✓ for one in this section (a press leaves it out of the
+  report, with the report's Undo); ⇄ "In Keys. Move to Their actions" for one
+  in another section or left out (a press, or ticking it with the rest, moves
+  it here); a still ✓ while adding sorted by player.
+- **Adding** (`useReportWorkspace.addClips`): the plays of games new to the
+  report are read first (a failed read adds nothing: "Couldn't add the
+  clips"), the report shows the clips, and `appendClips` writes them through
+  the app's per-playlist write queue (`lib/playlist-write-queue.ts`, shared
+  with the game view's collecting). Then `placeClips` pins them to the
+  section, except a clip that would land there anyway (its player's section,
+  or Their actions for a play about no one), which keeps following its
+  player. New clips read last in their section. The toast says "3 clips
+  added to #11 Nilsson" with **Undo**, which takes them out of the playlist
+  again (`removeClips`).
+- The sheet reads the labels on the games it shows through
+  `useClipLabels().ensure`, merged into the report's own.
+- The playlist editor's report view has no Add clips (it has the playlist's).
+- A legacy report whose playlist is shared with players: clips added here go
+  out with the playlist's next send from the editor or the game view, not at
+  once.
 
 ## Sections (`blocks` in the draft)
 
@@ -92,7 +213,9 @@ A report is a list of sections the coach controls (`ReportBlock`:
   shows it (`lib/report-season.ts`: `PROFILE_ROWS`, `POINTS_FROM`, the
   fixtures), drawn live in the editor (`useReportSeason(draft.team)`, the
   cached league reads) and stored in the report when it is published
-  (`ReportSeasonSnapshot`). No clips.
+  (`ReportSeasonSnapshot`). How they play takes clips under its numbers (no
+  words: `holdsText`); Their games takes none. A report not started from a
+  team has no numbers, so How they play shows only its clips there.
 - **A section of your own** (`c-<uuid>`, at most 8): a name, words and clips.
 
 Each section's heading has a menu on hover: Hide from players / Show to
@@ -403,7 +526,7 @@ only the version, the sections array, the clip keys and the posters):
 `header.intro` (the summary), then a section per shown, non-empty block, of
 kind `keys` (a `keys` block of items, then clips), `actions` (text, clips),
 `player`, `profile` (a `profile` block: context, rows of label / own / place /
-allowed / place, lines), `games` (a `games` block of rows: date, opponent,
+allowed / place, lines, then clips), `games` (a `games` block of rows: date, opponent,
 home, result or null for a game to play) or `custom` (with its `title`, text,
 clips). Section ids are `keys`, `actions`, `profile`, `games`, `p1…`, `x1…`.
 Hidden sections and their clips are left out, and their clips aren't cut. The

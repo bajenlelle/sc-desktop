@@ -6,17 +6,18 @@ import { createClient } from "@/lib/supabase/client";
 import * as db from "@scoutable/shared/lib/playlists-db";
 import * as write from "@scoutable/shared/lib/playlist-write";
 import * as sharing from "@scoutable/shared/lib/playlist-sharing";
-import type { PlaylistClipItem, PlaylistItem } from "@/types/match";
+import type { PlaylistClipItem, PlaylistItem, PlaylistKind } from "@/types/match";
 import type { StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 
 const c = () => createClient();
 
 export const getMyTeamPlaylists = (teamIds?: string[]) => db.getMyTeamPlaylists(c(), teamIds);
-export const listPlaylists = (orgId?: string, opts?: db.OrgScopeOpts) => db.listPlaylists(c(), orgId, opts);
+// The desktop always reads each playlist's kind: a report's own clips (kind "report") are listed with Reports, not as playlists.
+export const listPlaylists = (orgId?: string, opts?: db.OwnReadOpts) => db.listPlaylists(c(), orgId, { withKind: true, ...opts });
 export const getPlaylist = (id: string) => db.getPlaylist(c(), id);
-export const listPlaylistNames = (orgId?: string, opts?: db.OrgScopeOpts) => db.listPlaylistNames(c(), orgId, opts);
+export const listPlaylistNames = (orgId?: string, opts?: db.OwnReadOpts) => db.listPlaylistNames(c(), orgId, opts);
 export const listPlaylistIndex = (orgId?: string, opts?: db.OrgScopeOpts) => db.listPlaylistIndex(c(), orgId, opts);
-export const createPlaylist = (name: string, folderId?: string, orgId?: string) => db.createPlaylist(c(), name, folderId, orgId);
+export const createPlaylist = (name: string, folderId?: string, orgId?: string, opts?: { kind?: PlaylistKind }) => db.createPlaylist(c(), name, folderId, orgId, opts);
 export const updatePlaylist = (id: string, patch: { name?: string; folderId?: string | null }) => db.updatePlaylist(c(), id, patch);
 export const deletePlaylist = (id: string) => db.deletePlaylist(c(), id);
 export const addClips = (playlistId: string, clips: PlaylistClipItem[], startPosition: number, opts?: { restore?: boolean }) => db.addClips(c(), playlistId, clips, startPosition, opts);
@@ -36,7 +37,7 @@ export const setPlaylistUsers = (playlistId: string, userIds: string[]) => db.se
 export const getMyDirectPlaylists = (scope?: db.DirectShareScope) => db.getMyDirectPlaylists(c(), scope);
 export const getMySharedOutPlaylists = (teamIds?: string[]) => db.getMySharedOutPlaylists(c(), teamIds);
 export const getMySharedPlaylists = (orgId?: string, opts?: db.OrgScopeOpts) => db.getMySharedPlaylists(c(), orgId, opts);
-export const listOwnPlaylistsAndShared = (orgId?: string, opts?: db.OrgScopeOpts) => db.listOwnPlaylistsAndShared(c(), orgId, opts);
+export const listOwnPlaylistsAndShared = (orgId?: string, opts?: db.OwnReadOpts) => db.listOwnPlaylistsAndShared(c(), orgId, { withKind: true, ...opts });
 export const hasSharedAnyPlaylist = () => db.hasSharedAnyPlaylist(c());
 export type { SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 export const notifyPendingPlaylistShares = (playlistId: string) => db.notifyPendingPlaylistShares(c(), playlistId);

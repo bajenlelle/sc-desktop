@@ -1,4 +1,8 @@
-import type { ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
+import { emptyDraft } from "@scoutable/shared/lib/report-draft";
+import { reportClipTargets, type ReportClipTarget } from "@scoutable/shared/lib/scouting-report";
+import { getReportDraft } from "@/lib/report-drafts-db";
+import { isReportClips, type Playlist } from "@/types/match";
 import { Plus, Timer, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
@@ -50,7 +54,9 @@ export function GamePlayMenuContent({
   const n = plays.length;
   const { target, candidates, loading, suggestedName } = collect;
   const allIn = n > 0 && plays.every((p) => collect.inTarget.has(p.key));
-  const others = candidates.filter((pl) => pl.id !== target?.id);
+  // Reports have their own submenu, by section; "another playlist" lists playlists only.
+  const others = candidates.filter((pl) => pl.id !== target?.id && !isReportClips(pl));
+  const reports = candidates.filter(isReportClips);
   const showNew = suggestedName.length > 0 && !candidates.some((pl) => pl.name.toLowerCase() === suggestedName.toLowerCase());
 
   async function createAndAdd() {
@@ -113,6 +119,23 @@ export function GamePlayMenuContent({
           )}
         </ContextMenuSubContent>
       </ContextMenuSub>
+      {reports.length > 0 && (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>Add to report</ContextMenuSubTrigger>
+          <ContextMenuSubContent className="max-h-80 w-64 overflow-y-auto">
+            {reports.map((r) => (
+              <ReportSectionsSub
+                key={r.id}
+                report={r}
+                onPick={(section) => {
+                  collect.addToReport(r, plays, section, moment);
+                  onDone?.();
+                }}
+              />
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )}
       {(onFixSync || onPutBack) && <ContextMenuSeparator />}
       {onFixSync && (
         <ContextMenuItem onSelect={onFixSync}>
@@ -137,5 +160,50 @@ export function GamePlayMenuContent({
         </>
       )}
     </ContextMenuContent>
+  );
+}
+
+/**
+ * One report in "Add to report": its sections, read when its submenu first
+ * opens (the draft names them), with "Sorted by player" first (each clip
+ * goes to its player, else Their actions). Hidden sections are listed and
+ * say so.
+ */
+function ReportSectionsSub({ report, onPick }: { report: Playlist; onPick: (section: { id: string; label: string } | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const [targets, setTargets] = useState<ReportClipTarget[] | "failed" | null>(null);
+  useEffect(() => {
+    if (!open || targets !== null) return;
+    let cancelled = false;
+    getReportDraft(report.id)
+      // A report never edited has no draft yet: its sections are a new draft's.
+      .then((stored) => !cancelled && setTargets(reportClipTargets(stored?.draft ?? emptyDraft())))
+      .catch(() => !cancelled && setTargets("failed"));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, targets, report.id]);
+  return (
+    <ContextMenuSub open={open} onOpenChange={setOpen}>
+      <ContextMenuSubTrigger>
+        <span className="min-w-0 flex-1 truncate">{report.name}</span>
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="max-h-80 w-60 overflow-y-auto">
+        <ContextMenuItem onSelect={() => onPick(null)}>Sorted by player</ContextMenuItem>
+        <ContextMenuSeparator />
+        {targets === null ? (
+          <ContextMenuItem disabled>Loading sections…</ContextMenuItem>
+        ) : targets === "failed" ? (
+          <ContextMenuItem disabled>Couldn’t read the sections</ContextMenuItem>
+        ) : (
+          targets.map((t) => (
+            <ContextMenuItem key={t.id} onSelect={() => onPick({ id: t.id, label: t.label })}>
+              <span className="min-w-0 flex-1 truncate">{t.label}</span>
+              {t.hidden && <span className="ml-auto shrink-0 text-xs text-muted-foreground">Hidden</span>}
+            </ContextMenuItem>
+          ))
+        )}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
   );
 }
