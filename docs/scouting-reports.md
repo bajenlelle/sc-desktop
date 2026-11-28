@@ -308,6 +308,14 @@ every clip in place.
   "Sections"): every section in reading order and "Not in report" (folded at
   first), each with its clips as one-line rows (the play's colour, the play,
   the time, a note mark; the hover has the rest).
+  - **Put away and back as the playlist browser is**: it is the report's
+    second sidebar (`BrowserColumn`, `reportSections` in
+    `lib/playlist-browser-store.ts` over `lib/side-column-store.ts`). The
+    toolbar's Sections button beside the sidebar's, ⌘B (View › Hide Sections
+    on a report page) and its edge (a flick shut, a click or pull to open)
+    hide and show it; its edge resizes it (220–440 px). Both are remembered
+    per machine. While docked plays fold it away on a narrow window it has no
+    button.
   - **The heading's +** lists Players… and then the sections the report can
     still add, the same list as the document's "+ Add section"
     (`add-section-items.tsx`).

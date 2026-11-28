@@ -9,11 +9,12 @@ import { cn } from "@/lib/utils";
 export const BROWSER_WIDTH = { default: 260, min: 200, max: 480 } as const;
 
 /**
- * The playlist browser's column, the Playlists page's second sidebar: resized
+ * A page's second sidebar (the Playlists page's playlist browser, a report's
+ * Sections panel) as a column: resized
  * by its edge as the window's sidebar is (lib/use-column-resize.ts: 1:1,
  * rubber-banding, a flick inward collapses it, one spring to open or close).
  * Closed, the editor's left edge pulls it back out 1:1, or opens it with a
- * click; the toolbar's playlists button and ⌘B do both ways.
+ * click; the toolbar's second panel button and ⌘B do both ways.
  *
  * Its edge is an inner divider, so it looks like every other one
  * (components/ui/resizable.tsx): a hairline that thickens to a gray line on
@@ -22,6 +23,9 @@ export const BROWSER_WIDTH = { default: 260, min: 200, max: 480 } as const;
 export function BrowserColumn({
   collapsed,
   width,
+  limits = BROWSER_WIDTH,
+  name = "playlist browser",
+  showLabel = "Show playlists",
   onWidthChange,
   onCollapse,
   onExpand,
@@ -29,6 +33,12 @@ export function BrowserColumn({
   children,
 }: {
   collapsed: boolean;
+  /** The column's widths; the playlist browser's by default. */
+  limits?: { default: number; min: number; max: number };
+  /** What the column is, for its edge's name: "Resize the playlist browser". */
+  name?: string;
+  /** The closed edge's label. */
+  showLabel?: string;
   width: number;
   onWidthChange: (width: number) => void;
   onCollapse: () => void;
@@ -48,7 +58,7 @@ export function BrowserColumn({
   const { w, innerW, dragMode, edgeProps } = useColumnResize({
     collapsed,
     width,
-    limits: BROWSER_WIDTH,
+    limits,
     onWidthChange,
     onCollapse,
     onExpand,
@@ -82,7 +92,7 @@ export function BrowserColumn({
         <TooltipTrigger asChild>
           <div
             {...edgeProps}
-            aria-label={collapsed ? "Show the playlist browser" : "Resize the playlist browser"}
+            aria-label={collapsed ? `Show the ${name}` : `Resize the ${name}`}
             onPointerEnter={() => {
               if (!dragMode) tipSuppressed.current = false;
             }}
@@ -103,7 +113,7 @@ export function BrowserColumn({
         </TooltipTrigger>
         {collapsed && (
           <TooltipContent side="right" className="flex items-center gap-1.5">
-            Show playlists
+            {showLabel}
             <Kbd>{IS_MACOS ? "⌘B" : "Ctrl B"}</Kbd>
           </TooltipContent>
         )}

@@ -7,6 +7,8 @@ import { saveReportAsPlaylist } from "@/lib/team-report";
 import { DeleteReportDialog } from "./delete-report-dialog";
 import { toast } from "sonner";
 import { ClipBrowserPanel, PLAYS_DRAG_TYPE, SORTED_BY_PLAYER, readPlaysDrag, type ClipBrowserHandle, type ClipBrowserLabelHandlers, type ClipBrowserStart, type ClipBrowserTarget } from "@/components/editor/clip-browser-panel";
+import { BrowserColumn } from "@/components/editor/browser-column";
+import { reportSections } from "@/lib/playlist-browser-store";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useReportAddClips } from "@/lib/use-report-add-clips";
@@ -611,6 +613,28 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const [addMode, setAddMode] = useState<"panel" | "sheet">("sheet");
   const docked = addTo !== null && addMode === "panel";
   const windowWidth = useWindowWidth();
+  // The Sections panel, the report's second sidebar: hidden and resized as the playlist browser is (⌘B, the
+  // toolbar's button, its edge). Docked plays on a window too narrow for three columns fold it away until the
+  // panel goes; meanwhile it has no toggle.
+  const sectionsCollapsed = reportSections.useCollapsed();
+  const sectionsFolded = docked && windowWidth < OUTLINE_MIN_WIDTH;
+  reportSections.useRegister(!sectionsFolded);
+  const [sectionsWidth, setSectionsWidthState] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem(SECTIONS_WIDTH_KEY));
+      return Number.isFinite(n) && n >= SECTIONS_WIDTH.min && n <= SECTIONS_WIDTH.max ? n : SECTIONS_WIDTH.default;
+    } catch {
+      return SECTIONS_WIDTH.default;
+    }
+  });
+  const setSectionsWidth = (w: number) => {
+    setSectionsWidthState(w);
+    try {
+      localStorage.setItem(SECTIONS_WIDTH_KEY, String(Math.round(w)));
+    } catch {
+      /* the width is only a convenience */
+    }
+  };
   // The panel narrower than the window allows: the sheet takes over, with the same target.
   useEffect(() => {
     if (docked && windowWidth < DOCK_MIN_WIDTH) setAddMode("sheet");
@@ -1029,8 +1053,21 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     <div className="flex h-full min-h-0 flex-col">
       {props.toolbarSlot ? createPortal(toolbar, props.toolbarSlot) : props.back ? toolbar : null}
       <div className="flex min-h-0 flex-1">
-        {/* Docked plays on a window too narrow for three columns: the outline folds away until the panel goes. */}
-        {docked && windowWidth < OUTLINE_MIN_WIDTH ? null : layout && draft ? (
+        {sectionsFolded ? null : (
+          <BrowserColumn
+            collapsed={sectionsCollapsed}
+            width={sectionsWidth}
+            limits={SECTIONS_WIDTH}
+            name="sections"
+            showLabel="Show sections"
+            onWidthChange={setSectionsWidth}
+            onCollapse={() => reportSections.setCollapsed(true)}
+            onExpand={(w) => {
+              setSectionsWidth(w);
+              reportSections.setCollapsed(false);
+            }}
+          >
+            {layout && draft ? (
           <ReportOutline
             layout={layout}
             sectionInfo={sectionInfo}
@@ -1063,8 +1100,8 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             onDropPlays={docked ? dropPlays : undefined}
             onRename={renameBlock}
           />
-        ) : (
-          <div className="w-[288px] shrink-0 border-r border-separator" />
+            ) : null}
+          </BrowserColumn>
         )}
         <ResizablePanelGroup direction="horizontal" autoSaveId="report-plays" className="min-w-0 flex-1">
         <ResizablePanel id="report" minSize="40">
@@ -1276,6 +1313,9 @@ const DOCK_MIN_WIDTH = 1100;
 const OUTLINE_MIN_WIDTH = 1400;
 
 /** The window's width, as it changes. */
+const SECTIONS_WIDTH = { default: 288, min: 220, max: 440 } as const;
+const SECTIONS_WIDTH_KEY = "scoutable_report_sections_width";
+
 function useWindowWidth(): number {
   const [width, setWidth] = useState(() => window.innerWidth);
   useEffect(() => {

@@ -1,6 +1,6 @@
 /**
  * The report's Sections panel (docs/scouting-reports.md, "The Sections
- * panel"): its + adds clips to a section (and A on the focused row), the
+ * panel"): the toolbar's button puts it away and back, its + adds clips to a section (and A on the focused row), the
  * section the docked plays add to is marked, a play dropped on a row lands in
  * that section, ⋯ opens the row's menu, the header's + adds a section, and a
  * section's row drags to a new place in the report.
@@ -67,11 +67,20 @@ async function dragRowAbove(page: Page, row: Locator, onto: Locator) {
   await page.mouse.up();
 }
 
-test("Sections: + per section, the plays' target marked, ⋯, the header's +, a section dragged, a play dropped on a row", { tag: "@alone:report-clips" }, async ({ page }) => {
+test("Sections: hidden and shown, + per section, the plays' target marked, ⋯, the header's +, a section dragged, a play dropped on a row", { tag: "@alone:report-clips" }, async ({ page }) => {
   const id = await openReport(page);
   const sections = page.getByRole("navigation", { name: "Sections" });
   await expect(sections.getByRole("heading", { name: "Sections" })).toBeVisible();
   const row = (sectionId: string) => sections.locator(`[data-row-key="section:${sectionId}"]`);
+
+  // Put away and back as the playlist browser is: the toolbar's button, remembered over a reload.
+  await page.getByRole("button", { name: "Hide sections" }).click();
+  await expect(sections).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Keys" })).toBeVisible({ timeout: 30_000 });
+  await expect(sections).toBeHidden();
+  await page.getByRole("button", { name: "Show sections" }).click();
+  await expect(sections.getByRole("heading", { name: "Sections" })).toBeVisible();
 
   // + on Keys' row: the plays dock, adding to Keys, and the row says so.
   await row("keys").hover();

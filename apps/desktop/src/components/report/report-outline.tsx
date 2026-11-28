@@ -316,7 +316,7 @@ export function ReportOutline(props: ReportOutlineProps) {
   }
 
   return (
-    <nav aria-label="Sections" className="flex h-full w-[288px] shrink-0 flex-col border-r border-separator">
+    <nav aria-label="Sections" className="flex h-full w-full flex-col">
       {/* As a Finder sidebar's group: a quiet name, and + for what can be added. */}
       <div className="flex h-9 shrink-0 items-center justify-between pr-2 pl-4">
         <h2 className="text-caption font-semibold text-muted-foreground">Sections</h2>

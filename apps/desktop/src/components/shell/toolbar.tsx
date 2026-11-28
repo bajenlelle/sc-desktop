@@ -1,6 +1,6 @@
 import * as React from "react";
 import { flushSync } from "react-dom";
-import { ChevronLeft, ListVideo, PanelLeft } from "lucide-react";
+import { ChevronLeft, ListTree, ListVideo, PanelLeft } from "lucide-react";
 import {
   INITIAL_TOOLBAR_FIT,
   settleToolbarFit,
@@ -11,7 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { IS_MACOS } from "@/lib/platform";
 import { toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar-store";
-import { toggleBrowser, useBrowserCollapsed, useBrowserPresent } from "@/lib/playlist-browser-store";
+import { reportSections, toggleBrowser, useBrowserCollapsed, useBrowserPresent } from "@/lib/playlist-browser-store";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -293,6 +293,23 @@ export function PlaylistBrowserToggle() {
   );
 }
 
+/** A report's Sections panel, its second sidebar: the same button and key as the playlist browser's. */
+export function ReportSectionsToggle() {
+  const present = reportSections.usePresent();
+  const collapsed = reportSections.useCollapsed();
+  if (!present) return null;
+  return (
+    <PanelToggle
+      label={collapsed ? "Show sections" : "Hide sections"}
+      shortcut={IS_MACOS ? "\u2318B" : "Ctrl B"}
+      shown={!collapsed}
+      onToggle={reportSections.toggle}
+    >
+      <ListTree className="size-4" />
+    </PanelToggle>
+  );
+}
+
 /**
  * The content column's toolbar. `scroll` pages float it over the scroller:
  * transparent while the page sits at the top, a translucent material with a
@@ -373,6 +390,7 @@ export function Toolbar({
     >
       <SidebarToggle />
       <PlaylistBrowserToggle />
+      <ReportSectionsToggle />
       {back !== false && <ToolbarBackButton fallback={back} />}
       {leading}
       {/* The title takes the room the bar has between its leading items and its actions, so the actions stay
