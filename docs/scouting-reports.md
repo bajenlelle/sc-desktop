@@ -149,9 +149,9 @@ adds to one section of the report.
 - **Docked or a sheet.** From a window 1100 px wide the plays dock at the
   report's right (`layout="panel"`, a resizable panel, at least 320 px,
   remembered for the session): filters and the list on top, the preview
-  under them, the report beside it to read and drop on. Under 1400 px the
-  outline folds away while they are docked; under 1100 px (or when the
-  window narrows) they open as the sheet over the report instead. The
+  under them, the report beside it to read and drop on. The Sections panel
+  stays as the coach left it (⌘B hides it for room); under 1100 px (or when
+  the window narrows) they open as the sheet over the report instead. The
   toolbar's Add clips shows and hides the docked plays.
 - **Docked keys.** The panel's keys (arrows, Space, A, G, ⌘F) are its own
   only while the keyboard is in it; anywhere else the report keeps its own
@@ -314,8 +314,7 @@ every clip in place.
     toolbar's Sections button beside the sidebar's, ⌘B (View › Hide Sections
     on a report page) and its edge (a flick shut, a click or pull to open)
     hide and show it; its edge resizes it (220–440 px). Both are remembered
-    per machine. While docked plays fold it away on a narrow window it has no
-    button.
+    per machine. Nothing else hides it: docking the plays leaves it as it is.
   - **The heading's +** lists Players… and then the sections the report can
     still add, the same list as the document's "+ Add section"
     (`add-section-items.tsx`).

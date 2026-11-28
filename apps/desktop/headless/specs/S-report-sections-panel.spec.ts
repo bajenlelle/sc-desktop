@@ -89,6 +89,10 @@ test("Sections: hidden and shown, + per section, the plays' target marked, ⋯, 
   await expect(panel).toBeVisible();
   await expect(panel.getByRole("button", { name: "Section to add to" })).toHaveText(/Keys/);
   await expect(row("keys")).toHaveAttribute("aria-label", /plays are added here/);
+  // Docking the plays leaves Sections where the coach left it, on a window as narrow as 1280 too.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(panel).toBeVisible();
+  await expect(sections.getByRole("heading", { name: "Sections" })).toBeVisible();
   await waitForPlays(panel);
   const [a] = [...(await readSheetRows(panel)).keys()];
   await shot(page, "report-sections-panel");

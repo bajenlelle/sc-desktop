@@ -614,11 +614,9 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const docked = addTo !== null && addMode === "panel";
   const windowWidth = useWindowWidth();
   // The Sections panel, the report's second sidebar: hidden and resized as the playlist browser is (⌘B, the
-  // toolbar's button, its edge). Docked plays on a window too narrow for three columns fold it away until the
-  // panel goes; meanwhile it has no toggle.
+  // toolbar's button, its edge), only when the coach says: docking the plays leaves it as it is.
   const sectionsCollapsed = reportSections.useCollapsed();
-  const sectionsFolded = docked && windowWidth < OUTLINE_MIN_WIDTH;
-  reportSections.useRegister(!sectionsFolded);
+  reportSections.useRegister();
   const [sectionsWidth, setSectionsWidthState] = useState(() => {
     try {
       const n = Number(localStorage.getItem(SECTIONS_WIDTH_KEY));
@@ -1053,7 +1051,6 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     <div className="flex h-full min-h-0 flex-col">
       {props.toolbarSlot ? createPortal(toolbar, props.toolbarSlot) : props.back ? toolbar : null}
       <div className="flex min-h-0 flex-1">
-        {sectionsFolded ? null : (
           <BrowserColumn
             collapsed={sectionsCollapsed}
             width={sectionsWidth}
@@ -1102,7 +1099,6 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
           />
             ) : null}
           </BrowserColumn>
-        )}
         <ResizablePanelGroup direction="horizontal" autoSaveId="report-plays" className="min-w-0 flex-1">
         <ResizablePanel id="report" minSize="40">
         <div
@@ -1309,8 +1305,6 @@ const NO_LABELS: ReadonlySet<string> = new Set();
 
 /** From this window width the plays dock beside the report; narrower, they open as a sheet over it. */
 const DOCK_MIN_WIDTH = 1100;
-/** Below this width, with the plays docked, the outline folds away. */
-const OUTLINE_MIN_WIDTH = 1400;
 
 /** The window's width, as it changes. */
 const SECTIONS_WIDTH = { default: 288, min: 220, max: 440 } as const;
