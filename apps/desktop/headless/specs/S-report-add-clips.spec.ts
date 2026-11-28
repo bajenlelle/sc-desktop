@@ -84,7 +84,7 @@ test("+ Add clips under a section adds there, moves a play from another section,
   expect(c, "the sheet lists at least three plays").toBeTruthy();
 
   // Two plays to Keys: they are in the report, pinned to Keys.
-  await addRows(sheet, [a, b], /Add to section/);
+  await addRows(sheet, [a, b], /^Add \d+ plays? to /);
   await expect(page.getByText("2 clips added to Keys")).toBeVisible();
   await expect.poll(() => clipKeys(page, id), { timeout: 15_000 }).toEqual([a, b].sort());
   await expect.poll(() => placements(page, id), { timeout: 10_000 }).toEqual({ [a]: "keys", [b]: "keys" });
@@ -102,7 +102,7 @@ test("+ Add clips under a section adds there, moves a play from another section,
   expect((await placements(page, id))[b]).toBe("keys");
 
   // A third play, then Undo: it leaves the report again.
-  await addRows(sheet, [c], /Add to section/);
+  await addRows(sheet, [c], /^Add \d+ plays? to /);
   await expect.poll(() => clipKeys(page, id), { timeout: 15_000 }).toEqual([a, b, c].sort());
   await page.getByRole("button", { name: "Undo" }).click();
   await expect.poll(() => clipKeys(page, id), { timeout: 15_000 }).toEqual([a, b].sort());
@@ -127,7 +127,7 @@ test("How they play takes clips under its numbers: Add clips adds there, and its
   await expect(sheet.getByRole("button", { name: "Section to add to" })).toHaveText(/How they play/);
   await waitForPlays(sheet);
   const [a] = [...(await readSheetRows(sheet)).keys()];
-  await addRows(sheet, [a], /Add to section/);
+  await addRows(sheet, [a], /^Add \d+ plays? to /);
   await expect(page.getByText("1 clip added to How they play")).toBeVisible();
   await expect.poll(() => placements(page, id), { timeout: 10_000 }).toEqual({ [a]: "profile" });
   await page.keyboard.press("Escape");
@@ -161,7 +161,7 @@ test("the toolbar's Add clips lets each clip go to its player, and a player's se
 
   // Sorted by player: no placement is written.
   const key = `${matchId}:${play!.eventId}`;
-  await addRows(sheet, [key], /Add to report/);
+  await addRows(sheet, [key], /^Add \d+ plays? to /);
   await expect.poll(() => clipKeys(page, id0), { timeout: 15_000 }).toEqual([key]);
   await page.waitForTimeout(1000); // the draft's save after 600 ms
   expect(await placements(page, id0)).toEqual({});

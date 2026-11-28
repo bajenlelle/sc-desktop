@@ -100,7 +100,7 @@ test("⌘F opens the Filter popover with its search focused, in the game view an
   await closeFilters(page);
 });
 
-test("Teams' Plays: the count line clears filters, and a selection gets the game view's pill", async ({ page, browserName }) => {
+test("Teams' Plays: the count line clears filters, and a selection turns it into the game view's bar", async ({ page, browserName }) => {
   await teamPlays(page);
   await expect(page.getByRole("status").filter({ hasText: /^\d+ plays? in \d+ games?$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Clear filters" })).toHaveCount(0);
@@ -116,8 +116,10 @@ test("Teams' Plays: the count line clears filters, and a selection gets the game
   const pill = page.getByRole("toolbar", { name: "Selection" });
   await expect(pill).toBeVisible();
   await expect(pill).toContainText("2");
-  await expect(pill.getByRole("button", { name: /^(Add to|Add 2)/ })).toBeVisible();
-  await expect(page.getByText(/^\d+ selected$/)).toHaveCount(0); // the old line under the player is gone
+  await expect(pill.getByRole("button", { name: /^Add 2 plays to / })).toBeVisible();
+  await expect(pill.getByRole("button", { name: "Add to…" })).toBeVisible();
+  // Said once, in the bar: the old line under the player is gone.
+  await expect(page.getByText(/^\d+ selected$/)).toHaveCount(1);
   await shot(page, `${browserName}-S-team-selection`);
   await page.keyboard.press("Escape");
   await expect(pill).toBeHidden();

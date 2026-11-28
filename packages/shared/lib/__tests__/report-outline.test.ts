@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { LEFT_OUT, TEAM_SECTION, addSections, deriveReportLayout, emptyDraft } from "../report-draft";
-import { clipDrop, outlineRows, sectionDropIndex, sectionGap, sectionRowKey, snapClipGap, type OutlineRowRef } from "../report-outline";
+import { KEYS_BLOCK, LEFT_OUT, PLAYERS_BLOCK, TEAM_SECTION, addSections, blocksOf, deriveReportLayout, emptyDraft, moveBlockBefore, type ReportDraft } from "../report-draft";
+import { blockDropBefore, blockGap, clipDrop, outlineRows, sectionDropIndex, sectionGap, sectionRowKey, snapClipGap, type OutlineRowRef } from "../report-outline";
 import type { StatsCardPlayer } from "../stats-card";
 import type { PlayByPlayEvent, PlaylistClipItem } from "../../types/match";
 
@@ -128,5 +128,54 @@ describe("an outline of sections", () => {
     ];
     expect(sectionGap(rows, 0)).toBe(1);
     expect(sectionDropIndex(rows, [sectionRowKey("s2")], 1)).toBe(0);
+  });
+});
+
+describe("dragging a section that isn't a player's", () => {
+  // Keys · Alva · Ola · Their actions (hidden) · a section of the coach's own · Not in report
+  const withKeys: ReportDraft = {
+    ...draft,
+    blocks: [
+      { id: KEYS_BLOCK, kind: "keys", hidden: false },
+      { id: PLAYERS_BLOCK, kind: "players", hidden: false },
+      { id: TEAM_SECTION, kind: "actions", hidden: true },
+      { id: "c-1", kind: "custom", hidden: false, title: "Press" },
+    ],
+  };
+  const rows = outlineRows(deriveReportLayout(withKeys, [clip(3), clip(1), clip(4), clip(2), clip(5)], events, { keepTeam: true }), new Set());
+  // 0 Keys · 1 Alva · 2 m1:1 · 3 m1:2 · 4 Ola · 5 m1:3 · 6 Their actions · 7 m1:4 · 8 m1:5 · 9 Press · 10 Not in report
+  const team = [sectionRowKey(TEAM_SECTION), "m1:4", "m1:5"];
+  const keysRows = [sectionRowKey(KEYS_BLOCK)];
+  const order = (d: ReportDraft) => blocksOf(d).map((b) => b.id);
+
+  it("marks each header with its block, the players with theirs", () => {
+    expect(rows.filter((r) => r.kind === "section").map((r) => r.block)).toEqual([KEYS_BLOCK, PLAYERS_BLOCK, PLAYERS_BLOCK, TEAM_SECTION, "c-1", undefined]);
+  });
+
+  it("snaps to the nearest gap between sections, never between two players", () => {
+    expect(blockGap(rows, 0)).toBe(0);
+    expect(blockGap(rows, 3)).toBe(1);
+    expect(blockGap(rows, 4)).toBe(6);
+    expect(blockGap(rows, 9)).toBe(9);
+    expect(blockGap(rows, 11)).toBe(10);
+  });
+
+  it("lands before the block at the gap, or last at the left-out group", () => {
+    expect(blockDropBefore(rows, team, 1)).toBe(PLAYERS_BLOCK);
+    expect(blockDropBefore(rows, keysRows, 6)).toBe(TEAM_SECTION);
+    expect(blockDropBefore(rows, keysRows, 10)).toBeNull();
+  });
+
+  it("puts the section there in the report's order", () => {
+    expect(order(moveBlockBefore(withKeys, TEAM_SECTION, blockDropBefore(rows, team, 1)))).toEqual([KEYS_BLOCK, TEAM_SECTION, PLAYERS_BLOCK, "c-1"]);
+    expect(order(moveBlockBefore(withKeys, KEYS_BLOCK, blockDropBefore(rows, keysRows, 10)))).toEqual([PLAYERS_BLOCK, TEAM_SECTION, "c-1", KEYS_BLOCK]);
+  });
+
+  it("leaves the report as it was for a drop where the section already is", () => {
+    // Keys dropped at its own place: before the players, where it is.
+    expect(blockDropBefore(rows, keysRows, 0)).toBe(PLAYERS_BLOCK);
+    expect(moveBlockBefore(withKeys, KEYS_BLOCK, PLAYERS_BLOCK)).toBe(withKeys);
+    expect(moveBlockBefore(withKeys, TEAM_SECTION, "c-1")).toBe(withKeys);
+    expect(moveBlockBefore(withKeys, "nope", null)).toBe(withKeys);
   });
 });

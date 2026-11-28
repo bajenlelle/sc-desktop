@@ -27,7 +27,7 @@ import { interactiveUpdateCheck } from "@/lib/updates";
 import { IS_MACOS } from "@/lib/platform";
 import { menuAppearanceFor } from "@scoutable/shared/lib/appearance";
 import { toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar-store";
-import { toggleBrowser, useBrowserCollapsed } from "@/lib/playlist-browser-store";
+import { reportSections, toggleBrowser, useBrowserCollapsed } from "@/lib/playlist-browser-store";
 import { toggleQuickSearch } from "@/lib/quick-search-store";
 
 const ZOOM_KEY = "scoutable_zoom";
@@ -232,7 +232,9 @@ export function MenuHandler() {
           toggleSidebar();
           break;
         case "toggle-playlist-browser":
-          toggleBrowser();
+          // The page's second sidebar: a report's Sections panel where one is shown, else the playlist browser.
+          if (reportSections.isPresent()) reportSections.toggle();
+          else toggleBrowser();
           break;
         case "fullscreen-player":
           window.dispatchEvent(new CustomEvent("player-fullscreen-toggle"));
@@ -386,9 +388,11 @@ export function MenuHandler() {
     setGoKeys(goKeyOrder({ staff: isCoachOrAdmin, personal: activeOrgIsPersonal }));
   }, [user, profileLoading, activeOrgId, isCoachOrAdmin, activeOrgIsPersonal]);
 
+  // A report with its Sections panel to show (components/report/report-view.tsx) takes ⌘B.
+  const sectionsPresent = reportSections.usePresent();
   useEffect(() => {
     const onGame = /^\/matches\/[^/]+$/.test(pathname);
-    setEnabled("toggle-playlist-browser", pathname === "/playlists");
+    setEnabled("toggle-playlist-browser", pathname === "/playlists" || (sectionsPresent && /^\/reports\/[^/]+$/.test(pathname)));
     // Every player: the editor, the watch view of a shared playlist, and the game view.
     setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists" || onGame);
     // The open games' items follow the games themselves (components/game/game-tab-keys.tsx); Show Clip in Game
@@ -399,16 +403,18 @@ export function MenuHandler() {
     // keep a stale "off" — the page decides, through its own listener.
     if (pathname !== "/playlists") setEnabled("export-playlist", false);
     else enabledIds.delete("export-playlist");
-  }, [pathname]);
+  }, [pathname, sectionsPresent]);
 
   const sidebarCollapsed = useSidebarCollapsed();
   const browserCollapsed = useBrowserCollapsed();
+  const sectionsCollapsed = reportSections.useCollapsed();
   useEffect(() => {
     setText("toggle-sidebar", sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar");
   }, [sidebarCollapsed]);
   useEffect(() => {
-    setText("toggle-playlist-browser", browserCollapsed ? "Show Playlists" : "Hide Playlists");
-  }, [browserCollapsed]);
+    if (sectionsPresent) setText("toggle-playlist-browser", sectionsCollapsed ? "Show Sections" : "Hide Sections");
+    else setText("toggle-playlist-browser", browserCollapsed ? "Show Playlists" : "Hide Playlists");
+  }, [browserCollapsed, sectionsCollapsed, sectionsPresent]);
 
   useEffect(() => {
     invoke("menu_sync_theme", { theme: menuAppearanceFor(theme) }).catch(() => {});

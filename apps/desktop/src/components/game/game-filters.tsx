@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Switch } from "@/components/ui/switch";
 import { FilterToken, PlaysFilterBar } from "@/components/plays/plays-filter-bar";
-import { PlaysCountLine } from "@/components/plays/plays-count-line";
+import { PlaysCountLine, type CountLineSelection } from "@/components/plays/plays-count-line";
 
 export interface GamePerson {
   id: number;
@@ -46,6 +46,7 @@ export function GameFilterBar({
   sheetOpen,
   onSheetOpenChange,
   presetsMenu,
+  selection,
 }: {
   filters: GameFilters;
   onChange: (next: GameFilters) => void;
@@ -74,6 +75,8 @@ export function GameFilterBar({
   onSheetOpenChange: (open: boolean) => void;
   /** The saved filters (FilterPresetsMenu). */
   presetsMenu?: React.ReactNode;
+  /** The list's select-all check, and the selection's buttons while plays are selected (PlaysCountLine). */
+  selection?: CountLineSelection;
 }) {
   const play = filters.play;
   const onePlayer = play.players.size === 1 ? [...play.players][0] : null;
@@ -140,6 +143,7 @@ export function GameFilterBar({
         total={total}
         filtered={filtered}
         onClear={() => onChange(EMPTY_GAME_FILTERS)}
+        selection={selection}
         trail={
           filtered &&
           visible > 0 && (

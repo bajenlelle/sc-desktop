@@ -34,6 +34,7 @@ export function TeamPlaysStage({
   onLabelAgain,
   keysShown,
   onAdd,
+  addCount = 0,
   status,
   targetName,
 }: {
@@ -55,6 +56,8 @@ export function TeamPlaysStage({
   /** Option is held: show which label each key puts on. */
   keysShown: boolean;
   onAdd: (anchor: HTMLElement | null) => void;
+  /** Plays selected in the list: Add adds them ("Add 12"). */
+  addCount?: number;
   /** Whether the play shown is in the target playlist. */
   status: CollectStatus;
   targetName: string | null;
@@ -133,6 +136,7 @@ export function TeamPlaysStage({
           onLabelAgain={onLabelAgain}
           addRef={addRef}
           onAdd={() => onAdd(addRef.current)}
+          addCount={addCount}
           onSkip={null}
         />
       ) : (

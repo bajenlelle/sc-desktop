@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
+import { Check, Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
 import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels";
 import {
   eventColors,
@@ -13,7 +13,7 @@ import {
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
-import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
+import { clickSelection, extendSelection, moveFocus, pruneSelection, selectAll, selectAllState, toggleKey, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { MAX_BROWSER_GAMES, orderForAdd, playerTeam, startGames, type StartSource } from "@scoutable/shared/lib/add-clips-games";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import {
@@ -52,8 +52,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PlaysFilterBar } from "@/components/plays/plays-filter-bar";
 import { usePlayMoments } from "@/components/plays/use-play-moments";
 import { EMPTY_PLAY_FILTERS, activeGroups, applyPlayFilters, playFiltersActive, type PlayFilters } from "@scoutable/shared/lib/play-filters";
-import { PlaysCountLine } from "@/components/plays/plays-count-line";
-import { PILL_LABEL, PillButton, SelectionBar } from "./selection-bar";
+import { BarAddButton, BarButton, PlaysCountLine } from "@/components/plays/plays-count-line";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { GamePicker, type GamePickVia } from "./game-picker";
 import { PlayerStage } from "./player-stage";
 import { GameNowBar } from "@/components/game/game-now-bar";
@@ -223,6 +223,16 @@ const DOCKED_STAGE_MAX_WIDTH = "calc((100cqh - 44px - 44px - 32px) * 16 / 9)";
 /** What a dragged play carries (the docked panel's rows): its `matchId:eventId` keys, as JSON. */
 export const PLAYS_DRAG_TYPE = "application/x-scoutable-plays";
 
+/** The play keys a drop carries, or none for anything else dropped. */
+export function readPlaysDrag(data: DataTransfer): string[] {
+  try {
+    const raw: unknown = JSON.parse(data.getData(PLAYS_DRAG_TYPE));
+    return Array.isArray(raw) ? raw.filter((k): k is string => typeof k === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 /** What a page asks of the docked panel: adds plays dropped on it (the target's value at the time). */
 export interface ClipBrowserHandle {
   addKeys: (keys: string[]) => boolean;
@@ -307,7 +317,8 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   playlist: Playlist;
   /** The game to start on when the coach came here from it ("Build a playlist" on a game page). */
   preferredMatchId?: string | null;
-  onAddClips: (clips: PlaylistClipItem[]) => void;
+  /** `already`: plays asked for that the target had (the page's toast says so, so the count adds up). */
+  onAddClips: (clips: PlaylistClipItem[], info?: { already: number }) => void;
   activeOrgId: string | null;
   labels: Label[];
   /** The page's per-clip label sets, keyed `${matchId}:${eventId}`. */
@@ -561,6 +572,13 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
       ),
     [allEvents, filters, labelAssignments, moments],
   );
+
+  // The listed plays' keys: what select all, the select-all check and the selection's pruning go by.
+  const filteredKeys = useMemo(() => filtered.map(({ event, matchId }) => `${matchId}:${event.eventId}`), [filtered]);
+  // The selection is what will be added: a filter or game change that hides selected plays lets go of them.
+  useEffect(() => setSelectedIds((prev) => pruneSelection(prev, filteredKeys) as Set<string>), [filteredKeys]);
+  const selectState = useMemo(() => selectAllState(filteredKeys, selectedIds, blockedSet), [filteredKeys, selectedIds, blockedSet]);
+  const selectable = useMemo(() => filteredKeys.reduce((n, k) => (blockedSet.has(k) ? n : n + 1), 0), [filteredKeys, blockedSet]);
 
   // A filter change is one event once the coach has stopped changing it (the game view's game_view_filtered).
   const firstFilter = useRef(true);
@@ -953,12 +971,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   clipWindowRef.current = clipWindow;
 
   function toggleOne(key: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+    setSelectedIds((prev) => toggleKey(prev, key));
   }
 
   // Ticking the way the editor's list selects (list-selection.ts): a plain
@@ -1055,23 +1068,37 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
    * the next round: the ticks clear, the filters stay.
    */
   /** Adds these plays (those the playlist doesn't have), in game order; the page says "5 clips added" with an Undo. */
-  function addKeys(keys: Iterable<string>): boolean {
+  function addKeys(keysIn: Iterable<string>, opts: { elsewhere?: boolean } = {}): boolean {
+    const keys = [...keysIn];
     // Every game the sheet holds, not only the chosen ones: a selection stays across a change of games.
     const held = playsRef.current;
     const games = matches.filter((m) => held.has(m.id)).map((m) => ({ ...m, events: held.get(m.id)! }));
-    const wanted = [...keys].filter((k) => !blockedSet.has(k));
+    // To another section than the one shown (the row menu's Add to section): what this one has counts too.
+    const wanted = opts.elsewhere ? [...keys] : [...keys].filter((k) => !blockedSet.has(k));
     const toAdd = orderForAdd(wanted.filter((k) => !existingSet.has(k)), games);
     // A report's play in another section moves here; the page says so with its own Undo.
     const toMove = target ? wanted.filter((k) => existingSet.has(k)) : [];
     if (toAdd.length === 0 && toMove.length === 0) return false;
-    if (toAdd.length > 0) onAddClips(toAdd);
+    if (toAdd.length > 0) onAddClips(toAdd, { already: keys.length - wanted.length });
     if (toMove.length > 0) target!.onMove(toMove);
     return true;
   }
   // Plays dropped on the page (the docked panel's rows): added as the + adds them, to the target as it is then.
   const addKeysRef = useRef(addKeys);
   addKeysRef.current = addKeys;
-  useImperativeHandle(handleRef, () => ({ addKeys: (keys) => addKeysRef.current(keys) }), []);
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      addKeys: (keys) => {
+        const added = addKeysRef.current(keys);
+        // A drop of the selection lets go of it, as every other add does; a single unselected row leaves it.
+        const sel = selectedIdsRef.current;
+        if (added && keys.length === sel.size && keys.every((k) => sel.has(k))) setSelectedIds(new Set());
+        return added;
+      },
+    }),
+    [],
+  );
 
   /** The selection's Add (⌘↩): the selected plays go in, and the sheet stays open for the next round. */
   function handleAdd() {
@@ -1092,7 +1119,49 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     else if (activeEventKeyRef.current) addKeys([activeEventKeyRef.current]);
   }
 
-  const newCount = Array.from(selectedIds).filter((k) => !blockedSet.has(k)).length;
+  /** The row a right-click opened the list's menu on. */
+  const [menuKey, setMenuKey] = useState<string | null>(null);
+  /**
+   * A row's menu, as the game view's and Team Plays': Add to the target (the selection when the row is in it,
+   * Finder's rule), Add to another section of a report, and select all.
+   */
+  function rowMenu(key: string) {
+    const keys = selectedIds.has(key) ? [...selectedIds] : [key];
+    const n = keys.filter((k) => !blockedSet.has(k)).length;
+    const others = target ? target.options.filter((o) => o.id !== target.value) : [];
+    return (
+      <ContextMenuContent className="min-w-56">
+        <ContextMenuItem disabled={n === 0} onSelect={() => (selectedIds.has(key) ? handleAdd() : addKeys([key]))}>
+          {n === 0 ? `In ${targetLabel}` : n === 1 ? `Add to ${targetLabel}` : `Add ${n} plays to ${targetLabel}`}
+        </ContextMenuItem>
+        {others.length > 0 && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>{keys.length === 1 ? "Add to section" : `Add ${keys.length} to section`}</ContextMenuSubTrigger>
+            <ContextMenuSubContent className="max-h-80 overflow-y-auto">
+              {others.map((o) => (
+                <ContextMenuItem
+                  key={o.id}
+                  onSelect={() => {
+                    // The section becomes the panel's target (the page reads it as the plays land), then they go in.
+                    target!.onChange(o.id);
+                    if (addKeys(keys, { elsewhere: true }) && selectedIds.has(key)) setSelectedIds(new Set());
+                  }}
+                >
+                  {o.label}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={selectable === 0} onSelect={() => setSelectedIds(selectAll(filteredKeys, blockedSet))}>
+          Select all {selectable}
+        </ContextMenuItem>
+        {selectedIds.size > 0 && <ContextMenuItem onSelect={() => setSelectedIds(new Set())}>Deselect all</ContextMenuItem>}
+      </ContextMenuContent>
+    );
+  }
+
   const isMultiMatch = gameIds.length > 1;
 
   /**
@@ -1192,7 +1261,8 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     const action = resolvePlayerKey(e);
     if (action === "select-all") {
       e.preventDefault();
-      setSelectedIds(new Set(filteredRef.current.map(({ event, matchId }) => `${matchId}:${event.eventId}`)));
+      // Every listed play the target can still take (those it has can't be added again).
+      setSelectedIds(selectAll(orderOf(), blockedSet));
       return;
     }
     if (action === "toggle-play") {
@@ -1402,8 +1472,45 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
       total={allEvents.length}
       filtered={anyFilter}
       onClear={() => setFilters(EMPTY_PLAY_FILTERS)}
+      // While filters narrow the list, its plays go in with one press (as the game view's Add all).
+      trail={
+        anyFilter &&
+        filtered.length > 0 && (
+          <Button variant="outline" size="xs" disabled={selectable === 0} onClick={() => addKeys(filteredKeys)}>
+            {selectable === 0 ? <Check /> : <Plus />}
+            {selectable === 0 ? "All added" : selectable === filtered.length ? `Add all ${selectable}` : `Add the other ${selectable}`}
+          </Button>
+        )
+      }
+      selection={{
+        state: selectState,
+        selected: selectedIds.size,
+        selectable,
+        onSelectAll: () => setSelectedIds(selectAll(filteredKeys, blockedSet)),
+        onClear: () => setSelectedIds(new Set()),
+        actions: (
+          <>
+            <BarAddButton count={selectedIds.size} targetName={targetLabel} onClick={handleAdd} />
+            {activeOrgId && (
+              <LabelPickerPopover
+                trigger={<BarButton icon={<Tag />} label="Label" title="Label the selected plays" />}
+                labels={labels}
+                assignedAllIds={bulkAssignedAll}
+                assignedSomeIds={bulkAssignedSome}
+                onToggle={(labelId, state) => labelHandlers.onBulkToggle(selectedClipKeyPairs, labelId, state)}
+                onCreate={labelHandlers.onCreate}
+                onRename={labelHandlers.onRename}
+                onRecolor={labelHandlers.onRecolor}
+                onDelete={labelHandlers.onDelete}
+                onSetKey={labelHandlers.onSetKey}
+                onSeedDefaults={labelHandlers.onSeedDefaults}
+              />
+            )}
+          </>
+        ),
+      }}
     />
-    <div ref={listScrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", selectedIds.size > 0 && "pb-16")}>
+    <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
       {filtered.length === 0 ? (
         eventsLoading ? (
           // This game's play-by-play is still arriving — without this
@@ -1432,10 +1539,21 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
           </div>
         )
       ) : (
+        <ContextMenu onOpenChange={(open) => !open && setMenuKey(null)}>
+        <ContextMenuTrigger asChild>
         <div
           role="grid"
           aria-label="Events"
           className={LIST_GROUP}
+          // One menu for the list: the row right-clicked is what it acts on (with the selection, when it is in it).
+          onContextMenu={(e) => {
+            const key = (e.target as HTMLElement).closest<HTMLElement>("[data-row-key]")?.dataset.rowKey;
+            if (!key) {
+              e.preventDefault();
+              return;
+            }
+            setMenuKey(key);
+          }}
           {...listSelecting(selectedIds.size > 0)}
           aria-rowcount={filtered.length}
           // The rows not drawn, above and below: the list scrolls as if they were there.
@@ -1470,45 +1588,10 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
             );
           })}
         </div>
+        </ContextMenuTrigger>
+        {menuKey && rowMenu(menuKey)}
+        </ContextMenu>
       )}
-    </div>
-    {/* The pill's own container (SelectionBar sizes its labels by it): on the list's parent, a container query
-        makes WebKit throw a windowed list's scroll back when its rows are redrawn. */}
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 @container">
-    <SelectionBar
-      count={selectedIds.size}
-      onClear={() => setSelectedIds(new Set())}
-      clearTitle="Deselect all (Esc)"
-      group={null}
-      labelPicker={
-        activeOrgId ? (
-          <LabelPickerPopover
-            trigger={
-              <PillButton title="Label the selected plays">
-                <Tag />
-                <span className={PILL_LABEL}>Label</span>
-              </PillButton>
-            }
-            labels={labels}
-            assignedAllIds={bulkAssignedAll}
-            assignedSomeIds={bulkAssignedSome}
-            onToggle={(labelId, state) => labelHandlers.onBulkToggle(selectedClipKeyPairs, labelId, state)}
-            onCreate={labelHandlers.onCreate}
-            onRename={labelHandlers.onRename}
-            onRecolor={labelHandlers.onRecolor}
-            onDelete={labelHandlers.onDelete}
-            onSetKey={labelHandlers.onSetKey}
-            onSeedDefaults={labelHandlers.onSeedDefaults}
-          />
-        ) : undefined
-      }
-      addTo={
-        <PillButton title={`Add ${selectedIds.size} ${selectedIds.size === 1 ? "play" : "plays"} to ${targetLabel} (⌘↩)`} onClick={handleAdd}>
-          <Plus />
-          <span className={PILL_LABEL}>{target ? (target.value === SORTED_BY_PLAYER ? "Add to report" : "Add to section") : "Add to playlist"}</span>
-        </PillButton>
-      }
-    />
     </div>
     </div>
   );
@@ -1600,7 +1683,8 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
           lastLabel={null}
           onLabelAgain={() => {}}
           addRef={nowAddRef}
-          onAdd={() => addKeys([activeKeyOf(activeEntry)])}
+          onAdd={addFromKey}
+          addCount={selectedIds.size}
           onSkip={null}
         />
       ) : (

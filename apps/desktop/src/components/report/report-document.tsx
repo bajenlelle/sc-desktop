@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PopUpButton } from "@/components/ui/pop-up-button";
+import { AddSectionItems, addableSections } from "@/components/report/add-section-items";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { useReportFrame } from "@/lib/report-frames";
@@ -24,7 +25,6 @@ import {
   REPORT_BLOCK_TEXT_LIMIT,
   REPORT_BLOCK_TITLE_MAX,
   REPORT_INTRO_LIMIT,
-  REPORT_MAX_CUSTOM_BLOCKS,
   REPORT_NOTE_LIMIT,
   REPORT_TITLE_MAX,
   TEAM_SECTION,
@@ -904,17 +904,9 @@ function BlockSection({
   );
 }
 
-const ADDABLE: { kind: ReportBlockKind; label: string; hint: string }[] = [
-  { kind: "keys", label: "Keys", hint: "What every player should remember" },
-  { kind: "profile", label: "How they play", hint: "Their season numbers at both ends" },
-  { kind: "games", label: "Their games", hint: "Results and games to come" },
-];
-
 /** The quiet row at the end: the sections the report doesn't have, and one of the coach's own. */
 function AddSectionRow({ props }: { props: ReportDocumentProps }) {
-  const blocks = blocksOf(props.draft);
-  const missing = ADDABLE.filter((a) => !blocks.some((b) => b.kind === a.kind));
-  const canAddOwn = blocks.filter((b) => b.kind === "custom").length < REPORT_MAX_CUSTOM_BLOCKS;
+  const { missing, canAddOwn } = addableSections(props.draft);
   if (missing.length === 0 && !canAddOwn) return null;
   return (
     <DropdownMenu>
@@ -928,19 +920,7 @@ function AddSectionRow({ props }: { props: ReportDocumentProps }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
-        {missing.map((a) => (
-          <DropdownMenuItem key={a.kind} onSelect={() => props.onAddBlock(a.kind)} className="flex flex-col items-start gap-0">
-            <span>{a.label}</span>
-            <span className="text-caption text-muted-foreground">{a.hint}</span>
-          </DropdownMenuItem>
-        ))}
-        {missing.length > 0 && canAddOwn && <DropdownMenuSeparator />}
-        {canAddOwn && (
-          <DropdownMenuItem onSelect={() => props.onAddBlock("custom")} className="flex flex-col items-start gap-0">
-            <span>Your own section</span>
-            <span className="text-caption text-muted-foreground">A name, words and clips</span>
-          </DropdownMenuItem>
-        )}
+        <AddSectionItems draft={props.draft} onAddBlock={props.onAddBlock} />
       </DropdownMenuContent>
     </DropdownMenu>
   );

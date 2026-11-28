@@ -149,10 +149,17 @@ adds to one section of the report.
 - **Docked or a sheet.** From a window 1100 px wide the plays dock at the
   report's right (`layout="panel"`, a resizable panel, at least 320 px,
   remembered for the session): filters and the list on top, the preview
-  under them, the report beside it to read and drop on. Under 1400 px the
-  outline folds away while they are docked; under 1100 px (or when the
-  window narrows) they open as the sheet over the report instead. The
+  under them, the report beside it to read and drop on. The Sections panel
+  stays as the coach left it (⌘B hides it for room); under 1100 px (or when
+  the window narrows) they open as the sheet over the report instead. The
   toolbar's Add clips shows and hides the docked plays.
+- **Many plays at once.** Add clips picks plays as the game view does
+  (docs/game-view.md, "Picking plays"): the count line's check selects every
+  listed play the section can take, the line becomes the bar ("Add 43 to
+  Keys", Label, ×), a right-click on a selected row adds them all or to
+  another section ("Add 2 to section ▸"), and dragging a selected row drops
+  the whole selection on a section (which then lets go of it). "Add all n"
+  while a filter is on.
 - **Docked keys.** The panel's keys (arrows, Space, A, G, ⌘F) are its own
   only while the keyboard is in it; anywhere else the report keeps its own
   (⌘Z, Esc). Esc in the panel lets go of a selection, then puts it away; in
@@ -304,16 +311,42 @@ every clip in place.
   absolute times inside the clip's window, `clipEffectsInWindow`; an uploaded
   copy takes the players' rebase onto the file, `clipWatchEffects`). A held
   frame reads as playing, and the scrubber shows the drawings and the sections.
-- **The side panel** (`report-outline.tsx`, a tree): Team (always, with 0),
-  each player and "Not in report" (folded at first), each with its clips as
-  one-line rows (the play's colour, the play, the time, a note mark; the hover
-  has the rest). Dragging a clip, or the ⌘/⇧-selection it is in, reorders it,
-  moves it to another section or out; dragging a player's header moves the
-  player with their clips. Where a drop lands is `lib/report-outline.ts`
-  (`clipDrop`, `sectionGap`, `sectionDropIndex`) over the drag engine's flat
-  rows; a drop on a folded section appends. Keys: ↑/↓, ⇧↑/⇧↓, ←/→ fold,
+- **The Sections panel** (`report-outline.tsx`, a tree under the heading
+  "Sections"): every section in reading order and "Not in report" (folded at
+  first), each with its clips as one-line rows (the play's colour, the play,
+  the time, a note mark; the hover has the rest).
+  - **Put away and back as the playlist browser is**: it is the report's
+    second sidebar (`BrowserColumn`, `reportSections` in
+    `lib/playlist-browser-store.ts` over `lib/side-column-store.ts`). The
+    toolbar's Sections button beside the sidebar's, ⌘B (View › Hide Sections
+    on a report page) and its edge (a flick shut, a click or pull to open)
+    hide and show it; its edge resizes it (220–440 px). Both are remembered
+    per machine. Nothing else hides it: docking the plays leaves it as it is.
+  - **The heading's +** lists Players… and then the sections the report can
+    still add, the same list as the document's "+ Add section"
+    (`add-section-items.tsx`).
+  - **A section's row** shows **+** (Add clips to that section: the docked
+    plays or the sheet, as the document's + Add clips) and **⋯** (the row's
+    menu, the same as a right-click) on hover and focus, in place of its count.
+    The menu has Add clips…, Rename (a section of your own: focuses its name in
+    the document), Hide/Show, Move up/down, Collapse and Remove. **A** on a
+    focused section row adds clips to it too.
+  - **While the plays are docked** the section they add to shows a list-plus
+    mark ("Plays are added here"), and a play dragged from the panel can be
+    dropped on any section's row that takes clips (`readPlaysDrag`, the same
+    `dropPlays` as a drop on the document): it lands there and the panel adds
+    there from then on.
+  - **Dragging** a clip, or the ⌘/⇧-selection it is in, reorders it, moves it
+    to another section or out; dragging a section's header moves it with its
+    clips: a player among the players, any other section between sections,
+    before or after the players but never between two (`blockGap`,
+    `blockDropBefore`, then `moveBlockBefore`). "Not in report" stays last.
+  Where a drop lands is `lib/report-outline.ts` (`clipDrop`, `sectionGap`,
+  `sectionDropIndex`, `blockGap`, `blockDropBefore`) over the drag engine's
+  flat rows; a drop on a folded section appends. Keys: ↑/↓, ⇧↑/⇧↓, ←/→ fold,
   ⌥↑/⌥↓ moves (`nudgeClips` crosses into the next section), ⌫ leaves clips
-  out or removes a player, Return shows a section in the document, ⌘A, Esc
+  out or removes a player, Return shows a section in the document, A adds
+  clips to a section, ⌘A, Esc
   stops a playing clip, then clears the selection, before it leaves the view.
   A plain click on a clip row, or Return on it, scrolls to its tile and plays
   it there; on the clip that is already open it resumes a paused clip and plays

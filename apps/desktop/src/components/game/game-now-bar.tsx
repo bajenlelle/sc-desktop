@@ -74,6 +74,7 @@ export function GameNowBar({
   onLabelAgain,
   addRef,
   onAdd,
+  addCount = 0,
   onSkip,
   onFixSync,
 }: {
@@ -102,6 +103,8 @@ export function GameNowBar({
   /** The Add button: where a picker it has to open grows from, for the A key as for a click. */
   addRef: Ref<HTMLButtonElement>;
   onAdd: () => void;
+  /** Plays selected in the list: Add (A) adds them, and says how many ("Add 12"). */
+  addCount?: number;
   /** Past the stretch with no basketball in it: to tip-off, or to the next period. */
   onSkip: (() => void) | null;
   /** Fix sync on the play on screen: find where it really happens. Absent when the play can't be found here (no footage, or it is outside the video). */
@@ -193,10 +196,21 @@ export function GameNowBar({
             <Kbd className="ml-0.5 hidden h-4 min-w-4 text-caption @min-[600px]/now:inline-flex">G</Kbd>
           </Button>,
         )}
-        {collect === "none" ? (
-          <Button ref={addRef} size="sm" onClick={onAdd} aria-label={targetName ? `Add this play to ${targetName}` : "Add this play to a playlist"}>
+        {collect === "none" || addCount > 0 ? (
+          <Button
+            ref={addRef}
+            size="sm"
+            onClick={onAdd}
+            aria-label={
+              addCount > 0
+                ? `Add ${addCount} ${addCount === 1 ? "play" : "plays"} to ${targetName ?? "a playlist"}`
+                : targetName
+                  ? `Add this play to ${targetName}`
+                  : "Add this play to a playlist"
+            }
+          >
             <Plus />
-            Add
+            {addCount > 0 ? `Add ${addCount}` : "Add"}
             <Kbd className="ml-0.5 hidden h-4 min-w-4 border-white/25 bg-white/15 text-caption text-primary-foreground @min-[600px]/now:inline-flex">A</Kbd>
           </Button>
         ) : (

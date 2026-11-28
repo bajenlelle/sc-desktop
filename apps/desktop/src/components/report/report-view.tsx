@@ -6,7 +6,9 @@ import { useNavigate } from "react-router-dom";
 import { saveReportAsPlaylist } from "@/lib/team-report";
 import { DeleteReportDialog } from "./delete-report-dialog";
 import { toast } from "sonner";
-import { ClipBrowserPanel, PLAYS_DRAG_TYPE, SORTED_BY_PLAYER, type ClipBrowserHandle, type ClipBrowserLabelHandlers, type ClipBrowserStart, type ClipBrowserTarget } from "@/components/editor/clip-browser-panel";
+import { ClipBrowserPanel, PLAYS_DRAG_TYPE, SORTED_BY_PLAYER, readPlaysDrag, type ClipBrowserHandle, type ClipBrowserLabelHandlers, type ClipBrowserStart, type ClipBrowserTarget } from "@/components/editor/clip-browser-panel";
+import { BrowserColumn } from "@/components/editor/browser-column";
+import { reportSections } from "@/lib/playlist-browser-store";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useReportAddClips } from "@/lib/use-report-add-clips";
@@ -40,6 +42,7 @@ import {
   addSections,
   blocksOf,
   moveBlock,
+  moveBlockBefore,
   removeBlock,
   setBlockHidden,
   setBlockText,
@@ -610,6 +613,26 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const [addMode, setAddMode] = useState<"panel" | "sheet">("sheet");
   const docked = addTo !== null && addMode === "panel";
   const windowWidth = useWindowWidth();
+  // The Sections panel, the report's second sidebar: hidden and resized as the playlist browser is (⌘B, the
+  // toolbar's button, its edge), only when the coach says: docking the plays leaves it as it is.
+  const sectionsCollapsed = reportSections.useCollapsed();
+  reportSections.useRegister();
+  const [sectionsWidth, setSectionsWidthState] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem(SECTIONS_WIDTH_KEY));
+      return Number.isFinite(n) && n >= SECTIONS_WIDTH.min && n <= SECTIONS_WIDTH.max ? n : SECTIONS_WIDTH.default;
+    } catch {
+      return SECTIONS_WIDTH.default;
+    }
+  });
+  const setSectionsWidth = (w: number) => {
+    setSectionsWidthState(w);
+    try {
+      localStorage.setItem(SECTIONS_WIDTH_KEY, String(Math.round(w)));
+    } catch {
+      /* the width is only a convenience */
+    }
+  };
   // The panel narrower than the window allows: the sheet takes over, with the same target.
   useEffect(() => {
     if (docked && windowWidth < DOCK_MIN_WIDTH) setAddMode("sheet");
@@ -663,7 +686,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   }, [placeOf, sectionName]);
 
   const handleAddClips = useCallback(
-    async (clips: PlaylistClipItem[]) => {
+    async (clips: PlaylistClipItem[], info?: { already: number }) => {
       const add = props.addClips;
       const to = addToRef.current;
       if (!add || to === null) return;
@@ -677,8 +700,11 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       const section = to === SORTED_BY_PLAYER ? null : to;
       apply((d) => placeClips(d, keys, section, outcome.events));
       const noun = keys.length === 1 ? "1 clip" : `${keys.length} clips`;
+      const already = info?.already ?? 0;
       toast(section ? `${noun} added to ${sectionName(section)}` : `${noun} added`, {
         id: ADD_TOAST,
+        // Sonner's own description grey is unreadable on the dark themes.
+        description: already > 0 ? <span className="text-muted-foreground">{`${already} ${already === 1 ? "was" : "were"} already there.`}</span> : undefined,
         action: {
           label: "Undo",
           onClick: () => {
@@ -705,7 +731,11 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       name: effectiveTitleOf(draft, playlist.name),
       options: addOptions,
       value: addTo,
-      onChange: setAddTo,
+      // At once in the ref too: the row menu's Add to section changes the target and adds in one go.
+      onChange: (id: string) => {
+        addToRef.current = id;
+        setAddTo(id);
+      },
       placement: addPlacement,
       // The target as it is when the move lands: a drop on a section sets it first.
       onMove: (keys) => moveClipsTo(keys, addToRef.current ?? addTo, null, "add_clips"),
@@ -747,17 +777,13 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     setDropAt(null);
     if (!at) return;
     e.preventDefault();
-    let keys: string[] = [];
-    try {
-      const raw: unknown = JSON.parse(e.dataTransfer.getData(PLAYS_DRAG_TYPE));
-      if (Array.isArray(raw)) keys = raw.filter((k): k is string => typeof k === "string");
-    } catch {
-      return;
-    }
-    if (keys.length === 0) return;
-    // The panel adds to the section dropped on, now and from here on.
-    addToRef.current = at.id;
-    setAddTo(at.id);
+    dropPlays(at.id, readPlaysDrag(e.dataTransfer));
+  }
+  /** Plays dropped on a section, in the document or the Sections panel: they go there, and the panel adds there from now on. */
+  function dropPlays(id: Placement, keys: string[]) {
+    if (keys.length === 0 || !accepting.has(id)) return;
+    addToRef.current = id;
+    setAddTo(id);
     browserRef.current?.addKeys(keys);
   }
 
@@ -880,6 +906,18 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     const name = blockName(id);
     applyWithUndo((d) => setBlockHidden(d, id, hidden), hidden ? `Hide ${name}` : `Show ${name}`, hidden ? `${name} hidden from players` : `${name} shown to players`);
     trackEvent("scouting_report_section_hidden", { section: blocksOf(draft!).find((b) => b.id === id)?.kind ?? "custom", hidden });
+  };
+  const moveBlockTo = (id: string, before: string | null) => apply((d) => moveBlockBefore(d, id, before), `Move ${blockName(id)}`);
+  /** Rename from the Sections panel: the name is edited where it reads, as the section's heading. */
+  const renameBlock = (id: string) => {
+    scrollTo(id);
+    requestAnimationFrame(() => {
+      const field = document.getElementById(`${sectionDomId(id)}-h`);
+      if (field instanceof HTMLInputElement) {
+        field.focus({ preventScroll: true });
+        field.select();
+      }
+    });
   };
   const moveBlockBy = (id: string, dir: -1 | 1) => {
     if (!draft) return;
@@ -1020,8 +1058,20 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     <div className="flex h-full min-h-0 flex-col">
       {props.toolbarSlot ? createPortal(toolbar, props.toolbarSlot) : props.back ? toolbar : null}
       <div className="flex min-h-0 flex-1">
-        {/* Docked plays on a window too narrow for three columns: the outline folds away until the panel goes. */}
-        {docked && windowWidth < OUTLINE_MIN_WIDTH ? null : layout ? (
+          <BrowserColumn
+            collapsed={sectionsCollapsed}
+            width={sectionsWidth}
+            limits={SECTIONS_WIDTH}
+            name="sections"
+            showLabel="Show sections"
+            onWidthChange={setSectionsWidth}
+            onCollapse={() => reportSections.setCollapsed(true)}
+            onExpand={(w) => {
+              setSectionsWidth(w);
+              reportSections.setCollapsed(false);
+            }}
+          >
+            {layout && draft ? (
           <ReportOutline
             layout={layout}
             sectionInfo={sectionInfo}
@@ -1045,11 +1095,17 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             onAddPlayers={openPicker}
             onBlockHidden={blockHidden}
             onMoveBlock={moveBlockBy}
+            onMoveBlockTo={moveBlockTo}
             onRemoveBlock={removeBlockWithUndo}
+            draft={draft}
+            onAddBlock={addBlockOf}
+            onAddClips={props.addClips ? openAddClips : undefined}
+            addingTo={docked && addTo !== SORTED_BY_PLAYER ? addTo : null}
+            onDropPlays={docked ? dropPlays : undefined}
+            onRename={renameBlock}
           />
-        ) : (
-          <div className="w-[288px] shrink-0 border-r border-separator" />
-        )}
+            ) : null}
+          </BrowserColumn>
         <ResizablePanelGroup direction="horizontal" autoSaveId="report-plays" className="min-w-0 flex-1">
         <ResizablePanel id="report" minSize="40">
         <div
@@ -1256,10 +1312,11 @@ const NO_LABELS: ReadonlySet<string> = new Set();
 
 /** From this window width the plays dock beside the report; narrower, they open as a sheet over it. */
 const DOCK_MIN_WIDTH = 1100;
-/** Below this width, with the plays docked, the outline folds away. */
-const OUTLINE_MIN_WIDTH = 1400;
 
 /** The window's width, as it changes. */
+const SECTIONS_WIDTH = { default: 288, min: 220, max: 440 } as const;
+const SECTIONS_WIDTH_KEY = "scoutable_report_sections_width";
+
 function useWindowWidth(): number {
   const [width, setWidth] = useState(() => window.innerWidth);
   useEffect(() => {

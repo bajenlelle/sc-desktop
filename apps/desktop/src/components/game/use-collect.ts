@@ -404,13 +404,22 @@ export function useCollect({
       scheduleShip(playlist);
       // Players already have this playlist: say once when they get the new clips.
       const sayHeld = playlistIsShared(playlist) && !saidHeld.current;
+      // Plays the selection held that the playlist had already: said, so the count adds up.
+      const already = plays.length - fresh.length;
       if (sayHeld) saidHeld.current = true;
       toast(fresh.length === 1 ? `Added to ${name}` : `${fresh.length} clips added to ${name}`, {
         id: COLLECT_TOAST,
         // Sonner's own description grey is unreadable on the dark themes.
-        description: sayHeld
-          ? createElement("span", { className: "text-muted-foreground" }, "Players get new clips automatically.")
-          : undefined,
+        description:
+          sayHeld || already > 0
+            ? createElement(
+                "span",
+                { className: "text-muted-foreground" },
+                [already > 0 ? `${already} ${already === 1 ? "was" : "were"} already there.` : null, sayHeld ? "Players get new clips automatically." : null]
+                  .filter(Boolean)
+                  .join(" "),
+              )
+            : undefined,
         action: { label: "Undo", onClick: () => undo(playlist, keys, "toast") },
       });
     },

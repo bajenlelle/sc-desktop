@@ -151,8 +151,10 @@ it, and playback skips it.
   the game view's menu (the target, another playlist, a new one). A row's
   Label, + and menu act on the selection when the row is in it, else on that
   row alone (Finder's rule); the keys act on the selection, else the play on
-  screen. A selection gets the game view's pill over the bottom of the list
-  (`PlaysSelectionBar`): Add to the target, Another playlist, and ×.
+  screen. Picking plays is the game view's (docs/game-view.md, "Picking
+  plays"): a plain click plays and keeps the picked ones, the count line's
+  check selects all, and while plays are selected it becomes the bar (Add 12
+  to the target, Add to…, ×). "Add all n" while a filter or a pick is on.
 - **Under the player** is the game view's Now bar (`GameNowBar`): quarter,
   clock and the game, the event, the player, the labels the play has, the
   same label again (⇧G), Label (G) and Add (A), or "In playlist" once the
@@ -164,7 +166,8 @@ it, and playback skips it.
   ↑ ↓ the previous or next play that can play; A add; G label; ⇧G the label
   used last (it only puts it on); ⌥1–⌥9 a label's key (a toggle); both say
   what they did in a toast with Undo, through the game view's
-  `usePlayLabelKeys`. ⌘-click and Shift-click select, ⌘A every listed play,
+  `usePlayLabelKeys`. ⌘-click and Shift-click select, Shift+↑ ↓ extend,
+  Return picks the play on screen, ⌘A every listed play the target can take,
   Esc lets go. A click on a play takes the keyboard from the toolbar's
   switch, whose arrows would otherwise move between its options.
 - **The divider between the list and the player drags** (`autoSaveId`

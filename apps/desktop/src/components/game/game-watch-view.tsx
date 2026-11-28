@@ -15,12 +15,12 @@ import { buildGameTimeline, momentAt, PERIOD_LEAD_SECONDS, visibleOrder, type Ti
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { labelKeySlot } from "@scoutable/shared/lib/label-keys";
-import { clickSelection, extendSelection, moveFocus, pruneSelection, type FocusMove } from "@scoutable/shared/lib/list-selection";
+import { clickSelection, extendSelection, moveFocus, pruneSelection, selectAll, selectAllState, toggleKey, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
 import { cutShiftSeconds, partChecked, partOf } from "@scoutable/shared/lib/sync-check";
 import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import { PLAYER_DOCK_HEIGHT, PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
-import { PlaysSelectionBar } from "@/components/plays/plays-selection-bar";
+import { PlaysSelectionActions } from "@/components/plays/plays-selection-bar";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { usePlayLabelKeys } from "@/components/plays/use-play-label-keys";
 import { useStageFit } from "@/components/plays/use-stage-fit";
@@ -324,10 +324,12 @@ export function GameWatchView({
   const playByKey = useMemo(() => new Map(timeline.plays.map((p) => [p.key, p])), [timeline]);
   /** The selected plays in list order. */
   const selectedPlays = useMemo(() => orderKeys.filter((k) => selected.has(k)).map((k) => playByKey.get(k)!), [orderKeys, selected, playByKey]);
+  /** The listed plays the target has already: select all leaves them out. */
+  const blockedKeys = useMemo(() => new Set(orderKeys.filter((k) => collect.statusOf(k) !== "none")), [orderKeys, collect]);
   // A filter that hides a play takes it out of the selection: what is picked is always what is listed.
   useEffect(() => setSelected((prev) => pruneSelection(prev, orderKeys)), [orderKeys]);
 
-  /** A click on a row: plain plays it (keeping the selection only when the row is in it), ⌘ toggles, Shift ranges. */
+  /** A click on a row: plain plays it (the selection stays), ⌘ toggles, Shift ranges. */
   function onPress(play: TimedPlay, { shift, toggle }: { shift: boolean; toggle: boolean }) {
     const next = clickSelection({
       order: orderKeys,
@@ -337,6 +339,8 @@ export function GameWatchView({
       key: play.key,
       shift,
       toggle,
+      // A list with checks: a plain click plays and leaves the picked plays picked (list-selection.ts).
+      keepOnPlain: true,
     });
     setSelected(next.selected);
     anchorRef.current = next.anchor;
@@ -652,9 +656,16 @@ export function GameWatchView({
   const current = between || stale ? null : nowPlay;
   // A picker that has to open (no playlist chosen yet) grows from the control that asked: the Now bar's Add
   // (for the A key too), the "Add all" button, a row's plus.
+  // A and the Now bar's Add: the selection when plays are selected, else the play on screen.
   const addCurrent = useCallback(() => {
+    if (selectedPlays.length > 0) {
+      collect.add(selectedPlays, "selection", filters.play.moment, addButtonRef.current, clearSelection);
+      return;
+    }
     if (current && collect.statusOf(current.key) === "none") collect.add([current], "now_bar", filters.play.moment, addButtonRef.current);
-  }, [current, collect, filters.play.moment]);
+    // clearSelection is a plain function of this render; the selection it clears is the one read here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current, collect, filters.play.moment, selectedPlays]);
   const addAll = useCallback(
     (anchor: HTMLElement) => {
       const plays = order.map((i) => timeline.plays[i]).filter((p) => collect.statusOf(p.key) === "none");
@@ -662,7 +673,15 @@ export function GameWatchView({
     },
     [order, timeline, collect, filters.play.moment],
   );
-  const addOne = useCallback((play: TimedPlay, anchor: HTMLElement) => collect.add([play], "row", filters.play.moment, anchor), [collect, filters.play.moment]);
+  // A row's +: the selection when the row is in it (Finder's rule, as the row's menu), else that play.
+  const addOne = useCallback(
+    (play: TimedPlay, anchor: HTMLElement) => {
+      if (selected.has(play.key) && selectedPlays.length > 1) collect.add(selectedPlays, "selection", filters.play.moment, anchor, clearSelection);
+      else collect.add([play], "row", filters.play.moment, anchor);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [collect, filters.play.moment, selected, selectedPlays],
+  );
   const openRowLabels = useCallback((play: TimedPlay) => setLabelPickerFor(play.key), []);
 
   // The label keys (⌥1–⌥9, ⇧G, Option held) act on the play on screen, as on Teams' Plays.
@@ -788,6 +807,13 @@ export function GameWatchView({
         if (current) setNowLabelFor(current);
         return;
       }
+      // Return picks the play on screen, or lets it go, as in Add clips.
+      if (e.key === "Enter" && current && collect.statusOf(current.key) === "none" && !(e.target instanceof HTMLElement && e.target.closest("button, a, input, textarea"))) {
+        e.preventDefault();
+        setSelected((prev) => toggleKey(prev, current.key));
+        anchorRef.current = current.key;
+        return;
+      }
       if (e.code === "PageDown" || e.code === "PageUp") {
         e.preventDefault();
         jump(e.code === "PageDown" ? 1 : -1);
@@ -868,7 +894,8 @@ export function GameWatchView({
       case "select-all":
         if (orderKeys.length > 0) {
           e.preventDefault();
-          setSelected(new Set(orderKeys));
+          // Every listed play the target can still take.
+          setSelected(selectAll(orderKeys, blockedKeys));
           anchorRef.current = orderKeys[0];
           extendFocusRef.current = orderKeys[orderKeys.length - 1];
         }
@@ -1131,6 +1158,17 @@ export function GameWatchView({
               addable={addable}
               targetName={collect.target?.name ?? null}
               onAddAll={addAll}
+              selection={{
+                state: selectAllState(orderKeys, selected, blockedKeys),
+                selected: selected.size,
+                selectable: orderKeys.length - blockedKeys.size,
+                onSelectAll: () => {
+                  setSelected(selectAll(orderKeys, blockedKeys));
+                  anchorRef.current = orderKeys[0] ?? null;
+                },
+                onClear: clearSelection,
+                actions: <PlaysSelectionActions count={selected.size} collect={collect} plays={() => selectedPlays} moment={filters.play.moment} onClear={clearSelection} />,
+              }}
               searchRef={searchRef}
               sheetOpen={filterSheetOpen}
               onSheetOpenChange={setFilterSheetOpen}
@@ -1188,9 +1226,6 @@ export function GameWatchView({
                 />
               )}
               selecting={selected.size > 0}
-              selectionBar={
-                <PlaysSelectionBar count={selected.size} collect={collect} plays={() => selectedPlays} moment={filters.play.moment} onClear={clearSelection} />
-              }
             />
           </div>
           </div>
@@ -1301,6 +1336,7 @@ export function GameWatchView({
                   onLabelAgain={labelAgain}
                   addRef={addButtonRef}
                   onAdd={addCurrent}
+                  addCount={selected.size}
                   onSkip={skip}
                   onFixSync={footage && current && current.reach === "in" ? () => sync.fixPlay(current.event, "now_bar") : undefined}
                 />

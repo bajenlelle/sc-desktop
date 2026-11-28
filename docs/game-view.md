@@ -473,16 +473,39 @@ released app lists each row there as a clip.
 ↑ ↓ the previous or next listed play; Page Up and Page Down the previous or
 next marker (quarter start, timeout, run); 1–9 the start of that period; A
 add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
-(held: which key is which label); ⌘F the Filter popover, its search focused (in every list of plays). ⌘-click toggles a
-play into the selection, as a press on the row's check does (under the
-pointer at the row's start; every row shows its box while anything is
-selected), and Shift-click selects a range. A selected row is a step darker
-than the playing row (`--row-checked` over `--row-selected`) and carries a
-filled check, so what the pill's Add takes is never in doubt; Shift+↑ ↓ extends it
-and plays there; ⌘A selects every listed play; Esc lets go. The pill over the
-list (`components/plays/plays-selection-bar.tsx`, shared with Teams' Plays)
-adds the selection to the target or another playlist; a row's menu acts on
-the selection when that row is in it.
+(held: which key is which label); ⌘F the Filter popover, its search focused (in every list of plays).
+
+**Picking plays** (the same in the game view, Teams' Plays and Add clips;
+`packages/shared/lib/list-selection.ts`, research on bulk actions: NN/g,
+PatternFly, Gmail, Material's contextual header, Apple Photos, Linear):
+- **Selecting.** A plain click plays a play and keeps the picked ones picked
+  (`clickSelection`'s `keepOnPlain`, a list with checks as in Gmail).
+  ⌘-click toggles a play, as a press on the row's check does (under the
+  pointer at the row's start; every row shows its box while anything is
+  selected); Shift-click and Shift+↑ ↓ select a range (and play there);
+  Return picks the play on screen or lets it go; Esc lets go. A selected row
+  is a step darker than the playing row (`--row-checked` over
+  `--row-selected`) and carries a filled check.
+- **Select all.** The count line leads with a check (`PlaysCountLine`'s
+  `selection`): none, some (a dash) or all of the listed plays the target can
+  still take. A press selects them all ("Select all 62"), or lets them go
+  when all are; ⌘A does the same and a row's menu has "Select all n". Plays
+  the target already has are never selected.
+- **What is selected is what is added.** A filter that hides picked plays
+  lets go of them (`pruneSelection`), so the count never includes a play the
+  coach can't see.
+- **The bar.** While plays are selected the count line becomes the
+  selection's bar (a toolbar named "Selection") in place, over the rows
+  rather than a pill covering them: "12 selected", **Add 12 to {target}**
+  (its words shorten to "Add 12" in a narrow list, never to an icon), Add to…
+  (another playlist or a report; `components/plays/plays-selection-bar.tsx`),
+  Label in Add clips, and ×.
+- **Every way to add acts on the same plays**: the bar's Add, A, ⌘↩ in Add
+  clips, the Now bar's Add (which then says "Add 12"), a row's + and its
+  right-click menu all add the selection when there is one (a row's + and
+  menu when that row is in it, Finder's rule), else the play on screen or
+  that row. "Add all n" stays on the count line while a filter is on. The
+  toast says how many went in, and how many were already there.
 
 **A narrow list** (the column under about 370 px, a 1180 px window) keeps
 each play's event name: the score column goes first (the quarter header
