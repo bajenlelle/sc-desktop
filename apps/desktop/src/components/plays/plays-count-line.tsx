@@ -59,7 +59,7 @@ export function PlaysCountLine({
   return (
     <div
       className={cn(
-        "@container/count flex h-8 shrink-0 items-center gap-2 text-subheadline text-muted-foreground nums",
+        "flex h-8 shrink-0 items-center gap-2 text-subheadline text-muted-foreground nums",
         selecting && "bg-fill-1",
         className,
       )}
@@ -67,7 +67,9 @@ export function PlaysCountLine({
       {lead}
       {selection && <SelectAllCheck selection={selection} />}
       {selecting ? (
-        <div role="toolbar" aria-label="Selection" className="flex min-w-0 flex-1 items-center gap-2">
+        // The bar is the container its buttons size their words by, not the line: a container query on the line
+        // makes WebKit open a resizable column around it wider than its default.
+        <div role="toolbar" aria-label="Selection" className="@container/count flex min-w-0 flex-1 items-center gap-2">
           <span role="status" className="shrink-0 font-medium text-foreground">
             {selection.selected} selected
           </span>

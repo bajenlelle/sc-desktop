@@ -181,8 +181,12 @@ export function TeamPlaysView({
   const anchor = useRef<string | null>(null);
   const extendFocus = useRef<string | null>(null);
   const playKeys = useMemo(() => playRows.map((r) => r.key), [playRows]);
-  // A filter that hides selected plays lets go of them: what is picked is always what is listed (and added).
-  useEffect(() => setSelected((prev) => pruneSelection(prev, playKeys)), [playKeys]);
+  // A filter that hides selected plays lets go of them: what is picked is always what is listed (and added). Not
+  // while the plays are still being read: coming back to the page, the kept selection waits for its rows.
+  const playsRead = plays.status === "ready";
+  useEffect(() => {
+    if (playsRead) setSelected((prev) => pruneSelection(prev, playKeys));
+  }, [playKeys, playsRead]);
   /** The listed plays the target has already: select all leaves them out. */
   const blockedKeys = useMemo(() => new Set(playKeys.filter((k) => collect.statusOf(k) !== "none")), [playKeys, collect]);
 
