@@ -466,6 +466,22 @@ export function moveBlock(draft: ReportDraft, id: string, toIndex: number): Repo
   return withBlocks(draft, next);
 }
 
+/**
+ * Moves a section to just before another (by block id), or to the end for
+ * null: a section dragged in the outline. Unchanged for a block the report
+ * doesn't have and for a move that leaves the order as it was.
+ */
+export function moveBlockBefore(draft: ReportDraft, id: string, before: string | null): ReportDraft {
+  const blocks = blocksOf(draft);
+  const block = blocks.find((b) => b.id === id);
+  if (!block || before === id) return draft;
+  const rest = blocks.filter((b) => b.id !== id);
+  const at = before === null ? rest.length : rest.findIndex((b) => b.id === before);
+  if (at < 0) return draft;
+  const next = [...rest.slice(0, at), block, ...rest.slice(at)];
+  return next.every((b, i) => b.id === blocks[i].id) ? draft : withBlocks(draft, next);
+}
+
 export function setBlockText(draft: ReportDraft, id: string, text: string): ReportDraft {
   const held = text.slice(0, REPORT_BLOCK_TEXT_LIMIT);
   return updateBlock(draft, id, (b) => (!holdsText(b.kind) || (b.text ?? "") === held ? b : { ...b, text: held }));

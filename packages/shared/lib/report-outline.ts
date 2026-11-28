@@ -6,7 +6,7 @@
  * here; the view turns it into report-draft ops (moveClips, moveSection).
  */
 import { itemKey } from "./playlist-edits";
-import { LEFT_OUT, TEAM_SECTION, type Placement, type ReportLayout } from "./report-draft";
+import { LEFT_OUT, PLAYERS_BLOCK, TEAM_SECTION, type Placement, type ReportLayout } from "./report-draft";
 
 export interface OutlineRowRef {
   /** The row's data-row-key: `section:<id>` for a header, the clip key for a clip. */
@@ -21,6 +21,8 @@ export interface OutlineRowRef {
   accepts?: boolean;
   /** A header: players don't see the section. */
   hidden?: boolean;
+  /** A header: the report block it belongs to (PLAYERS_BLOCK for a player's); none for the left-out group. */
+  block?: string;
 }
 
 export const sectionRowKey = (id: Placement) => `section:${id}`;
@@ -28,12 +30,14 @@ export const sectionRowKey = (id: Placement) => `section:${id}`;
 /** The rows as they show: every header, and the clips of each section that isn't collapsed. */
 export function outlineRows(layout: ReportLayout, collapsed: ReadonlySet<Placement>): OutlineRowRef[] {
   const rows: OutlineRowRef[] = [];
-  const push = (id: Placement, clipKeys: string[], head: Pick<OutlineRowRef, "player" | "accepts" | "hidden">) => {
+  const push = (id: Placement, clipKeys: string[], head: Pick<OutlineRowRef, "player" | "accepts" | "hidden" | "block">) => {
     rows.push({ key: sectionRowKey(id), kind: "section", id, ...head });
     if (collapsed.has(id)) return;
     for (const clipKey of clipKeys) rows.push({ key: clipKey, kind: "clip", id, clipKey });
   };
-  for (const s of layout.sections) push(s.id, s.clips.map(itemKey), { player: !!s.section, accepts: s.accepts, hidden: s.hidden });
+  for (const s of layout.sections) {
+    push(s.id, s.clips.map(itemKey), { player: !!s.section, accepts: s.accepts, hidden: s.hidden, block: s.block?.id ?? (s.section ? PLAYERS_BLOCK : undefined) });
+  }
   push(LEFT_OUT, layout.leftOut.map(itemKey), { player: false, accepts: true, hidden: false });
   return rows;
 }
@@ -87,4 +91,44 @@ export function sectionDropIndex(rows: readonly OutlineRowRef[], blockKeys: read
     if (isPlayerHeader(rows[i]) && !dragged.has(rows[i].key)) index++;
   }
   return index;
+}
+
+/** The header rows where a block starts (a players block at its first player), and the left-out group's. */
+function blockStarts(rows: readonly OutlineRowRef[]): number[] {
+  const starts: number[] = [];
+  let last: string | undefined;
+  rows.forEach((row, i) => {
+    if (row.kind !== "section") return;
+    if (row.id === LEFT_OUT) starts.push(i);
+    else if (row.block !== undefined && row.block !== last) starts.push(i);
+    last = row.block;
+  });
+  return starts;
+}
+
+/**
+ * The gap a dragged section that isn't a player's (Keys, Their actions, a
+ * section of the coach's own…) settles on: the nearest one between two
+ * sections, at a tie the upper. Never between two players (they are one
+ * block) and never below the left-out group.
+ */
+export function blockGap(rows: readonly OutlineRowRef[], gap: number): number {
+  const gaps = blockStarts(rows);
+  if (gaps.length === 0) return gap;
+  return gaps.reduce((best, g) => (Math.abs(g - gap) < Math.abs(best - gap) ? g : best));
+}
+
+/**
+ * The block a dragged section lands before after a drop at the gap
+ * (moveBlockBefore's `before`), or null for after the last. Its own rows
+ * don't count: dropped where it was, it lands before the block it was before.
+ */
+export function blockDropBefore(rows: readonly OutlineRowRef[], blockKeys: readonly string[], gap: number): string | null {
+  const dragged = new Set(blockKeys);
+  for (let i = Math.max(0, gap); i < rows.length; i++) {
+    const row = rows[i];
+    if (row.kind !== "section" || dragged.has(row.key)) continue;
+    return row.id === LEFT_OUT ? null : (row.block ?? null);
+  }
+  return null;
 }

@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { saveReportAsPlaylist } from "@/lib/team-report";
 import { DeleteReportDialog } from "./delete-report-dialog";
 import { toast } from "sonner";
-import { ClipBrowserPanel, PLAYS_DRAG_TYPE, SORTED_BY_PLAYER, type ClipBrowserHandle, type ClipBrowserLabelHandlers, type ClipBrowserStart, type ClipBrowserTarget } from "@/components/editor/clip-browser-panel";
+import { ClipBrowserPanel, PLAYS_DRAG_TYPE, SORTED_BY_PLAYER, readPlaysDrag, type ClipBrowserHandle, type ClipBrowserLabelHandlers, type ClipBrowserStart, type ClipBrowserTarget } from "@/components/editor/clip-browser-panel";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useReportAddClips } from "@/lib/use-report-add-clips";
@@ -40,6 +40,7 @@ import {
   addSections,
   blocksOf,
   moveBlock,
+  moveBlockBefore,
   removeBlock,
   setBlockHidden,
   setBlockText,
@@ -747,17 +748,13 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     setDropAt(null);
     if (!at) return;
     e.preventDefault();
-    let keys: string[] = [];
-    try {
-      const raw: unknown = JSON.parse(e.dataTransfer.getData(PLAYS_DRAG_TYPE));
-      if (Array.isArray(raw)) keys = raw.filter((k): k is string => typeof k === "string");
-    } catch {
-      return;
-    }
-    if (keys.length === 0) return;
-    // The panel adds to the section dropped on, now and from here on.
-    addToRef.current = at.id;
-    setAddTo(at.id);
+    dropPlays(at.id, readPlaysDrag(e.dataTransfer));
+  }
+  /** Plays dropped on a section, in the document or the Sections panel: they go there, and the panel adds there from now on. */
+  function dropPlays(id: Placement, keys: string[]) {
+    if (keys.length === 0 || !accepting.has(id)) return;
+    addToRef.current = id;
+    setAddTo(id);
     browserRef.current?.addKeys(keys);
   }
 
@@ -880,6 +877,18 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     const name = blockName(id);
     applyWithUndo((d) => setBlockHidden(d, id, hidden), hidden ? `Hide ${name}` : `Show ${name}`, hidden ? `${name} hidden from players` : `${name} shown to players`);
     trackEvent("scouting_report_section_hidden", { section: blocksOf(draft!).find((b) => b.id === id)?.kind ?? "custom", hidden });
+  };
+  const moveBlockTo = (id: string, before: string | null) => apply((d) => moveBlockBefore(d, id, before), `Move ${blockName(id)}`);
+  /** Rename from the Sections panel: the name is edited where it reads, as the section's heading. */
+  const renameBlock = (id: string) => {
+    scrollTo(id);
+    requestAnimationFrame(() => {
+      const field = document.getElementById(`${sectionDomId(id)}-h`);
+      if (field instanceof HTMLInputElement) {
+        field.focus({ preventScroll: true });
+        field.select();
+      }
+    });
   };
   const moveBlockBy = (id: string, dir: -1 | 1) => {
     if (!draft) return;
@@ -1021,7 +1030,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       {props.toolbarSlot ? createPortal(toolbar, props.toolbarSlot) : props.back ? toolbar : null}
       <div className="flex min-h-0 flex-1">
         {/* Docked plays on a window too narrow for three columns: the outline folds away until the panel goes. */}
-        {docked && windowWidth < OUTLINE_MIN_WIDTH ? null : layout ? (
+        {docked && windowWidth < OUTLINE_MIN_WIDTH ? null : layout && draft ? (
           <ReportOutline
             layout={layout}
             sectionInfo={sectionInfo}
@@ -1045,7 +1054,14 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             onAddPlayers={openPicker}
             onBlockHidden={blockHidden}
             onMoveBlock={moveBlockBy}
+            onMoveBlockTo={moveBlockTo}
             onRemoveBlock={removeBlockWithUndo}
+            draft={draft}
+            onAddBlock={addBlockOf}
+            onAddClips={props.addClips ? openAddClips : undefined}
+            addingTo={docked && addTo !== SORTED_BY_PLAYER ? addTo : null}
+            onDropPlays={docked ? dropPlays : undefined}
+            onRename={renameBlock}
           />
         ) : (
           <div className="w-[288px] shrink-0 border-r border-separator" />

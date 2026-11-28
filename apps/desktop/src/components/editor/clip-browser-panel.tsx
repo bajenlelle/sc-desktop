@@ -223,6 +223,16 @@ const DOCKED_STAGE_MAX_WIDTH = "calc((100cqh - 44px - 44px - 32px) * 16 / 9)";
 /** What a dragged play carries (the docked panel's rows): its `matchId:eventId` keys, as JSON. */
 export const PLAYS_DRAG_TYPE = "application/x-scoutable-plays";
 
+/** The play keys a drop carries, or none for anything else dropped. */
+export function readPlaysDrag(data: DataTransfer): string[] {
+  try {
+    const raw: unknown = JSON.parse(data.getData(PLAYS_DRAG_TYPE));
+    return Array.isArray(raw) ? raw.filter((k): k is string => typeof k === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 /** What a page asks of the docked panel: adds plays dropped on it (the target's value at the time). */
 export interface ClipBrowserHandle {
   addKeys: (keys: string[]) => boolean;

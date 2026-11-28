@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
-import { ChevronRight, EyeOff, Loader2, Plus, StickyNote, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { ChevronRight, EyeOff, ListPlus, Loader2, MoreHorizontal, Plus, StickyNote } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -13,11 +13,23 @@ import {
 } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useListDrag } from "@/components/editor/use-list-drag";
+import { PLAYS_DRAG_TYPE, readPlaysDrag } from "@/components/editor/clip-browser-panel";
+import { AddSectionItems } from "@/components/report/add-section-items";
 import { cn } from "@/lib/utils";
 import { eventColors, eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import { clickSelection, extendSelection } from "@scoutable/shared/lib/list-selection";
-import { LEFT_OUT, canRemoveBlock, type Placement, type ReportBlock, type ReportLayout } from "@scoutable/shared/lib/report-draft";
-import { clipDrop, outlineRows, sectionDropIndex, sectionGap, sectionRowKey, snapClipGap, type OutlineRowRef } from "@scoutable/shared/lib/report-outline";
+import { LEFT_OUT, canRemoveBlock, type Placement, type ReportBlock, type ReportBlockKind, type ReportDraft, type ReportLayout } from "@scoutable/shared/lib/report-draft";
+import {
+  blockDropBefore,
+  blockGap,
+  clipDrop,
+  outlineRows,
+  sectionDropIndex,
+  sectionGap,
+  sectionRowKey,
+  snapClipGap,
+  type OutlineRowRef,
+} from "@scoutable/shared/lib/report-outline";
 import type { PlayByPlayEvent, PlaylistClipItem } from "@/types/match";
 
 export interface OutlineSectionInfo {
@@ -71,7 +83,20 @@ export interface ReportOutlineProps {
   onBlockHidden: (id: string, hidden: boolean) => void;
   /** One place up (-1) or down (1) among the sections. */
   onMoveBlock: (id: string, dir: -1 | 1) => void;
+  /** A section dragged to just before another (by block id), or last (null). */
+  onMoveBlockTo: (id: string, before: string | null) => void;
   onRemoveBlock: (id: string) => void;
+  /** The header's +: the sections the report can still add. */
+  draft: ReportDraft;
+  onAddBlock: (kind: ReportBlockKind) => void;
+  /** + Add clips on a section's row (absent where the report can't add clips). */
+  onAddClips?: (id: Placement) => void;
+  /** The section the docked plays add to, marked on its row; null when they aren't docked or sort by player. */
+  addingTo?: Placement | null;
+  /** Plays dragged from the docked panel and dropped on a section's row. */
+  onDropPlays?: (id: Placement, keys: string[]) => void;
+  /** A section of the coach's own: its name, edited in the document. */
+  onRename?: (id: string) => void;
 }
 const clock = (e: PlayByPlayEvent) => `${periodLabel(e.period)} ${formatGameClock(e.gameClockTime).replace(/^0/, "")}`;
 const clipsNoun = (n: number) => (n === 1 ? "clip" : `${n} clips`);
@@ -83,18 +108,25 @@ const clipsNoun = (n: number) => (n === 1 ? "clip" : `${n} clips`);
  * play and the time; hovering tells the rest.
  *
  * Dragging a clip (or the selection it is in) reorders it or moves it under
- * another player, into the team or out of the report; dragging a player's
- * header moves the player with their clips. The keys do the same: ⌥↑/⌥↓
- * moves the focused row, ⌫ leaves clips out (or removes a player), ←/→ fold
- * and unfold. ⌘-click and ⇧-click select clips, as in the playlist; a plain
- * click or Return plays the clip in its tile. Where a drop lands is worked
- * out in lib/report-outline.ts.
+ * another player, into the team or out of the report; dragging a section's
+ * header moves it with its clips (a player among the players, any other
+ * section between sections). The keys do the same: ⌥↑/⌥↓ moves the focused
+ * row, ⌫ leaves clips out (or removes a player), ←/→ fold and unfold, A adds
+ * clips to the focused section. ⌘-click and ⇧-click select clips, as in the
+ * playlist; a plain click or Return plays the clip in its tile. Where a drop
+ * lands is worked out in lib/report-outline.ts.
+ *
+ * A section's row shows + (Add clips) and ⋯ (its menu, as a right-click) on
+ * hover, takes plays dropped from the docked panel, and marks the section the
+ * panel adds to. The header's + adds players or a section.
  */
 export function ReportOutline(props: ReportOutlineProps) {
   const { layout, sectionInfo, clipInfo, collapsed, selected, anchor, activeId } = props;
   const listRef = useRef<HTMLDivElement | null>(null);
   const noSidebar = useRef<HTMLElement | null>(null);
   const [current, setCurrent] = useState<string | null>(null);
+  // The section a play from the docked panel is dragged over.
+  const [playsOver, setPlaysOver] = useState<Placement | null>(null);
 
   const rows = useMemo(() => outlineRows(layout, collapsed), [layout, collapsed]);
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
@@ -122,7 +154,7 @@ export function ReportOutline(props: ReportOutlineProps) {
     reducedMotion: props.reducedMotion,
     canStart: (key) => {
       const row = rowByKey.get(key);
-      return !!row && (row.kind === "clip" || !!row.player);
+      return !!row && row.id !== LEFT_OUT;
     },
     blockFor: (key) => {
       const row = rowByKey.get(key)!;
@@ -130,12 +162,17 @@ export function ReportOutline(props: ReportOutlineProps) {
       return actionKeys(key);
     },
     badgeCount: (keys) => (rowByKey.get(keys[0])?.kind === "section" ? 1 : keys.length),
-    snapGap: (gap, keys) => (rowByKey.get(keys[0])?.kind === "section" ? sectionGap(rows, gap) : snapClipGap(gap)),
+    snapGap: (gap, keys) => {
+      const first = rowByKey.get(keys[0]);
+      if (first?.kind !== "section") return snapClipGap(gap);
+      return first.player ? sectionGap(rows, gap) : blockGap(rows, gap);
+    },
     onTarget: () => {},
     onDrop: ({ gap, blockKeys }) => {
       const first = rowByKey.get(blockKeys[0]);
       if (first?.kind === "section") {
-        props.onMoveSection(first.id, sectionDropIndex(rows, blockKeys, gap));
+        if (first.player) props.onMoveSection(first.id, sectionDropIndex(rows, blockKeys, gap));
+        else props.onMoveBlockTo(first.block ?? first.id, blockDropBefore(rows, blockKeys, gap));
         return;
       }
       const { to, before } = clipDrop(rows, blockKeys, gap);
@@ -163,6 +200,14 @@ export function ReportOutline(props: ReportOutlineProps) {
     if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "a") {
       e.preventDefault();
       props.onSelectionChange(new Set(clipOrder), clipOrder[0] ?? null);
+      return;
+    }
+    // A: add clips to the focused section, as A adds in the game view and the plays.
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a" && row.kind === "section") {
+      if (row.accepts && row.id !== LEFT_OUT && props.onAddClips) {
+        e.preventDefault();
+        props.onAddClips(row.id);
+      }
       return;
     }
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -237,6 +282,30 @@ export function ReportOutline(props: ReportOutlineProps) {
     }
   }
 
+  /** Plays from the docked panel can land on a section that takes clips. */
+  const takesPlays = (e: DragEvent, row: OutlineRowRef) =>
+    !!props.onDropPlays && row.kind === "section" && !!row.accepts && row.id !== LEFT_OUT && e.dataTransfer.types.includes(PLAYS_DRAG_TYPE);
+  const playsDrop = (row: OutlineRowRef) => ({
+    onDragOver: (e: DragEvent) => {
+      if (!takesPlays(e, row)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      if (playsOver !== row.id) setPlaysOver(row.id);
+    },
+    onDragLeave: (e: DragEvent) => {
+      // Leaving for a child is not leaving.
+      if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+      setPlaysOver((at) => (at === row.id ? null : at));
+    },
+    onDrop: (e: DragEvent) => {
+      setPlaysOver(null);
+      if (!takesPlays(e, row)) return;
+      e.preventDefault();
+      const keys = readPlaysDrag(e.dataTransfer);
+      if (keys.length > 0) props.onDropPlays?.(row.id, keys);
+    },
+  });
+
   function onClipClick(e: MouseEvent, row: OutlineRowRef) {
     const shift = e.shiftKey;
     const toggle = e.metaKey || e.ctrlKey;
@@ -247,7 +316,26 @@ export function ReportOutline(props: ReportOutlineProps) {
   }
 
   return (
-    <nav aria-label="Report outline" className="flex h-full w-[288px] shrink-0 flex-col border-r border-separator">
+    <nav aria-label="Sections" className="flex h-full w-[288px] shrink-0 flex-col border-r border-separator">
+      {/* As a Finder sidebar's group: a quiet name, and + for what can be added. */}
+      <div className="flex h-9 shrink-0 items-center justify-between pr-2 pl-4">
+        <h2 className="text-caption font-semibold text-muted-foreground">Sections</h2>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Add players or a section"
+              title="Add players or a section"
+              className="flex size-6 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-1 hover:text-foreground focus-visible:ring-2 focus-visible:ring-selection data-[state=open]:bg-fill-1 data-[state=open]:text-foreground"
+            >
+              <Plus className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <AddSectionItems draft={props.draft} onAddBlock={props.onAddBlock} onAddPlayers={props.onAddPlayers} />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <div
         ref={listRef}
         role="tree"
@@ -272,6 +360,11 @@ export function ReportOutline(props: ReportOutlineProps) {
               tabStop={row.key === tabStop}
               index={players.indexOf(row.id)}
               playerCount={players.length}
+              adding={props.addingTo === row.id}
+              playsOver={playsOver === row.id}
+              dropHandlers={playsDrop(row)}
+              onAddClips={props.onAddClips && row.accepts && row.id !== LEFT_OUT ? () => props.onAddClips?.(row.id) : undefined}
+              onRename={props.onRename && sectionInfo.get(row.id)?.block?.kind === "custom" ? () => props.onRename?.(row.id) : undefined}
               onPointerDown={(e) => drag.onRowPointerDown(e, row.key)}
               onClick={() => {
                 setCurrent(row.key);
@@ -311,15 +404,12 @@ export function ReportOutline(props: ReportOutlineProps) {
           ),
         )}
       </div>
-      <div className="border-t border-separator p-2">
-        <Button variant="outline" size="sm" className="w-full" onClick={props.onAddPlayers}>
-          <Plus />
-          Add players
-        </Button>
-      </div>
     </nav>
   );
 }
+
+/** One entry of a section's menu, drawn both as its right-click menu and behind its ⋯. */
+type SectionAction = { label: string; onSelect: () => void; disabled?: boolean; destructive?: boolean } | "separator";
 
 function SectionRow({
   row,
@@ -330,6 +420,11 @@ function SectionRow({
   tabStop,
   index,
   playerCount,
+  adding,
+  playsOver,
+  dropHandlers,
+  onAddClips,
+  onRename,
   onPointerDown,
   onClick,
   onToggle,
@@ -348,6 +443,13 @@ function SectionRow({
   /** Among the players; -1 for the team and the left-out group. */
   index: number;
   playerCount: number;
+  /** The docked plays add here. */
+  adding: boolean;
+  /** A play from the docked panel is dragged over the row. */
+  playsOver: boolean;
+  dropHandlers: { onDragOver: (e: DragEvent) => void; onDragLeave: (e: DragEvent) => void; onDrop: (e: DragEvent) => void };
+  onAddClips?: () => void;
+  onRename?: () => void;
   onPointerDown: (e: PointerEvent) => void;
   onClick: () => void;
   onToggle: (all: boolean) => void;
@@ -363,6 +465,28 @@ function SectionRow({
   // A hidden section shrinks to a thin, dimmed row, as a skipped slide does in Keynote.
   const hidden = !!row.hidden && !player;
   const label = info?.label ?? "";
+  const name = `${info?.number ? `#${info.number} ` : ""}${label}`;
+
+  const actions: SectionAction[] = [];
+  if (onAddClips) actions.push({ label: "Add clips…", onSelect: onAddClips }, "separator");
+  if (player) {
+    actions.push({ label: "Move up", onSelect: () => onMove(index - 1), disabled: index <= 0 });
+    actions.push({ label: "Move down", onSelect: () => onMove(index + 1), disabled: index >= playerCount - 1 }, "separator");
+  }
+  if (block) {
+    if (onRename) actions.push({ label: "Rename", onSelect: onRename });
+    actions.push({ label: block.hidden ? "Show to players" : "Hide from players", onSelect: () => onBlockHidden(!block.hidden) });
+    actions.push({ label: "Move up", onSelect: () => onMoveBlock(-1) }, { label: "Move down", onSelect: () => onMoveBlock(1) }, "separator");
+  }
+  actions.push({ label: open ? "Collapse" : "Expand", onSelect: () => onToggle(false) });
+  if (block && canRemoveBlock(block.kind)) actions.push("separator", { label: "Remove section", onSelect: onRemoveBlock, destructive: true });
+  if (player) actions.push("separator", { label: "Remove from report", onSelect: onRemove, destructive: true });
+
+  // The row's own buttons don't start a drag, select it or scroll the document.
+  const own = { onPointerDown: (e: PointerEvent) => e.stopPropagation(), onClick: (e: MouseEvent) => e.stopPropagation() };
+  const quiet =
+    "hidden size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-fill-3 hover:text-foreground group-hover:flex group-focus-within:flex group-has-[[data-state=open]]:flex data-[state=open]:bg-fill-3 data-[state=open]:text-foreground";
+  const withButtons = !leftOut;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -372,16 +496,17 @@ function SectionRow({
           aria-level={1}
           aria-expanded={open}
           aria-current={active ? "location" : undefined}
-          aria-label={`${info?.number ? `#${info.number} ` : ""}${label}, ${clipsNoun(count)}`}
+          aria-label={`${name}, ${clipsNoun(count)}${adding ? ", plays are added here" : ""}`}
           tabIndex={tabStop ? 0 : -1}
           onPointerDown={onPointerDown}
           onClick={onClick}
+          {...dropHandlers}
           className={cn(
             "group relative mt-0.5 flex shrink-0 select-none items-center gap-1 rounded-md pr-1 text-sm outline-none transition-[background-color,height,opacity] duration-150 focus-visible:ring-2 focus-visible:ring-selection first:mt-0",
             hidden ? "h-6 text-caption opacity-55" : "h-8",
-            leftOut ? "mt-2 text-muted-foreground" : "text-foreground",
+            leftOut ? "mt-2 text-muted-foreground" : "text-foreground cursor-grab active:cursor-grabbing",
             active ? "bg-fill-2" : "hover:bg-fill-1",
-            player && "cursor-grab active:cursor-grabbing",
+            playsOver && "ring-2 ring-selection",
           )}
         >
           <button
@@ -399,63 +524,62 @@ function SectionRow({
           {player && <span className="w-6 shrink-0 text-right text-caption text-muted-foreground nums">{info?.number ? `#${info.number}` : ""}</span>}
           <span className={cn("min-w-0 flex-1 truncate", player && "pl-1", !leftOut && !hidden && "font-medium")}>{label}</span>
           {hidden && <EyeOff className="size-3 shrink-0 text-muted-foreground" aria-label="Hidden from players" />}
+          {adding && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ListPlus aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="right">Plays are added here</TooltipContent>
+            </Tooltip>
+          )}
           {info?.statsLoading ? (
             <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" aria-label="Reading the stats" />
           ) : (
-            <span className={cn("shrink-0 px-1 text-caption text-muted-foreground nums", player && "group-hover:hidden group-focus-within:hidden")}>{count}</span>
-          )}
-          {player && (
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-label={`Remove ${label}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove();
-              }}
-              className="hidden size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-fill-3 hover:text-foreground group-hover:flex group-focus-within:flex"
+            <span
+              className={cn(
+                "shrink-0 px-1 text-caption text-muted-foreground nums",
+                withButtons && "group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden",
+              )}
             >
-              <X className="size-3.5" />
+              {count}
+            </span>
+          )}
+          {withButtons && onAddClips && (
+            <button type="button" tabIndex={-1} aria-label={`Add clips to ${name}`} title={`Add clips to ${name}`} {...own} onClick={(e) => (e.stopPropagation(), onAddClips())} className={quiet}>
+              <Plus className="size-3.5" />
             </button>
+          )}
+          {withButtons && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" tabIndex={-1} aria-label={`${name} options`} {...own} className={quiet}>
+                  <MoreHorizontal className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="right" onClick={(e) => e.stopPropagation()}>
+                {actions.map((a, i) =>
+                  a === "separator" ? (
+                    <DropdownMenuSeparator key={`s${i}`} />
+                  ) : (
+                    <DropdownMenuItem key={a.label} disabled={a.disabled} onSelect={a.onSelect} className={a.destructive ? "text-destructive focus:text-destructive" : undefined}>
+                      {a.label}
+                    </DropdownMenuItem>
+                  ),
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {player && (
-          <>
-            <ContextMenuItem disabled={index <= 0} onSelect={() => onMove(index - 1)}>
-              Move up
+        {actions.map((a, i) =>
+          a === "separator" ? (
+            <ContextMenuSeparator key={`s${i}`} />
+          ) : (
+            <ContextMenuItem key={a.label} disabled={a.disabled} onSelect={a.onSelect} className={a.destructive ? "text-destructive focus:text-destructive" : undefined}>
+              {a.label}
             </ContextMenuItem>
-            <ContextMenuItem disabled={index >= playerCount - 1} onSelect={() => onMove(index + 1)}>
-              Move down
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-          </>
-        )}
-        {block && (
-          <>
-            <ContextMenuItem onSelect={() => onBlockHidden(!block.hidden)}>{block.hidden ? "Show to players" : "Hide from players"}</ContextMenuItem>
-            <ContextMenuItem onSelect={() => onMoveBlock(-1)}>Move up</ContextMenuItem>
-            <ContextMenuItem onSelect={() => onMoveBlock(1)}>Move down</ContextMenuItem>
-            <ContextMenuSeparator />
-          </>
-        )}
-        <ContextMenuItem onSelect={() => onToggle(false)}>{open ? "Collapse" : "Expand"}</ContextMenuItem>
-        {block && canRemoveBlock(block.kind) && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={onRemoveBlock}>
-              Remove section
-            </ContextMenuItem>
-          </>
-        )}
-        {player && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={onRemove}>
-              Remove from report
-            </ContextMenuItem>
-          </>
+          ),
         )}
       </ContextMenuContent>
     </ContextMenu>
