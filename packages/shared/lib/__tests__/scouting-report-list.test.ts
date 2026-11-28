@@ -111,14 +111,14 @@ describe("mergeReportList", () => {
     expect(byPlaylist["pl-ume"]).toMatchObject({ status: "draft", title: "Umeå away" });
   });
 
-  it("joins a shared report with its draft: the report's status and title, the draft's players", () => {
+  it("joins a shared report with its draft: the report's status, the draft's title (renamed since sharing) and players", () => {
     const [item] = mergeReportList(
       [report({ id: "r1", playlistId: "pl-aik", title: "AIK scouting" })],
       [draft({ playlistId: "pl-aik", title: "AIK (edited)", players: 5 })],
       playlists,
       NOW,
     );
-    expect(item).toMatchObject({ status: "live", title: "AIK scouting", players: 5 });
+    expect(item).toMatchObject({ status: "live", title: "AIK (edited)", players: 5 });
   });
 
   it("dates the change by whichever of the report and draft changed last", () => {
@@ -173,6 +173,11 @@ describe("filterReportList", () => {
 
   it("keeps the drafts for Drafts", () => {
     expect(filterReportList(items, "drafts", "").map((i) => i.playlistId)).toEqual(["pl-sod"]);
+  });
+
+  it("names a shared report whose draft has no title by the shared title", () => {
+    const [item] = mergeReportList([report({ id: "r1", playlistId: "pl-aik", title: "AIK scouting" })], [draft({ playlistId: "pl-aik" })], playlists, NOW);
+    expect(item.title).toBe("AIK scouting");
   });
 
   it("searches title and playlist name, ignoring case and accents", () => {

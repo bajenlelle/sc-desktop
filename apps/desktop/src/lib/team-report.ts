@@ -13,7 +13,7 @@
 import { getTeamSources } from "@scoutable/shared/lib/league-teams-db";
 import { listTeamRoster } from "@scoutable/shared/lib/league-players-db";
 import { leagueSeason } from "@scoutable/shared/lib/league-season";
-import { emptyDraft, setOpponent, type ReportGame, type ReportTeam } from "@scoutable/shared/lib/report-draft";
+import { emptyDraft, setOpponent, setTitle, type ReportGame, type ReportTeam } from "@scoutable/shared/lib/report-draft";
 import { makeSeasonCard, seasonOfCompetition } from "@scoutable/shared/lib/stats-card-data";
 import { teamSeasons } from "@scoutable/shared/lib/team-games";
 import { teamKeys } from "@scoutable/shared/lib/team-keys";
@@ -24,10 +24,10 @@ import type { League } from "@scoutable/shared/types/league";
 import { trackEvent } from "@/lib/analytics";
 import { loadFixtures, loadSeason } from "@/lib/league-data";
 import { announcePlaylistsChanged } from "@/lib/playlist-events";
-import { appendClips, createPlaylist, deletePlaylist } from "@/lib/playlists-db";
+import { appendClips, createPlaylist, deletePlaylist, updatePlaylist } from "@/lib/playlists-db";
 import { isClipItem, type Playlist, type PlaylistClipItem } from "@/types/match";
 import { setCollectTarget } from "@/lib/prefs";
-import { deleteReportDraft, saveReportDraft } from "@/lib/report-drafts-db";
+import { deleteReportDraft, getReportDraft, saveReportDraft } from "@/lib/report-drafts-db";
 import { revokeScoutingReport } from "@/lib/scouting-reports-db";
 import { loadSeasonPlayers } from "@/lib/stats-card-data";
 import { createClient } from "@/lib/supabase/client";
@@ -176,6 +176,54 @@ export async function createNamedReport(opponent: string, ctx: { orgId: string |
   trackEvent("scouting_report_started", { from: "reports", opponent: "typed", players: 0, keys: 0, game: false });
   announcePlaylistsChanged();
   return playlist.id;
+}
+
+/** What a blank report is called until the coach names it. */
+export const BLANK_REPORT_NAME = "Untitled report";
+
+/**
+ * Reports' Blank report: a report on no team, its own clips and nothing filled
+ * in, named by the coach in its Title field. Resolves with the report's id. A
+ * failed draft write takes the report back.
+ */
+export async function createBlankReport(ctx: { orgId: string | null }): Promise<string> {
+  const playlist = await createPlaylist(BLANK_REPORT_NAME, undefined, ctx.orgId ?? undefined, { kind: "report" });
+  try {
+    await saveReportDraft(playlist.id, emptyDraft());
+  } catch (e) {
+    await deletePlaylist(playlist.id).catch(() => {});
+    throw e;
+  }
+  trackEvent("playlist_created", { playlist_id: playlist.id, in_folder: false, surface: "report" });
+  trackEvent("scouting_report_started", { from: "reports", opponent: "none", players: 0, keys: 0, game: false });
+  announcePlaylistsChanged();
+  return playlist.id;
+}
+
+/**
+ * A report has one name: the draft's title, and for a report that owns its
+ * clips the name of its playlist too, so the window, the search and the lists
+ * all say the same. A report made on a playlist the coach keeps leaves that
+ * playlist's name alone. The report page writes the title through its own
+ * draft and calls `renameReportPlaylist`; the Reports list, with no draft
+ * open, calls `renameReport`.
+ */
+export async function renameReportPlaylist(playlist: { id: string; kind?: string | null }, name: string): Promise<void> {
+  const next = name.trim();
+  if (!next || playlist.kind !== "report") return;
+  await updatePlaylist(playlist.id, { name: next });
+  announcePlaylistsChanged();
+}
+
+export async function renameReport(playlist: { id: string; kind?: string | null }, name: string): Promise<void> {
+  const next = name.trim();
+  if (!next) return;
+  const stored = await getReportDraft(playlist.id);
+  const draft = stored?.draft ?? emptyDraft();
+  const renamed = setTitle(draft, next);
+  if (renamed !== draft || !stored) await saveReportDraft(playlist.id, renamed);
+  if (playlist.kind === "report") await updatePlaylist(playlist.id, { name: next });
+  announcePlaylistsChanged();
 }
 
 /**

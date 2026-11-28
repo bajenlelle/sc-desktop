@@ -110,6 +110,8 @@ export interface ReportDocumentProps {
   onPlayClip: (key: string) => void;
   onStopClip: () => void;
   onTitle: (title: string) => void;
+  /** The Title field takes the keyboard when the page opens (a blank report). */
+  focusTitle?: boolean;
   onOpponent: (opponent: string) => void;
   onIntro: (intro: string) => void;
   onNote: (id: string, note: string) => void;
@@ -231,7 +233,8 @@ function ReportHeader({
   leftOut,
   onTitle,
   onOpponent,
-}: Pick<ReportDocumentProps, "draft" | "playlistName" | "defaultOpponent" | "onTitle" | "onOpponent"> & { players: number; clips: number; leftOut: number }) {
+  focusTitle,
+}: Pick<ReportDocumentProps, "draft" | "playlistName" | "defaultOpponent" | "onTitle" | "onOpponent" | "focusTitle"> & { players: number; clips: number; leftOut: number }) {
   const [title, setTitle] = useState(draft.title ?? "");
   const [opponent, setOpponent] = useState(draft.opponent ?? "");
   useEffect(() => setTitle(draft.title ?? ""), [draft.title]);
@@ -267,6 +270,8 @@ function ReportHeader({
       </div>
       <input
         aria-label="Title"
+        autoFocus={focusTitle}
+        onFocus={focusTitle ? (e) => e.currentTarget.select() : undefined}
         value={title}
         maxLength={REPORT_TITLE_MAX}
         placeholder={playlistName}
@@ -960,6 +965,7 @@ export function ReportDocument(props: ReportDocumentProps) {
         leftOut={props.leftOutCount}
         onTitle={props.onTitle}
         onOpponent={props.onOpponent}
+        focusTitle={props.focusTitle}
       />
       <>
           <GrowingText

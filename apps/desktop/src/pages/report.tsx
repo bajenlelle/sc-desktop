@@ -11,7 +11,7 @@ import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { useBack, usePageTitle } from "@/lib/nav-history";
 import { useLeagues } from "@/lib/use-leagues";
 import { useReportWorkspace } from "@/lib/use-report-workspace";
-import { deleteReport } from "@/lib/team-report";
+import { deleteReport, renameReportPlaylist } from "@/lib/team-report";
 import { isReportClips } from "@/types/match";
 import { isLiveReport } from "@scoutable/shared/lib/scouting-reports-db";
 import { toast } from "sonner";
@@ -20,6 +20,8 @@ import { toast } from "sonner";
 export interface ReportPageState {
   /** Share again from the Reports list: the share sheet opens once the report is read. */
   share?: boolean;
+  /** A blank report, just made: its Title field takes the keyboard, to be named first. */
+  focusTitle?: boolean;
 }
 
 /** Where a report goes back to when nothing was before it. */
@@ -71,6 +73,22 @@ export function ReportPage() {
     toast("Report deleted");
     navigate("/reports", { replace: true });
   }, [ws.playlist, myReport, navigate]);
+  // One name: an own report's playlist takes the title typed on the page (lib/team-report.ts).
+  const { setName } = ws;
+  const renamed = useCallback(
+    (name: string) => {
+      const pl = ws.playlist;
+      if (!pl || !isReportClips(pl) || !name.trim() || name.trim() === pl.name) return;
+      const before = pl.name;
+      setName(name.trim());
+      renameReportPlaylist(pl, name).catch((e) => {
+        console.error("[report] couldn't rename the report:", e);
+        setName(before);
+        toast.error("Couldn’t rename the report. Check your connection and try again.");
+      });
+    },
+    [ws.playlist, setName],
+  );
   // Read once: a reload or Back to this page doesn't open the share sheet again.
   const clearShare = useCallback(() => navigate(location.pathname, { replace: true, state: { ...state, share: false } }), [navigate, location.pathname, state]);
 
@@ -136,6 +154,8 @@ export function ReportPage() {
         addClips={addClips}
         patchClip={isReportClips(ws.playlist) ? ws.patchClip : undefined}
         onDeleteReport={deleteThis}
+        onRenamed={renamed}
+        focusTitle={!!state.focusTitle}
       />
     </Page>
   );

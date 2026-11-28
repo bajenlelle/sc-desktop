@@ -141,6 +141,10 @@ export interface ReportViewProps {
   patchClip?: (key: string, patch: Partial<PlaylistClipItem>) => void;
   /** Delete report (the toolbar's ⋯, on the report's own page): resolves once it is gone; the page goes on to Reports. */
   onDeleteReport?: () => Promise<void>;
+  /** The title was changed on the page: the report's name everywhere follows (pages/report.tsx). */
+  onRenamed?: (name: string) => void;
+  /** Open with the Title field focused (a blank report, just made). */
+  focusTitle?: boolean;
   addClips?: {
     add: (clips: PlaylistClipItem[]) => Promise<AddedClips | null>;
     remove: (keys: readonly string[]) => Promise<boolean>;
@@ -1135,7 +1139,12 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 statsFailed={statsFailed}
                 statsContextOf={statsContextOf}
                 photos={photos}
-                onTitle={(t) => apply((d) => setTitle(d, t))}
+                onTitle={(t) => {
+                  if ((draft.title ?? "") === t.trim()) return;
+                  apply((d) => setTitle(d, t));
+                  props.onRenamed?.(t);
+                }}
+                focusTitle={props.focusTitle}
                 onOpponent={(o) => apply((d) => setOpponent(d, o))}
                 onIntro={(i) => apply((d) => setIntro(d, i))}
                 onNote={(id, n) => apply((d) => setNote(d, id, n))}
