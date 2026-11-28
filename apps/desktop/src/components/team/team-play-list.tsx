@@ -191,7 +191,6 @@ export function TeamPlayList({
   onAdd,
   onRemove,
   onLabel,
-  selectionBar,
   competitionId,
 }: {
   rows: readonly ListRow[];
@@ -212,8 +211,6 @@ export function TeamPlayList({
   onAdd: (key: string, anchor: HTMLElement) => void;
   onRemove: (key: string) => void;
   onLabel: (key: string) => void;
-  /** The selection's pill (PlaysSelectionBar), over the bottom of the list while plays are selected. */
-  selectionBar?: ReactNode;
 }) {
   /** The play the menu is open on, and its row: one menu for the whole list, as the game view's. */
   const [menuFor, setMenuFor] = useState<{ key: string; anchor: HTMLElement } | null>(null);
@@ -246,8 +243,7 @@ export function TeamPlayList({
         <ContextMenuTrigger asChild>
       <div
         ref={scrollRef}
-        // Room under the last play for the selection's pill, so it never covers one.
-        className={cn(LIST_GROUP, "h-full overflow-y-auto", selected.size > 0 && "pb-16")}
+        className={cn(LIST_GROUP, "h-full overflow-y-auto")}
         role="list"
         aria-label="Plays"
         {...listSelecting(selected.size > 0)}
@@ -299,9 +295,6 @@ export function TeamPlayList({
         </ContextMenuTrigger>
         {menuFor && rowMenu(menuFor.key, menuFor.anchor)}
       </ContextMenu>
-      {/* The pill's own container (SelectionBar sizes its labels by it): on the list's parent, a container query
-          makes WebKit throw a windowed list's scroll back when its rows are redrawn. */}
-      {selectionBar && <div className="pointer-events-none absolute inset-x-0 bottom-0 @container">{selectionBar}</div>}
     </div>
   );
 }

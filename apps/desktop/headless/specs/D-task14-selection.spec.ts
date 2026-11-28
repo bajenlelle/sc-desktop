@@ -23,9 +23,10 @@ import {
 const TARGET = owned("target");
 
 const selectedRows = (page: Page) => page.getByRole("list", { name: "Plays" }).locator("[data-selected]");
+/** The selection's bar: the count line over the list while plays are selected. */
 const pill = (page: Page) => page.getByRole("toolbar", { name: "Selection" });
-/** The pill's count on its own: the number, then its "selected" (hidden on a narrow list, still in the text). */
-const pillCount = (page: Page) => pill(page).locator("span.nums").first();
+/** The bar's count: "3 selected". */
+const pillCount = (page: Page) => pill(page).getByRole("status");
 
 test.afterEach(async ({ page }) => {
   await deleteOwnedPlaylists(page, [TARGET]);
@@ -46,23 +47,26 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await expect(selectedRows(page)).toHaveCount(3);
   for (const row of picked) await expect(row).toHaveAttribute("data-selected", "true");
   await expect(pill(page)).toBeVisible();
-  // At 1440 wide with the sidebar shown the list is under 30rem, so the pill shows its icons only
-  // (PILL_LABEL is `@min-[30rem]`): the buttons are named by their titles.
-  await expect(pillCount(page)).toHaveText(/^3\s*selected$/);
-  await expect(pill(page).getByRole("button", { name: `Add 3 plays to ${TARGET}` })).toBeVisible();
-  const addSelected = pill(page).locator(`[title="Add 3 plays to ${TARGET}"]`);
-  await expect(pill(page).getByRole("button", { name: "Add to another playlist" })).toBeVisible();
+  // The bar says how many and what Add does; in a list this narrow "Add 3" keeps its words, the rest their icons.
+  await expect(pillCount(page)).toHaveText("3 selected");
+  const addSelected = pill(page).getByRole("button", { name: `Add 3 plays to ${TARGET}` });
+  await expect(addSelected).toBeVisible();
+  await expect(addSelected).toContainText("Add 3");
+  await expect(pill(page).getByRole("button", { name: "Add to…" })).toBeVisible();
+  // The select-all check says some are selected.
+  await expect(page.getByRole("checkbox", { name: /^Select all \d+$/ })).toHaveAttribute("aria-checked", "mixed");
   await shot(page, name("pill-narrow"));
-  // A wider window with the sidebar hidden gives the list room for the words: "3 selected", "Add to {target}",
-  // "Another playlist" (at 1440 without the sidebar it would clear 30rem by a few pixels only).
+  // A wider window with the sidebar hidden gives the list room for the target's name too.
   await page.setViewportSize({ width: 1920, height: 900 });
   await page.getByRole("button", { name: "Hide sidebar" }).click();
-  await expect(pill(page).getByText("selected")).toBeVisible();
-  await expect(addSelected).toHaveText(`Add to ${TARGET}`);
-  await expect(pill(page).getByRole("button", { name: `Add to ${TARGET}`, exact: true })).toBeVisible();
-  await expect(pill(page).getByText("Another playlist")).toBeVisible();
+  await expect(addSelected).toContainText(`to ${TARGET}`);
+  await expect(pill(page).getByText("Add to…")).toBeVisible();
   await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
+  // A plain click plays a play and leaves the picked ones picked.
+  await rows.nth(9).click();
+  await expect(rows.nth(9)).toHaveAttribute("aria-current", "true");
+  await expect(selectedRows(page)).toHaveCount(3);
   // ⌘-click toggles: a fourth on and off again.
   await rows.nth(7).click({ modifiers: ["Meta"] });
   await expect(selectedRows(page)).toHaveCount(4);
@@ -101,7 +105,7 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await expect(selectedRows(page)).toHaveCount(5);
   for (let i = 10; i <= 14; i++) await expect(rows.nth(i)).toHaveAttribute("data-selected", "true");
   await expect(rows.nth(14)).toHaveAttribute("aria-current", "true");
-  await expect(pillCount(page)).toHaveText(/^5\s*selected$/);
+  await expect(pillCount(page)).toHaveText("5 selected");
   await shot(page, name("shift-down"));
 
   // Esc clears.
@@ -120,7 +124,7 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await rows.nth(7).locator("[data-row-check]").click();
   await expect(selectedRows(page)).toHaveCount(0);
 
-  // ⌘A with one team's plays listed selects exactly the listed plays.
+  // ⌘A with one team's plays listed selects exactly the listed plays the target doesn't have yet.
   const total = await rows.count();
   const teams = page.getByRole("radiogroup", { name: "Team" }).getByRole("radio");
   await teams.nth(1).click();
@@ -129,9 +133,11 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   const listed = await rows.count();
   expect(listed).toBeGreaterThan(0);
   await rows.first().click();
+  const inTarget = await rows.filter({ has: page.locator(`[aria-label^="In ${TARGET}"], [aria-label="Already in ${TARGET}"]`) }).count();
   await page.keyboard.press("Meta+A");
-  await expect(selectedRows(page)).toHaveCount(listed);
-  await expect(pillCount(page)).toHaveText(new RegExp(`^${listed}\\s*selected$`));
+  await expect(selectedRows(page)).toHaveCount(listed - inTarget);
+  await expect(pillCount(page)).toHaveText(`${listed - inTarget} selected`);
+  await expect(page.getByRole("checkbox", { name: "Deselect all" })).toHaveAttribute("aria-checked", "true");
   await shot(page, name("select-all-filtered"));
   // Another team listed: the hidden plays leave the selection.
   await teams.nth(2).click();
@@ -141,21 +147,10 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await teams.nth(0).click();
   await expect.poll(() => rows.count()).toBe(total);
 
-  // With a selection, the list scrolled away from the current play: "Jump to now" sits above the pill.
+  // The select-all check: every listed play the target can take, and again lets them all go.
   await rows.nth(2).click();
-  await expect(rows.nth(2)).toHaveAttribute("aria-current", "true");
-  await rows.nth(4).click({ modifiers: ["Meta"] });
+  await page.getByRole("checkbox", { name: /^Select all \d+$/ }).click();
   await expect(pill(page)).toBeVisible();
-  await page.waitForTimeout(800); // past the list's own-scroll grace after the click
-  const scroller = page.getByRole("list", { name: "Plays" });
-  await scroller.evaluate((el) => el.scrollTo({ top: el.scrollHeight / 2 }));
-  const jump = page.getByRole("button", { name: "Jump to now" });
-  await expect(jump).toBeVisible();
-  await page.waitForTimeout(500); // both pills risen
-  const jumpBox = (await jump.boundingBox())!;
-  const pillBox = (await pill(page).boundingBox())!;
-  expect(jumpBox.y + jumpBox.height, "Jump to now ends above the selection pill").toBeLessThanOrEqual(pillBox.y);
-  await shot(page, name("jump-above-pill"));
-  await page.keyboard.press("Escape");
+  await page.getByRole("checkbox", { name: "Deselect all" }).click();
   await expect(pill(page)).toHaveCount(0);
 });

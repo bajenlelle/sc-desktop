@@ -40,9 +40,9 @@ const LOOKAHEAD_PX = 64;
  * row: `rowMenu` draws it for the play it opened on, so the memoised rows
  * don't redraw when the playlists change. Markers and headers have none.
  *
- * Plays the coach picks (⌘-click, Shift-click) are `selected`; what can be
- * done with them floats over the bottom of the list (`selectionBar`), and the
- * "Jump to now" pill rises above it while it is there.
+ * Plays the coach picks (⌘-click, Shift-click, a row's check) are
+ * `selected`; what can be done with them is the count line over the list
+ * (PlaysCountLine's selection), which leaves the rows uncovered.
  */
 export function GamePlayList({
   rows,
@@ -70,7 +70,6 @@ export function GamePlayList({
   onMarker,
   onClearFilters,
   rowMenu,
-  selectionBar,
   selecting,
 }: {
   rows: readonly GameRow[];
@@ -108,9 +107,7 @@ export function GamePlayList({
   onClearFilters: () => void;
   /** A play's menu (right-click), as `ContextMenuContent`; `anchor` is its row. Without it, no menu. */
   rowMenu?: (play: TimedPlay, anchor: HTMLElement) => ReactNode;
-  /** The selection's pill (a `SelectionBar`), over the bottom of the list. */
-  selectionBar: ReactNode;
-  /** Something is selected: the pill is up. */
+  /** Something is selected: every row shows its check. */
   selecting: boolean;
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -313,7 +310,7 @@ export function GamePlayList({
               if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
             }}
             // Room for the selection's pill under the last row, as in the editor.
-            className={cn(LIST_GROUP, "min-h-0 flex-1 overflow-y-auto", selecting ? "pb-16" : "pb-4")}
+            className={cn(LIST_GROUP, "min-h-0 flex-1 overflow-y-auto", "pb-4")}
           >
             {rows.map((row) => {
               if (row.kind === "play") {
@@ -382,7 +379,6 @@ export function GamePlayList({
         </ContextMenuTrigger>
         {menuFor && rowMenu?.(menuFor.play, menuFor.anchor)}
       </ContextMenu>
-      {selectionBar}
       <AnimatePresence>
         {!following && away && (
           <motion.div
@@ -391,7 +387,7 @@ export function GamePlayList({
             initial="hidden"
             animate="visible"
             exit="exit"
-            className={cn("pointer-events-none absolute inset-x-0 z-30 flex justify-center", selecting ? "bottom-14" : "bottom-3")}
+            className={cn("pointer-events-none absolute inset-x-0 z-30 flex justify-center bottom-3")}
           >
             <button
               type="button"

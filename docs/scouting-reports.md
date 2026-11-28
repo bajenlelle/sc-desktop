@@ -153,6 +153,13 @@ adds to one section of the report.
   stays as the coach left it (⌘B hides it for room); under 1100 px (or when
   the window narrows) they open as the sheet over the report instead. The
   toolbar's Add clips shows and hides the docked plays.
+- **Many plays at once.** Add clips picks plays as the game view does
+  (docs/game-view.md, "Picking plays"): the count line's check selects every
+  listed play the section can take, the line becomes the bar ("Add 43 to
+  Keys", Label, ×), a right-click on a selected row adds them all or to
+  another section ("Add 2 to section ▸"), and dragging a selected row drops
+  the whole selection on a section (which then lets go of it). "Add all n"
+  while a filter is on.
 - **Docked keys.** The panel's keys (arrows, Space, A, G, ⌘F) are its own
   only while the keyboard is in it; anywhere else the report keeps its own
   (⌘Z, Esc). Esc in the panel lets go of a selection, then puts it away; in

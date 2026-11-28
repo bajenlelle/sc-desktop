@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { gamePath, teamPath } from "@/components/entity-link";
-import { Film } from "lucide-react";
+import { Check, Film, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { playersByTeam } from "@scoutable/shared/lib/clip-filters";
 import { activeGroups, EMPTY_PLAY_FILTERS, playFiltersActive, type PlayFilters } from "@scoutable/shared/lib/play-filters";
@@ -34,7 +34,8 @@ import type { TeamPlays } from "@/lib/use-team-plays";
 import { TeamPlayList, type ListRow, type RowClick } from "./team-play-list";
 import { TeamPlaysFilters } from "./team-plays-filters";
 import { PlaysCountLine } from "@/components/plays/plays-count-line";
-import { PlaysSelectionBar } from "@/components/plays/plays-selection-bar";
+import { PlaysSelectionActions } from "@/components/plays/plays-selection-bar";
+import { clickSelection, extendSelection, moveFocus, pruneSelection, selectAll, selectAllState, toggleKey, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { usePlayMoments } from "@/components/plays/use-play-moments";
 import { trackEvent } from "@/lib/analytics";
 import { useRecalled, useRememberPage } from "@/lib/page-memory";
@@ -173,9 +174,17 @@ export function TeamPlaysView({
   // Hidden (Season shown), nothing plays on.
   if (!active && !video.paused) video.pause();
 
-  // ---- Selection: ⌘-click toggles, Shift-click a range, ⌘A every listed play, Esc lets go ----
+  // ---- Selection (list-selection.ts, as the game view and Add clips): a plain click plays and keeps the picked
+  // plays, ⌘-click or a row's check toggles, Shift-click and Shift+arrows a range, Return the play on screen,
+  // ⌘A every listed play the target can still take, Esc lets go ----
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => kept?.selected ?? new Set());
   const anchor = useRef<string | null>(null);
+  const extendFocus = useRef<string | null>(null);
+  const playKeys = useMemo(() => playRows.map((r) => r.key), [playRows]);
+  // A filter that hides selected plays lets go of them: what is picked is always what is listed (and added).
+  useEffect(() => setSelected((prev) => pruneSelection(prev, playKeys)), [playKeys]);
+  /** The listed plays the target has already: select all leaves them out. */
+  const blockedKeys = useMemo(() => new Set(playKeys.filter((k) => collect.statusOf(k) !== "none")), [playKeys, collect]);
 
   // How the plays are left, for the way back; and on the way back, the play that was on the stage, shown again
   // where it starts, paused, once its row is listed.
@@ -196,28 +205,30 @@ export function TeamPlaysView({
       // arrows move between its options) lets go, so ↑ ↓ walk the plays. The row itself doesn't take focus.
       const held = document.activeElement;
       if (held instanceof HTMLElement && held !== document.body) held.blur();
-      if (how.toggle) {
-        setSelected((s) => {
-          const next = new Set(s);
-          if (next.has(key)) next.delete(key);
-          else next.add(key);
-          return next;
-        });
-        anchor.current = key;
-        return;
-      }
-      if (how.range && anchor.current) {
-        const keys = playRows.map((r) => r.key);
-        const [a, b] = [keys.indexOf(anchor.current), keys.indexOf(key)].sort((x, y) => x - y);
-        if (a >= 0) setSelected(new Set(keys.slice(a, b + 1)));
-        return;
-      }
-      anchor.current = key;
-      setSelected(new Set());
-      playback.play(key);
+      const shift = !!how.range;
+      const toggle = !shift && !!how.toggle;
+      setSelected((prev) => {
+        const next = clickSelection({ order: playKeys, selected: prev, anchor: anchor.current, focus: extendFocus.current, key, shift, toggle, keepOnPlain: true });
+        anchor.current = next.anchor;
+        extendFocus.current = next.focus;
+        return next.selected;
+      });
+      if (!shift && !toggle) playback.play(key);
     },
-    [playRows, playback],
+    [playKeys, playback],
   );
+  /** Shift+arrows: select from the anchor to the play there, and play it. */
+  const extendTo = (move: FocusMove) => {
+    const from = extendFocus.current ?? playback.currentKey;
+    const to = moveFocus(playKeys, from, move);
+    if (to === null) return;
+    const shown = (k: string | null): k is string => k !== null && playKeys.includes(k);
+    const from0 = shown(anchor.current) ? anchor.current : shown(from) ? from : to;
+    setSelected((prev) => extendSelection({ order: playKeys, selected: prev, anchor: from0, previousFocus: shown(from) ? from : null, focus: to }));
+    anchor.current = from0;
+    extendFocus.current = to;
+    if (to !== playback.currentKey) playback.play(to);
+  };
 
   // ---- Collecting and labels: on the selection when there is one, else on the play shown ----
   // From a row (its Label, +, or menu), Finder's rule: the selection if the row is in it, else that row alone.
@@ -403,11 +414,36 @@ export function TeamPlaysView({
         setSelected(new Set());
         return;
       }
+      // Return picks the play on screen, or lets it go.
+      if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && playback.currentKey && !blockedKeys.has(playback.currentKey)) {
+        if (e.target instanceof HTMLElement && e.target.closest("button, a, input, textarea")) return;
+        e.preventDefault();
+        const key = playback.currentKey;
+        setSelected((prev) => toggleKey(prev, key));
+        anchor.current = key;
+        return;
+      }
       const action = resolvePlayerKey(e);
       switch (action) {
         case "select-all":
           e.preventDefault();
-          setSelected(new Set(playRows.map((r) => r.key)));
+          setSelected(selectAll(playKeys, blockedKeys));
+          return;
+        case "extend-next":
+          e.preventDefault();
+          extendTo(1);
+          return;
+        case "extend-prev":
+          e.preventDefault();
+          extendTo(-1);
+          return;
+        case "extend-first":
+          e.preventDefault();
+          extendTo("first");
+          return;
+        case "extend-last":
+          e.preventDefault();
+          extendTo("last");
           return;
         case "toggle-play":
           e.preventDefault();
@@ -528,7 +564,44 @@ export function TeamPlaysView({
               detail={`in ${gameCount} ${gameCount === 1 ? "game" : "games"}`}
               filtered={filtered || !!pick}
               onClear={clearAll}
-              trail="Newest game first"
+              trail={
+                <>
+                  {/* While filters narrow the list, its plays go in with one press (as the game view's Add all). */}
+                  {(filtered || !!pick) && playKeys.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      disabled={blockedKeys.size === playKeys.length}
+                      onClick={(e) =>
+                        collect.add(timed(playRows.filter((r) => !blockedKeys.has(r.key))), "bulk", null, e.currentTarget)
+                      }
+                    >
+                      {blockedKeys.size === playKeys.length ? <Check /> : <Plus />}
+                      {blockedKeys.size === playKeys.length
+                        ? "All added"
+                        : blockedKeys.size === 0
+                          ? `Add all ${playKeys.length}`
+                          : `Add the other ${playKeys.length - blockedKeys.size}`}
+                    </Button>
+                  )}
+                  Newest game first
+                </>
+              }
+              selection={{
+                state: selectAllState(playKeys, selected, blockedKeys),
+                selected: selected.size,
+                selectable: playKeys.length - blockedKeys.size,
+                onSelectAll: () => setSelected(selectAll(playKeys, blockedKeys)),
+                onClear: () => setSelected(new Set()),
+                actions: (
+                  <PlaysSelectionActions
+                    count={selected.size}
+                    collect={collect}
+                    plays={() => timed(playRows.filter((r) => selected.has(r.key)))}
+                    onClear={() => setSelected(new Set())}
+                  />
+                ),
+              }}
             />
             {plays.failed.length > 0 && (
               <div className="flex shrink-0 items-center gap-3 border-b border-separator px-4 py-2">
@@ -559,14 +632,6 @@ export function TeamPlaysView({
                 onAdd={onAdd}
                 onRemove={onRemove}
                 onLabel={setLabelFor}
-                selectionBar={
-                  <PlaysSelectionBar
-                    count={selected.size}
-                    collect={collect}
-                    plays={() => timed(playRows.filter((r) => selected.has(r.key)))}
-                    onClear={() => setSelected(new Set())}
-                  />
-                }
               />
             ) : plays.status === "reading" ? (
               <div className="space-y-2 p-4" aria-hidden>
@@ -611,6 +676,7 @@ export function TeamPlaysView({
                   onLabelAgain={labelKeys.labelAgain}
                   keysShown={labelKeys.keysShown}
                   onAdd={add}
+                  addCount={selected.size}
                   status={playback.currentKey ? collect.statusOf(playback.currentKey) : "none"}
                   targetName={collect.target?.name ?? null}
                 />

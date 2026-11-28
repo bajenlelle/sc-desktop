@@ -76,7 +76,10 @@ export interface ListSelection {
  * anchor where it was. A plain click moves focus and anchor (in the editor it
  * plays the clip): on a row outside the selection it lets go of the
  * selection, as a click elsewhere does in Finder; on a row inside it, the
- * selection stays, so the picked rows can be watched one by one.
+ * selection stays, so the picked rows can be watched one by one. With
+ * `keepOnPlain` (a list of plays with checks: Add clips, the game view, Team
+ * Plays) a plain click only plays: the selection stays whatever is clicked,
+ * as a click on a message in Gmail keeps the ticked ones ticked.
  */
 export function clickSelection({
   order,
@@ -86,6 +89,7 @@ export function clickSelection({
   key,
   shift,
   toggle,
+  keepOnPlain = false,
 }: {
   order: readonly string[];
   selected: ReadonlySet<string>;
@@ -94,6 +98,7 @@ export function clickSelection({
   key: string;
   shift: boolean;
   toggle: boolean;
+  keepOnPlain?: boolean;
 }): ListSelection {
   if (shift) {
     const hasAnchor = anchor !== null && order.includes(anchor);
@@ -105,7 +110,7 @@ export function clickSelection({
     };
   }
   if (!toggle) {
-    const keep = selected.size === 0 || selected.has(key);
+    const keep = keepOnPlain || selected.size === 0 || selected.has(key);
     return { selected: keep ? new Set(selected) : new Set<string>(), anchor: key, focus: key };
   }
   const next = new Set(selected);
@@ -144,4 +149,33 @@ export function focusAfterRemoval(order: readonly string[], removed: ReadonlySet
   for (let j = i; j < order.length; j++) if (!removed.has(order[j])) return order[j];
   for (let j = i - 1; j >= 0; j--) if (!removed.has(order[j])) return order[j];
   return null;
+}
+
+/** The row in or out of the selection (Return on the play on screen, a click on its check). */
+export function toggleKey(selected: ReadonlySet<string>, key: string): Set<string> {
+  const next = new Set(selected);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
+}
+
+/** Select all: every listed row but those the target already has (they can't be added again). */
+export function selectAll(order: readonly string[], blocked: ReadonlySet<string> = new Set()): Set<string> {
+  return new Set(order.filter((key) => !blocked.has(key)));
+}
+
+/**
+ * What a select-all check shows for the listed rows: none, some or all of
+ * those that can be selected. "none" when nothing can be.
+ */
+export function selectAllState(order: readonly string[], selected: ReadonlySet<string>, blocked: ReadonlySet<string> = new Set()): "none" | "some" | "all" {
+  let open = 0;
+  let picked = 0;
+  for (const key of order) {
+    if (blocked.has(key)) continue;
+    open++;
+    if (selected.has(key)) picked++;
+  }
+  if (picked === 0) return "none";
+  return picked === open ? "all" : "some";
 }

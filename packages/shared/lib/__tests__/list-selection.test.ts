@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  clickSelection,
-  extendSelection,
-  focusAfterRemoval,
-  moveFocus,
-  pruneSelection,
-  rangeKeys,
-} from "../list-selection";
+import { clickSelection, extendSelection, focusAfterRemoval, moveFocus, pruneSelection, rangeKeys, toggleKey, selectAll, selectAllState } from "../list-selection";
 
 const order = ["a", "b", "c", "d", "e", "f"];
 const sorted = (s: Iterable<string>) => [...s].sort();
@@ -169,5 +162,40 @@ describe("focusAfterRemoval", () => {
     expect(focusAfterRemoval(order, new Set(["a"]), "c")).toBe("c");
     expect(focusAfterRemoval(["a"], new Set(["a"]), "a")).toBeNull();
     expect(focusAfterRemoval(order, new Set(), null)).toBeNull();
+  });
+});
+
+describe("a list of plays with checks", () => {
+  const order = ["a", "b", "c", "d"];
+
+  it("keeps the ticked rows on a plain click, on any row", () => {
+    const next = clickSelection({ order, selected: new Set(["a", "b"]), anchor: "b", focus: "b", key: "d", shift: false, toggle: false, keepOnPlain: true });
+    expect([...next.selected]).toEqual(["a", "b"]);
+    expect(next.anchor).toBe("d");
+  });
+
+  it("still lets go of them on a plain click without keepOnPlain (the editor, as Finder)", () => {
+    const next = clickSelection({ order, selected: new Set(["a", "b"]), anchor: "b", focus: "b", key: "d", shift: false, toggle: false });
+    expect(next.selected.size).toBe(0);
+  });
+
+  it("ticks and unticks a row", () => {
+    expect([...toggleKey(new Set(["a"]), "b")]).toEqual(["a", "b"]);
+    expect([...toggleKey(new Set(["a", "b"]), "a")]).toEqual(["b"]);
+  });
+
+  it("selects all the listed rows but those already in the target", () => {
+    expect([...selectAll(order, new Set(["c"]))]).toEqual(["a", "b", "d"]);
+    expect([...selectAll(order)]).toEqual(order);
+  });
+
+  it("says none, some or all of what can be selected", () => {
+    const blocked = new Set(["c"]);
+    expect(selectAllState(order, new Set(), blocked)).toBe("none");
+    expect(selectAllState(order, new Set(["a"]), blocked)).toBe("some");
+    expect(selectAllState(order, new Set(["a", "b", "d"]), blocked)).toBe("all");
+    // Ticks on rows a filter hides don't count toward the listed ones.
+    expect(selectAllState(["a", "b"], new Set(["a", "x"]))).toBe("some");
+    expect(selectAllState(["c"], new Set(), blocked)).toBe("none");
   });
 });

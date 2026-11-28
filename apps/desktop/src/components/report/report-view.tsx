@@ -686,7 +686,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   }, [placeOf, sectionName]);
 
   const handleAddClips = useCallback(
-    async (clips: PlaylistClipItem[]) => {
+    async (clips: PlaylistClipItem[], info?: { already: number }) => {
       const add = props.addClips;
       const to = addToRef.current;
       if (!add || to === null) return;
@@ -700,8 +700,11 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       const section = to === SORTED_BY_PLAYER ? null : to;
       apply((d) => placeClips(d, keys, section, outcome.events));
       const noun = keys.length === 1 ? "1 clip" : `${keys.length} clips`;
+      const already = info?.already ?? 0;
       toast(section ? `${noun} added to ${sectionName(section)}` : `${noun} added`, {
         id: ADD_TOAST,
+        // Sonner's own description grey is unreadable on the dark themes.
+        description: already > 0 ? <span className="text-muted-foreground">{`${already} ${already === 1 ? "was" : "were"} already there.`}</span> : undefined,
         action: {
           label: "Undo",
           onClick: () => {
@@ -728,7 +731,11 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       name: effectiveTitleOf(draft, playlist.name),
       options: addOptions,
       value: addTo,
-      onChange: setAddTo,
+      // At once in the ref too: the row menu's Add to section changes the target and adds in one go.
+      onChange: (id: string) => {
+        addToRef.current = id;
+        setAddTo(id);
+      },
       placement: addPlacement,
       // The target as it is when the move lands: a drop on a section sets it first.
       onMove: (keys) => moveClipsTo(keys, addToRef.current ?? addTo, null, "add_clips"),

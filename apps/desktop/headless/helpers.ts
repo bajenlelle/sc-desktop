@@ -416,11 +416,11 @@ export async function newPlaylistWithClips(
   return keys;
 }
 
-/** The selection's pill over a list of plays (the game view, Teams' Plays, Add clips). */
+/** The selection's bar: the count line over a list of plays while plays are selected (the game view, Teams' Plays, Add clips), or the editor's pill. */
 export const selectionPill = (scope: Page | Locator) => scope.getByRole("toolbar", { name: "Selection" });
 
 /**
- * In Add clips: selects these rows (⌘-click, as a coach does) and adds them with the selection pill's Add, which
+ * In Add clips: selects these rows (⌘-click, as a coach does) and adds them with the selection bar's Add, which
  * lets go of the selection. Each row is reached by scrolling the windowed list (sheetRow).
  */
 export async function addSheetRows(sheet: Locator, keys: readonly string[]): Promise<void> {
@@ -432,7 +432,7 @@ export async function addSheetRows(sheet: Locator, keys: readonly string[]): Pro
   }
   const pill = selectionPill(sheet);
   await expect(pill).toContainText(String(keys.length));
-  await pill.getByRole("button", { name: /^Add to playlist/ }).click();
+  await pill.getByRole("button", { name: /^Add \d+ plays? to / }).click();
   await expect(pill).toBeHidden();
 }
 
