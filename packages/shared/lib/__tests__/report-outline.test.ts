@@ -112,10 +112,10 @@ describe("an outline of sections", () => {
     const rows: OutlineRowRef[] = [
       { key: sectionRowKey("keys"), kind: "section", id: "keys", accepts: true, player: false },
       { key: "m1:1", kind: "clip", id: "keys", clipKey: "m1:1" },
-      { key: sectionRowKey("profile"), kind: "section", id: "profile", accepts: false, player: false },
+      { key: sectionRowKey("games"), kind: "section", id: "games", accepts: false, player: false },
       { key: sectionRowKey("s1"), kind: "section", id: "s1", accepts: true, player: true },
     ];
-    // Just below How they play's header: the clip goes to the end of Keys.
+    // Just below Their games' header: the clip goes to the end of Keys.
     expect(clipDrop(rows, ["m9:9"], 3)).toEqual({ to: "keys", before: null });
   });
 

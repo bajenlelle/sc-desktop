@@ -401,8 +401,13 @@ export function blocksOf(draft: ReportDraft): ReportBlock[] {
   return missing.length === 0 ? blocks : [...blocks, ...missing];
 }
 
-/** Sections a clip can be placed in, besides a player's. */
+/** Sections a clip can be placed in, besides a player's. How they play shows its clips under its numbers. */
 export function holdsClips(kind: ReportBlockKind): boolean {
+  return kind === "keys" || kind === "actions" || kind === "profile" || kind === "custom";
+}
+
+/** Sections with words the coach writes (How they play's are the season's numbers). */
+export function holdsText(kind: ReportBlockKind): boolean {
   return kind === "keys" || kind === "actions" || kind === "custom";
 }
 
@@ -463,7 +468,7 @@ export function moveBlock(draft: ReportDraft, id: string, toIndex: number): Repo
 
 export function setBlockText(draft: ReportDraft, id: string, text: string): ReportDraft {
   const held = text.slice(0, REPORT_BLOCK_TEXT_LIMIT);
-  return updateBlock(draft, id, (b) => (!holdsClips(b.kind) || (b.text ?? "") === held ? b : { ...b, text: held }));
+  return updateBlock(draft, id, (b) => (!holdsText(b.kind) || (b.text ?? "") === held ? b : { ...b, text: held }));
 }
 
 export function setBlockTitle(draft: ReportDraft, id: string, title: string): ReportDraft {

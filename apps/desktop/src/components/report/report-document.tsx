@@ -31,6 +31,7 @@ import {
   blocksOf,
   canRemoveBlock,
   holdsClips,
+  holdsText,
   sectionLabel,
   type DraftSection,
   type Placement,
@@ -703,6 +704,7 @@ const BLOCK_PLACEHOLDER: Partial<Record<ReportBlockKind, string>> = {
 const BLOCK_EMPTY_CLIPS: Partial<Record<ReportBlockKind, readonly [string, string]>> = {
   keys: ["Clips that show the keys go here.", "Clips that show the keys go here. Drag one here in the side panel."],
   actions: ["Clips that aren't about one player show here.", "Clips that aren't about one player show here. Drag one here in the side panel."],
+  profile: ["Clips that show how they play go here.", "Clips that show how they play go here. Drag one here in the side panel."],
   custom: ["No clips yet.", "Drag clips here in the side panel."],
 };
 const NO_EMPTY: readonly [string, string] = ["", ""];
@@ -883,7 +885,7 @@ function BlockSection({
   const seasonLine = props.hasTeam ? "Reading the team's season…" : "Shows the team's season in a report started from a team.";
   return (
     <SectionFrame block={block} index={index} count={count} props={props} heading={block.kind === "custom" ? <TitleField block={block} props={props} /> : undefined}>
-      {holdsClips(block.kind) && (
+      {holdsText(block.kind) && (
         <GrowingText
           value={block.text ?? ""}
           onChange={(t) => props.onBlockText(block.id, t)}

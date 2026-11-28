@@ -25,7 +25,7 @@ interface Section {
 }
 
 /** A report with Keys, players and Their actions, saved before the page opens, so it opens as it is. */
-async function openReport(page: Page, sections: Section[] = []): Promise<string> {
+async function openReport(page: Page, sections: Section[] = [], extra: { id: string; kind: string; hidden: boolean }[] = []): Promise<string> {
   const id = await createPlaylist(page, NAME);
   const draft = {
     v: 1,
@@ -39,6 +39,7 @@ async function openReport(page: Page, sections: Section[] = []): Promise<string>
       { id: "keys", kind: "keys", hidden: false, text: "Box out" },
       { id: "players", kind: "players", hidden: false },
       { id: "team", kind: "actions", hidden: false, text: "" },
+      ...extra,
     ],
   };
   await withAppModule(page, "/src/lib/report-drafts-db.ts", `await mod.saveReportDraft(arg.id, arg.draft);`, { id, draft });
@@ -112,6 +113,26 @@ test("+ Add clips under a section adds there, moves a play from another section,
   await expect(keysRegion.locator(`[data-clip-key="${b}"]`)).toBeVisible();
   await expect(page.getByRole("region", { name: "Their actions" }).locator(`[data-clip-key="${a}"]`)).toBeVisible();
   await shot(page, "report-add-clips-document");
+});
+
+test("How they play takes clips under its numbers: Add clips adds there, and its clips are in the report", { tag: "@alone:report-clips" }, async ({ page }) => {
+  const id = await openReport(page, [], [{ id: "profile", kind: "profile", hidden: false }]);
+  const profile = page.getByRole("region", { name: "How they play" });
+  // A report not started from a team has no numbers to show; it still takes clips.
+  await expect(profile.getByText("Clips that show how they play go here.")).toBeVisible();
+  await expect(profile.getByRole("textbox")).toHaveCount(0);
+  await profile.getByRole("button", { name: "Add clips" }).click();
+
+  const sheet = reportSheet(page);
+  await expect(sheet.getByRole("button", { name: "Section to add to" })).toHaveText(/How they play/);
+  await waitForPlays(sheet);
+  const [a] = [...(await readSheetRows(sheet)).keys()];
+  await addRows(sheet, [a], /Add to section/);
+  await expect(page.getByText("1 clip added to How they play")).toBeVisible();
+  await expect.poll(() => placements(page, id), { timeout: 10_000 }).toEqual({ [a]: "profile" });
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await expect(profile.locator(`[data-clip-key="${a}"]`)).toBeVisible();
 });
 
 test("the toolbar's Add clips lets each clip go to its player, and a player's section starts on that player", { tag: "@alone:report-clips" }, async ({ page }) => {

@@ -213,7 +213,9 @@ A report is a list of sections the coach controls (`ReportBlock`:
   shows it (`lib/report-season.ts`: `PROFILE_ROWS`, `POINTS_FROM`, the
   fixtures), drawn live in the editor (`useReportSeason(draft.team)`, the
   cached league reads) and stored in the report when it is published
-  (`ReportSeasonSnapshot`). No clips.
+  (`ReportSeasonSnapshot`). How they play takes clips under its numbers (no
+  words: `holdsText`); Their games takes none. A report not started from a
+  team has no numbers, so How they play shows only its clips there.
 - **A section of your own** (`c-<uuid>`, at most 8): a name, words and clips.
 
 Each section's heading has a menu on hover: Hide from players / Show to
@@ -524,7 +526,7 @@ only the version, the sections array, the clip keys and the posters):
 `header.intro` (the summary), then a section per shown, non-empty block, of
 kind `keys` (a `keys` block of items, then clips), `actions` (text, clips),
 `player`, `profile` (a `profile` block: context, rows of label / own / place /
-allowed / place, lines), `games` (a `games` block of rows: date, opponent,
+allowed / place, lines, then clips), `games` (a `games` block of rows: date, opponent,
 home, result or null for a game to play) or `custom` (with its `title`, text,
 clips). Section ids are `keys`, `actions`, `profile`, `games`, `p1…`, `x1…`.
 Hidden sections and their clips are left out, and their clips aren't cut. The

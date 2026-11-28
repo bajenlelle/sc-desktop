@@ -571,19 +571,23 @@ describe("the report's sections (blocks)", () => {
     expect(blocksOf(d).map((b) => b.id)).toEqual(["keys", "team", "players", "c-x1", "profile"]);
     expect(layoutIds(d)).toEqual(["keys", "team", "s1", "s2", "c-x1", "profile"]);
     const layout = deriveReportLayout(d, items, events, { keepTeam: true });
-    expect(layout.sections.find((s) => s.id === "profile")).toMatchObject({ accepts: false, clips: [] });
+    expect(layout.sections.find((s) => s.id === "profile")).toMatchObject({ accepts: true, clips: [] });
     expect(layout.sections.find((s) => s.id === "c-x1")).toMatchObject({ accepts: true, block: { title: "Out of bounds" } });
   });
 
-  it("moves clips into keys and your own sections, never into the season's", () => {
-    let d = addBlock(addBlock(two(), "keys", { at: 0 }), "games");
+  it("moves clips into keys, How they play and your own sections, never into Their games", () => {
+    let d = addBlock(addBlock(addBlock(two(), "keys", { at: 0 }), "games"), "profile");
     let layout = deriveReportLayout(d, items, events, { keepTeam: true });
     d = moveClips(d, layout, ["m1:4"], "keys", null);
     layout = deriveReportLayout(d, items, events, { keepTeam: true });
     expect(layout.sections.find((s) => s.id === "keys")!.clips.map(itemKey)).toEqual(["m1:4"]);
     expect(moveClips(d, layout, ["m1:1"], "games", null)).toBe(d);
-    // ⌥↓ from the last clip in the report skips the season's sections.
-    expect(nudgeClips(layout, ["m1:3"], 1)).toBeNull();
+    const shown = moveClips(d, layout, ["m1:1"], "profile", null);
+    expect(deriveReportLayout(shown, items, events, { keepTeam: true }).sections.find((s) => s.id === "profile")!.clips.map(itemKey)).toEqual(["m1:1"]);
+    // How they play takes clips, not words: its numbers are the season's.
+    expect(setBlockText(shown, "profile", "Fast")).toBe(shown);
+    // ⌥↓ from the last player's clip skips Their games and lands in How they play.
+    expect(nudgeClips(layout, ["m1:3"], 1)).toEqual({ to: "profile", before: null });
   });
 
   it("hides a section from players and shows it again; hiding the players hides every player", () => {

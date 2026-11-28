@@ -450,6 +450,19 @@ describe("a report of sections", () => {
     expect(clipKeys).toHaveLength(1); // the play about no one, under Their actions
   });
 
+  it("puts How they play's clips under its numbers, with or without the numbers, and lists it as a place for clips", () => {
+    const d = moveClip(sectioned(), "m1:4", "profile");
+    const built = buildScoutingReport(input(d, items, { season: snapshot }));
+    expect(built.report.sections.find((s) => s.kind === "profile")?.blocks.map((b) => b.kind)).toEqual(["profile", "clip"]);
+    const read = parseScoutingReport(JSON.parse(JSON.stringify(built.report)));
+    expect(read?.sections.find((s) => s.kind === "profile")?.blocks.map((b) => b.kind)).toEqual(["profile", "clip"]);
+    // A report not started from a team has no numbers: the section is its clips.
+    const bare = buildScoutingReport(input(d, items));
+    expect(bare.report.sections.find((s) => s.kind === "profile")?.blocks.map((b) => b.kind)).toEqual(["clip"]);
+    expect(reportClipTargets(d).map((t) => t.id)).toContain("profile");
+    expect(reportClipTargets(d).map((t) => t.id)).not.toContain("games");
+  });
+
   it("names your own section", () => {
     let d = addBlock(sectioned(), "custom", { title: "Out of bounds", newId: () => "o" });
     d = setBlockText(d, "c-o", "Watch the stack.");
