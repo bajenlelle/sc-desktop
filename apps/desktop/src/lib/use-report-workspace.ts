@@ -174,6 +174,11 @@ export function useReportWorkspace(playlistId: string) {
    * Shows a change to one of the playlist's clips (the report's Edit clip, which saves it itself,
    * lib/use-clip-edit.ts), here and in what later writes start from.
    */
+  /** The report was renamed (lib/team-report.ts, renameReportPlaylist): the page's name follows at once. */
+  const setName = useCallback((name: string) => {
+    setState((s) => (s.playlist ? { ...s, playlist: { ...s.playlist, name } } : s));
+  }, []);
+
   const patchClip = useCallback((key: string, patch: Partial<PlaylistClipItem>) => {
     const apply = (list: PlaylistItem[]) => list.map((i) => (isClipItem(i) && itemKey(i) === key ? { ...i, ...patch } : i));
     setState((s) => (s.playlist ? { ...s, playlist: { ...s.playlist, items: apply(s.playlist.items) } } : s));
@@ -309,6 +314,7 @@ export function useReportWorkspace(playlistId: string) {
     addClips,
     removeClips,
     patchClip,
+    setName,
     /** Reads the labels on more games' clips (the Add clips sheet's games). */
     ensureLabels: clipLabels.ensure,
     labelHandlers: clipLabels.handlers,

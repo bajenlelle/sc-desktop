@@ -8,10 +8,10 @@ import { useAuth } from "@/lib/auth-context";
 import { PLAYLISTS_CHANGED } from "@/lib/playlist-events";
 import { listPlaylistNames } from "@/lib/playlists-db";
 import { listReportDrafts } from "@/lib/report-drafts-db";
-import { createNamedReport, createTeamReport, nextGameAgainstUs, resolveLeagueTeam, type ReportStartFrom } from "@/lib/team-report";
+import { createBlankReport, createNamedReport, createTeamReport, nextGameAgainstUs, resolveLeagueTeam, type ReportStartFrom } from "@/lib/team-report";
 import { useLeagues } from "@/lib/use-leagues";
 import { useSpaceTeam } from "@/lib/use-my-team-ids";
-import { reportPath } from "@/pages/report";
+import { reportPath, type ReportPageState } from "@/pages/report";
 
 /** The space's drafts and playlist ids, read again when playlists change and when the window comes back. */
 export function useSpaceDrafts(): { ready: boolean; rows: ReportDraftRow[]; inSpace: ReadonlySet<string> } {
@@ -117,6 +117,7 @@ export function useReportStarter(): {
   forTeam: (team: { competitionId: number; teamId: number }, game?: ReportGame | null) => Promise<boolean>;
   forLeagueTeam: (leagueTeamId: string) => Promise<boolean>;
   forName: (name: string) => Promise<boolean>;
+  blank: () => Promise<boolean>;
 } {
   const navigate = useNavigate();
   const { activeOrgId } = useAuth();
@@ -127,14 +128,14 @@ export function useReportStarter(): {
   const busyRef = useRef(false);
 
   const run = useCallback(
-    async (make: () => Promise<string | null>): Promise<boolean> => {
+    async (make: () => Promise<string | null>, state?: ReportPageState): Promise<boolean> => {
       if (busyRef.current) return false;
       busyRef.current = true;
       setBusy(true);
       try {
         const id = await make();
         if (!id) return false;
-        navigate(reportPath(id));
+        navigate(reportPath(id), state ? { state } : undefined);
         return true;
       } catch (e) {
         console.error("[report] couldn't start the report:", e);
@@ -172,5 +173,8 @@ export function useReportStarter(): {
 
   const forName = useCallback((name: string) => run(() => createNamedReport(name, { orgId: activeOrgId })), [run, activeOrgId]);
 
-  return { busy, forTeam, forLeagueTeam, forName };
+  // A blank report opens on its Title field, to be named first.
+  const blank = useCallback(() => run(() => createBlankReport({ orgId: activeOrgId }), { focusTitle: true }), [run, activeOrgId]);
+
+  return { busy, forTeam, forLeagueTeam, forName, blank };
 }

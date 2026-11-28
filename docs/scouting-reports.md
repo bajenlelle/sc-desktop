@@ -393,11 +393,23 @@ playlist's Report view.
 - **Reports' New report** (`components/report/new-report-popover.tsx`): the
   space's next opponent first ("Your next game · Sat 28 Nov"), then this
   season's catalogue teams (`useTeamCatalog`, the space's own league first),
-  and `New report for “name”` for anyone else. A catalogue team is opened by
+  and `New report for “name”` for anyone else. **Blank report** comes first,
+  always (Enter on the empty field): a report on no team (`createBlankReport`:
+  a `kind = 'report'` playlist named "Untitled report" and an empty draft) that
+  opens on its Title field, to be named first (`ReportPageState.focusTitle`). A catalogue team is opened by
   its newest season (`resolveLeagueTeam`, which `/teams/find/:id` uses too);
   its next game against the space's team is read, and its existing report for
   that game opens instead of a second one. A typed name makes a playlist of
   that name with a draft that holds only `opponent` (`createNamedReport`).
+- **One name.** A report's name is its draft's title, and for a report that
+  owns its clips its playlist's name too (`renameReport`,
+  `renameReportPlaylist` in `lib/team-report.ts`), so the window, the search,
+  Open games and the Reports list say the same. It is renamed in the page's
+  Title field or with Rename… in the Reports list (⋯ or right-click: the row's
+  name becomes a field; Enter or leaving it saves, Esc puts it back). A report
+  made on a playlist the coach keeps leaves that playlist's name alone. The
+  list shows the draft's title for a shared report too; the shared link keeps
+  its title until it is shared again (the title is not in the content key).
 - **What a team report starts with** (`createTeamReport`, the Team page's own
   cached reads): the playlist named `teamReportName` ("AIK · Sat 28 Nov", or
   "AIK" without a game), and a draft with `opponent` = the team, `team`

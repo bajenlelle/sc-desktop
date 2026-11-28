@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
@@ -32,11 +32,12 @@ import { trackEvent } from "@/lib/analytics";
 import { relativeTime } from "@/lib/format-date";
 import { reportBaseUrl } from "@/lib/scouting-report";
 import { revokeScoutingReport } from "@/lib/scouting-reports-db";
-import { deleteReport } from "@/lib/team-report";
+import { deleteReport, renameReport } from "@/lib/team-report";
 import { DeleteReportDialog } from "@/components/report/delete-report-dialog";
 import { useReportList } from "@/lib/use-report-list";
 import { cn } from "@/lib/utils";
 import { APP_OPEN_HASH, openedLabel, scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
+import { REPORT_TITLE_MAX } from "@scoutable/shared/lib/report-draft";
 import { listMyReportReach } from "@/lib/scouting-report-inbox-db";
 import {
   filterReportList,
@@ -45,7 +46,7 @@ import {
   type ReportListItem,
 } from "@scoutable/shared/lib/scouting-report-list";
 
-type RowAction = "open" | "copy" | "browser" | "stop" | "share_again" | "show_clips" | "delete";
+type RowAction = "open" | "rename" | "copy" | "browser" | "stop" | "share_again" | "show_clips" | "delete";
 
 /**
  * A row's menu, the same in the ⋯ button and on right-click: what can be done depends on where the report
@@ -56,17 +57,18 @@ function rowActions(item: ReportListItem): (RowAction | "-")[] {
   const clips: (RowAction | "-")[] = item.ownClips ? [] : ["-", "show_clips"];
   switch (item.status) {
     case "live":
-      return ["open", "copy", "browser", ...clips, "-", "stop", "delete"];
+      return ["open", "rename", "copy", "browser", ...clips, "-", "stop", "delete"];
     case "expired":
     case "stopped":
-      return ["open", "share_again", ...clips, "-", "delete"];
+      return ["open", "rename", "share_again", ...clips, "-", "delete"];
     case "draft":
-      return ["open", ...clips, "-", "delete"];
+      return ["open", "rename", ...clips, "-", "delete"];
   }
 }
 
 const ACTION_LABEL: Record<RowAction, string> = {
   open: "Open report",
+  rename: "Rename…",
   copy: "Copy link",
   browser: "Open in browser",
   stop: "Stop sharing…",
@@ -91,6 +93,9 @@ export function ReportsPage() {
   const [stopping, setStopping] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ReportListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // The row whose name is being typed, and names saved here before the list is read again.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [names, setNames] = useState<ReadonlyMap<string, string>>(new Map());
 
   useEffect(() => {
     if (profileLoading) return;
@@ -147,7 +152,29 @@ export function ReportsPage() {
       case "delete":
         setDeleteTarget(item);
         break;
+      case "rename":
+        setRenaming(item.playlistId);
+        break;
     }
+  }
+
+  // A report has one name (lib/team-report.ts, renameReport): the row shows it at once, and goes back if the write fails.
+  function rename(item: ReportListItem, typed: string) {
+    setRenaming(null);
+    const name = typed.trim();
+    if (!name || name === (names.get(item.playlistId) ?? item.title)) return;
+    setNames((m) => new Map(m).set(item.playlistId, name));
+    renameReport({ id: item.playlistId, kind: item.ownClips ? "report" : undefined }, name)
+      .then(reload)
+      .catch((e) => {
+        console.error("[reports] couldn't rename the report:", e);
+        setNames((m) => {
+          const next = new Map(m);
+          next.delete(item.playlistId);
+          return next;
+        });
+        toast.error("Couldn’t rename the report. Check your connection and try again.");
+      });
   }
 
   async function confirmDelete() {
@@ -247,8 +274,8 @@ export function ReportsPage() {
             title="No reports yet"
             body={
               activeOrgIsPersonal
-                ? "Start one for your next opponent: their players and what stands out come filled in."
-                : "Your reports from this club’s playlists show up here. Start one for your next opponent: their players and what stands out come filled in."
+                ? "Start one for your next opponent, with their players and what stands out filled in, or a blank one."
+                : "Your reports from this club’s playlists show up here. Start one for your next opponent, with their players and what stands out filled in, or a blank one."
             }
             action={<NewReportPopover variant="default" />}
           />
@@ -272,7 +299,14 @@ export function ReportsPage() {
         ) : (
           <GroupedList>
             {visible.map((item) => (
-              <ReportRow key={item.playlistId} item={item} reach={item.reportId ? reach.get(item.reportId) : undefined} onAction={(a) => act(item, a)} />
+              <ReportRow
+                key={item.playlistId}
+                item={names.has(item.playlistId) ? { ...item, title: names.get(item.playlistId)! } : item}
+                reach={item.reportId ? reach.get(item.reportId) : undefined}
+                renaming={renaming === item.playlistId}
+                onRename={(name) => (name === null ? setRenaming(null) : rename(item, name))}
+                onAction={(a) => act(item, a)}
+              />
             ))}
           </GroupedList>
         )}
@@ -303,9 +337,14 @@ export function ReportsPage() {
 function ReportRow({
   item,
   reach,
+  renaming,
+  onRename,
   onAction,
 }: {
   item: ReportListItem;
+  /** The title is a field: Enter or leaving it saves, Esc puts it back (null). */
+  renaming: boolean;
+  onRename: (name: string | null) => void;
   /** For a report sent to players' phones: how many it reaches, and how many of them opened it. */
   reach?: { reached: number; opened: number };
   onAction: (a: RowAction) => void;
@@ -331,15 +370,27 @@ function ReportRow({
   const trailing =
     item.status === "draft" ? null : reach && reach.reached > 0 ? `Seen by ${reach.opened} of ${reach.reached}` : openedLabel(item.opens);
   const actions = rowActions(item);
+  // Rename… opens the name field once the menu has let go of the keyboard (a menu keeps focus inside it while
+  // open), and the menu doesn't hand the keyboard back to its trigger.
+  const toField = useRef(false);
+  const choose = (a: RowAction) => {
+    if (a === "rename") toField.current = true;
+    else onAction(a);
+  };
+  const keepField = (e: Event) => {
+    if (!toField.current) return;
+    toField.current = false;
+    e.preventDefault();
+    onAction("rename");
+  };
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div className="flex min-h-14 items-center gap-3 py-2 pr-3 pl-4">
-          <button
-            type="button"
-            onClick={() => onAction("open")}
-            className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-selection"
+          <RowBody
+            renaming={renaming}
+            onOpen={() => onAction("open")}
           >
             <span
               aria-hidden
@@ -349,23 +400,23 @@ function ReportRow({
               )}
             />
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-sm font-medium">{item.title}</span>
+              {renaming ? <RenameField name={item.title} onDone={onRename} /> : <span className="truncate text-sm font-medium">{item.title}</span>}
               <span className="truncate text-callout text-muted-foreground nums">{meta}</span>
             </span>
             {trailing && <span className="shrink-0 text-callout text-muted-foreground nums">{trailing}</span>}
-          </button>
+          </RowBody>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="icon-xs" variant="ghost" aria-label={`More for ${item.title}`} className="shrink-0">
                 <MoreHorizontal />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" onCloseAutoFocus={keepField}>
               {actions.map((a, i) =>
                 a === "-" ? (
                   <DropdownMenuSeparator key={i} />
                 ) : (
-                  <DropdownMenuItem key={a} className={a === "stop" || a === "delete" ? "text-destructive focus:text-destructive" : undefined} onSelect={() => onAction(a)}>
+                  <DropdownMenuItem key={a} className={a === "stop" || a === "delete" ? "text-destructive focus:text-destructive" : undefined} onSelect={() => choose(a)}>
                     {ACTION_LABEL[a]}
                   </DropdownMenuItem>
                 ),
@@ -374,17 +425,58 @@ function ReportRow({
           </DropdownMenu>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent onCloseAutoFocus={keepField}>
         {actions.map((a, i) =>
           a === "-" ? (
             <ContextMenuSeparator key={i} />
           ) : (
-            <ContextMenuItem key={a} className={a === "stop" || a === "delete" ? "text-destructive focus:text-destructive" : undefined} onSelect={() => onAction(a)}>
+            <ContextMenuItem key={a} className={a === "stop" || a === "delete" ? "text-destructive focus:text-destructive" : undefined} onSelect={() => choose(a)}>
               {ACTION_LABEL[a]}
             </ContextMenuItem>
           ),
         )}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** A row's body: a button that opens the report, or, while its name is typed, a plain row (a field can't sit in a button). */
+function RowBody({ renaming, onOpen, children }: { renaming: boolean; onOpen: () => void; children: ReactNode }) {
+  const className = "flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-selection";
+  if (renaming) return <div className={className}>{children}</div>;
+  return (
+    <button type="button" onClick={onOpen} className={className}>
+      {children}
+    </button>
+  );
+}
+
+/** The row's name as a field, its text selected: Enter or leaving it saves, Esc puts it back. */
+function RenameField({ name, onDone }: { name: string; onDone: (name: string | null) => void }) {
+  const [value, setValue] = useState(name);
+  const done = useRef(false);
+  const finish = (v: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(v);
+  };
+  return (
+    <input
+      autoFocus
+      aria-label="Report name"
+      value={value}
+      maxLength={REPORT_TITLE_MAX}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => finish(value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") finish(value);
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          finish(null);
+        }
+      }}
+      className="-mx-1 h-6 rounded-md bg-card px-1 text-sm font-medium text-foreground ring-2 ring-selection outline-none"
+    />
   );
 }

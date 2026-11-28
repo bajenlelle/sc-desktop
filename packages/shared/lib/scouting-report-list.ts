@@ -115,7 +115,8 @@ export function mergeReportList(
         playlistId,
         playlistName,
         reportId: r.id,
-        title: r.title,
+        // The coach's name for it: a rename since sharing shows here at once (the link keeps its title until shared again).
+        title: d?.title ?? r.title,
         status,
         expiresAt: r.expiresAt,
         endedAt: status === "stopped" ? r.revokedAt : status === "expired" ? r.expiresAt : null,

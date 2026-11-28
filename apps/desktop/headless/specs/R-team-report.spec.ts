@@ -2,17 +2,20 @@
  * Starting a scouting report from a team (docs/scouting-reports.md, "Starting
  * from a team"): the Team page's New report makes the playlist and the draft
  * and opens the Report view; the same button then opens it; Reports' New
- * report does the same for a typed opponent. On the made-up league
+ * report does the same for a typed opponent, and Blank report makes one on no
+ * team, named in its Title field and renamed from the Reports list. On the made-up league
  * (headless/team-league.ts), its teams renamed into this run's own names so
  * the playlists they make can be deleted afterwards.
  */
 import type { Page } from "@playwright/test";
-import { createPlaylist, deleteOwnedPlaylists, expect, mockLeague, mockRoster, owned, recordAnalytics, selectRows, test, withAppModule } from "../helpers";
+import { createPlaylist, deleteOwnedPlaylists, expect, mockLeague, mockRoster, owned, recordAnalytics, selectRows, shot, test, withAppModule } from "../helpers";
 import { madeUpLeague } from "../team-league";
 
 const ALFA = owned("Alfa");
 const TYPED = owned("Typed opponent");
 const OLD = owned("Report from before sections");
+const BLANK = owned("Blank named");
+const RENAMED = owned("Blank renamed");
 
 /** The made-up league with every team named `headless-<port>-<slot> <name>`. */
 function ownedLeague() {
@@ -30,7 +33,7 @@ async function openAlfa(page: Page) {
 }
 
 test.afterEach(async ({ page }) => {
-  await deleteOwnedPlaylists(page, [ALFA, TYPED, OLD]);
+  await deleteOwnedPlaylists(page, [ALFA, TYPED, OLD, BLANK, RENAMED]);
 });
 
 test("New report on a team's page opens a report that knows the team", { tag: "@alone:team-report" }, async ({ page }) => {
@@ -97,6 +100,50 @@ test("Reports' New report starts an empty report for a typed opponent", { tag: [
     from: "reports",
     opponent: "typed",
   });
+});
+
+test("Blank report opens on its Title field; its name is the report's everywhere, renamed on the page or in the list", { tag: "@alone:team-report" }, async ({ page }) => {
+  const tracked = await recordAnalytics(page);
+  await page.goto("/reports");
+  await expect(page.getByRole("heading", { level: 1, name: "Reports" })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "New report" }).first().click();
+  // First in the list, and Enter on the empty field picks it.
+  await expect(page.getByRole("option").first()).toContainText("Blank report");
+  await page.waitForTimeout(300); // the popover's entrance, for the shot
+  await shot(page, "reports-new-blank");
+  await page.getByRole("searchbox", { name: "Opponent" }).press("Enter");
+
+  // The report opens on its Title field, with no opponent and no picker.
+  const title = page.getByRole("textbox", { name: "Title" });
+  await expect(title).toBeFocused({ timeout: 30_000 });
+  await expect(page.getByRole("textbox", { name: "Opponent" })).toHaveValue("");
+  await expect.poll(async () => (await tracked()).find((e) => e.event === "scouting_report_started")?.properties).toMatchObject({ from: "reports", opponent: "none" });
+
+  // Typing its name names the report: the draft's title and its playlist.
+  await title.fill(BLANK);
+  await title.press("Enter");
+  await expect.poll(async () => (await selectRows<{ id: string }>(page, "playlists", "id", { name: BLANK })).length, { timeout: 15_000 }).toBe(1);
+  const [{ id }] = await selectRows<{ id: string }>(page, "playlists", "id", { name: BLANK });
+
+  // Rename… in the Reports list: the row's name becomes a field.
+  await page.goto("/reports");
+  const row = page.getByRole("button", { name: `More for ${BLANK}` });
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  const field = page.getByRole("textbox", { name: "Report name" });
+  await expect(field).toBeFocused();
+  await shot(page, "reports-rename-field");
+  await field.fill(RENAMED);
+  await field.press("Enter");
+  await expect(page.getByRole("button", { name: `More for ${RENAMED}` })).toBeVisible();
+  await expect.poll(async () => (await selectRows<{ name: string }>(page, "playlists", "name", { id }))[0]?.name, { timeout: 15_000 }).toBe(RENAMED);
+  const [stored] = await selectRows<{ content: { title: string | null } }>(page, "scouting_report_drafts", "content", { playlist_id: id });
+  expect(stored.content.title).toBe(RENAMED);
+
+  // The page reads the same name.
+  await page.goto(`/reports/${id}`);
+  await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue(RENAMED, { timeout: 30_000 });
 });
 
 test("a report's sections can be shown, added and taken out, and players see only the shown ones", { tag: "@alone:team-report" }, async ({ page }) => {
